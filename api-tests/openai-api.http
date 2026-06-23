@@ -1,0 +1,392 @@
+### 
+
+# Chat Completions
+
+
+### 
+
+
+### Chat - 简单文本补全
+
+POST $env:OPENAI_BASE_URL/chat/completions HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer $env:OPENAI_API_KEY
+
+{
+  "max_tokens": 100,
+  "messages": [
+    {
+      "content": "You are a helpful assistant.",
+      "role": "system"
+    },
+    {
+      "content": "Hello!",
+      "role": "user"
+    }
+  ],
+  "model": "$env:MODEL",
+  "temperature": 0.7
+}
+
+
+### Chat - 多轮对话
+
+POST $env:OPENAI_BASE_URL/chat/completions HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer $env:OPENAI_API_KEY
+
+{
+  "messages": [
+    {
+      "content": "You are a coding assistant.",
+      "role": "system"
+    },
+    {
+      "content": "Write a Python hello world",
+      "role": "user"
+    },
+    {
+      "content": "```python\nprint('Hello, World!')\n```",
+      "role": "assistant"
+    },
+    {
+      "content": "Now add input",
+      "role": "user"
+    }
+  ],
+  "model": "$env:MODEL",
+  "temperature": 0.5
+}
+
+
+### Chat - JSON Mode
+
+POST $env:OPENAI_BASE_URL/chat/completions HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer $env:OPENAI_API_KEY
+
+{
+  "messages": [
+    {
+      "content": "You are a helpful assistant. Respond in JSON format.",
+      "role": "system"
+    },
+    {
+      "content": "List 3 programming languages with their use cases",
+      "role": "user"
+    }
+  ],
+  "model": "$env:MODEL",
+  "response_format": {
+    "type": "json_object"
+  },
+  "temperature": 0.3
+}
+
+
+### Chat - 流式响应
+
+POST $env:OPENAI_BASE_URL/chat/completions HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer $env:OPENAI_API_KEY
+
+{
+  "messages": [
+    {
+      "content": "Count from 1 to 5",
+      "role": "user"
+    }
+  ],
+  "model": "$env:MODEL",
+  "stream": true
+}
+
+
+### Chat - Function Calling
+
+POST $env:OPENAI_BASE_URL/chat/completions HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer $env:OPENAI_API_KEY
+
+{
+  "messages": [
+    {
+      "content": "What's the weather in Tokyo?",
+      "role": "user"
+    }
+  ],
+  "model": "$env:MODEL",
+  "tool_choice": "auto",
+  "tools": [
+    {
+      "function": {
+        "description": "Get current weather for a location",
+        "name": "get_weather",
+        "parameters": {
+          "properties": {
+            "location": {
+              "description": "City name",
+              "type": "string"
+            },
+            "unit": {
+              "enum": [
+                "celsius",
+                "fahrenheit"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "location"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    }
+  ]
+}
+
+
+### Chat - Vision
+
+POST $env:OPENAI_BASE_URL/chat/completions HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer $env:OPENAI_API_KEY
+
+{
+  "max_tokens": 300,
+  "messages": [
+    {
+      "content": [
+        {
+          "text": "What's in this image?",
+          "type": "text"
+        },
+        {
+          "image_url": {
+            "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/PNG_transparency_demonstration_1.png/280px-PNG_transparency_demonstration_1.png"
+          },
+          "type": "image_url"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "$env:MODEL"
+}
+
+
+### 
+
+# Models
+
+
+### 
+
+
+### 列出所有模型
+
+GET $env:OPENAI_BASE_URL/models HTTP/1.1
+Authorization: Bearer $env:OPENAI_API_KEY
+
+
+### 获取模型详情
+
+GET $env:OPENAI_BASE_URL/models/$env:MODEL HTTP/1.1
+Authorization: Bearer $env:OPENAI_API_KEY
+
+
+### 
+
+# Embeddings
+
+
+### 
+
+
+### 创建文本嵌入
+
+POST $env:OPENAI_BASE_URL/embeddings HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer $env:OPENAI_API_KEY
+
+{
+  "encoding_format": "float",
+  "input": "The quick brown fox jumps over the lazy dog",
+  "model": "text-embedding-3-small"
+}
+
+
+### 批量创建嵌入
+
+POST $env:OPENAI_BASE_URL/embeddings HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer $env:OPENAI_API_KEY
+
+{
+  "input": [
+    "First text to embed",
+    "Second text to embed",
+    "Third text to embed"
+  ],
+  "model": "text-embedding-3-small"
+}
+
+
+### 
+
+# Images
+
+
+### 
+
+
+### 生成图片
+
+POST $env:OPENAI_BASE_URL/images/generations HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer $env:OPENAI_API_KEY
+
+{
+  "model": "dall-e-3",
+  "n": 1,
+  "prompt": "A futuristic city skyline at sunset, digital art style",
+  "quality": "hd",
+  "response_format": "url",
+  "size": "1024x1024"
+}
+
+
+### 
+
+# Audio
+
+
+### 
+
+
+### 语音转文字
+
+POST $env:OPENAI_BASE_URL/audio/transcriptions HTTP/1.1
+Content-Type: multipart/form-data
+Authorization: Bearer $env:OPENAI_API_KEY
+
+{
+  "file": "path/to/audio.mp3",
+  "language": "en",
+  "model": "whisper-1",
+  "response_format": "json"
+}
+
+
+### 文字转语音
+
+POST $env:OPENAI_BASE_URL/audio/speech HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer $env:OPENAI_API_KEY
+
+{
+  "input": "Hello, welcome to OpenAI API testing!",
+  "model": "tts-1",
+  "response_format": "mp3",
+  "speed": 1.0,
+  "voice": "alloy"
+}
+
+
+### 
+
+# Moderations
+
+
+### 
+
+
+### 内容审核
+
+POST $env:OPENAI_BASE_URL/moderations HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer $env:OPENAI_API_KEY
+
+{
+  "input": "I want to hurt someone",
+  "model": "omni-moderation-latest"
+}
+
+
+### 
+
+# Files
+
+
+### 
+
+
+### 上传文件
+
+POST $env:OPENAI_BASE_URL/files HTTP/1.1
+Content-Type: multipart/form-data
+Authorization: Bearer $env:OPENAI_API_KEY
+
+{
+  "file": "path/to/file.jsonl",
+  "purpose": "fine-tune"
+}
+
+
+### 列出文件
+
+GET $env:OPENAI_BASE_URL/files HTTP/1.1
+Authorization: Bearer $env:OPENAI_API_KEY
+
+
+### 
+
+# Fine-tuning
+
+
+### 
+
+
+### 创建微调任务
+
+POST $env:OPENAI_BASE_URL/fine_tuning/jobs HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer $env:OPENAI_API_KEY
+
+{
+  "hyperparameters": {
+    "n_epochs": 3
+  },
+  "model": "gpt-4o-mini-2024-07-18",
+  "training_file": "file-id-here"
+}
+
+
+### 列出微调任务
+
+GET $env:OPENAI_BASE_URL/fine_tuning/jobs HTTP/1.1
+Authorization: Bearer $env:OPENAI_API_KEY
+
+
+### 
+
+# Responses
+
+
+### 
+
+
+### 创建响应
+
+POST $env:OPENAI_BASE_URL/responses HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer $env:OPENAI_API_KEY
+
+{
+  "input": "What is the capital of France?",
+  "instructions": "Be concise and factual.",
+  "model": "$env:MODEL"
+}
+

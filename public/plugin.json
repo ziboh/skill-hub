@@ -1,0 +1,40 @@
+{
+  "$schema": "node_modules/@ztools-center/ztools-api-types/resource/ztools.schema.json",
+  "name": "skill-hub",
+  "title": "Skill Hub",
+  "description": "AI 编码技能中心 — 商店浏览下载、项目/Agent 扫描、一键分发",
+  "author": "zibo",
+  "version": "1.0.0",
+  "main": "index.html",
+  "preload": "preload/services.js",
+  "logo": "logo.png",
+  "development": {
+    "main": "http://localhost:5173"
+  },
+  "features": [
+    {
+      "code": "home",
+      "explain": "Skill Hub — 技能商店浏览下载、项目/Agent 扫描、一键分发",
+      "icon": "logo.png",
+      "cmds": ["技能", "skill", "skills"]
+    },
+    {
+      "code": "agent-skills",
+      "explain": "Agent Skill — 查看已检测 AI Agent 本地的 SKILL.md 文件",
+      "icon": "logo.png",
+      "cmds": ["agent 技能", "agent", "agent skills"]
+    },
+    {
+      "code": "sources",
+      "explain": "商店源管理 — 添加和管理自定义技能来源（GitHub / skills.sh / 本地）",
+      "icon": "logo.png",
+      "cmds": ["商店源", "sources", "来源"]
+    },
+    {
+      "code": "settings",
+      "explain": "设置 — GitHub Token、默认安装模式、平台路径配置",
+      "icon": "logo.png",
+      "cmds": ["设置", "settings"]
+    }
+  ]
+}

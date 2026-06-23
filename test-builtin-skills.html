@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Skill Hub - Test</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      background-color: white;
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
+    h1 {
+      color: #333;
+      margin-bottom: 20px;
+    }
+    .test-section {
+      margin-bottom: 30px;
+    }
+    .test-section h2 {
+      color: #666;
+      font-size: 18px;
+      margin-bottom: 10px;
+    }
+    .test-item {
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      margin-bottom: 10px;
+    }
+    .test-item h3 {
+      margin: 0 0 5px 0;
+      color: #333;
+    }
+    .test-item p {
+      margin: 0;
+      color: #666;
+    }
+    .success {
+      color: green;
+    }
+    .error {
+      color: red;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Skill Hub - Test</h1>
+    
+    <div class="test-section">
+      <h2>Builtin Skills Test</h2>
+      <div id="builtin-skills-container">
+        <div class="test-item">
+          <h3>Loading...</h3>
+          <p>Please check the browser console for more details.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <script type="module">
+    import { curatedSkills } from './src/data/builtin-skills.ts';
+    
+    const container = document.getElementById('builtin-skills-container');
+    
+    if (curatedSkills && curatedSkills.length > 0) {
+      container.innerHTML = '';
+      curatedSkills.forEach((skill, index) => {
+        const item = document.createElement('div');
+        item.className = 'test-item';
+        item.innerHTML = `
+          <h3>${skill.name}</h3>
+          <p><strong>ID:</strong> ${skill.id}</p>
+          <p><strong>Description:</strong> ${skill.description}</p>
+          <p><strong>Author:</strong> ${skill.author}</p>
+          <p><strong>Tags:</strong> ${skill.tags.join(', ')}</p>
+          <p><strong>Source:</strong> ${skill.source}</p>
+          <p><strong>Repo:</strong> ${skill.repo}</p>
+          <p><strong>Install Count:</strong> ${skill.installCount}</p>
+        `;
+        container.appendChild(item);
+      });
+      console.log('✓ Successfully loaded curated skills:', curatedSkills.length, 'skills');
+    } else {
+      container.innerHTML = '<div class="test-item error">✗ Failed to load curated skills</div>';
+      console.error('✗ Failed to load curated skills');
+    }
+  </script>
+</body>
+</html>
