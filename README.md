@@ -1,281 +1,130 @@
 # Skill Hub
 
-> A ZTools plugin
+> 一个 ZTools 插件 — AI 编写代码，本人负责使用与维护。
 
-这是一个使用 **Vue 3 + Vite + TypeScript** 构建的 ZTools 插件。
+Vue 3 + Vite + TypeScript 构建的技能商店与一键分发工具。浏览 GitHub / skills.sh / 本地的 SKILL.md，扫描项目或 AI Agent 中的已有技能，并通过符号链接或复制的方式一键分发到多个 AI 平台。
 
-## ✨ 功能特性
-
-### 📌 已包含的示例功能
-
-- **Hello** - 基础功能指令示例
-  - 触发指令：`你好` / `hello`
-  - 展示简单的 Vue 组件界面
-
-- **读文件** - 文件读取功能示例
-  - 功能指令：`读文件`
-  - 匹配指令：支持拖拽文件触发
-  - 演示如何使用 Node.js 能力读取文件内容
-
-- **保存为文件** - 文件写入功能示例
-  - 匹配指令：任意文本/图片 → `保存为文件`
-  - 演示如何将剪贴板内容保存为文件
-
-## 📁 项目结构
-
-```
-.
-├── public/
-│   ├── logo.png              # 插件图标
-│   ├── plugin.json           # 插件配置文件
-│   └── preload/              # Preload 脚本目录
-│       ├── package.json      # Preload 依赖配置
-│       └── services.js       # Node.js 能力扩展
-├── src/
-│   ├── main.ts               # 入口文件
-│   ├── main.css              # 全局样式
-│   ├── App.vue               # 根组件
-│   ├── env.d.ts              # 类型声明
-│   ├── Hello/                # Hello 功能组件
-│   │   └── index.vue
-│   ├── Read/                 # 读文件功能组件
-│   │   └── index.vue
-│   └── Write/                # 写文件功能组件
-│       └── index.vue
-├── index.html                # HTML 模板
-├── vite.config.js            # Vite 配置
-├── tsconfig.json             # TypeScript 配置
-├── package.json              # 项目依赖
-└── README.md                 # 项目文档
-```
-
-## 🚀 快速开始
-
-### 安装依赖
+## 快速开始
 
 ```bash
-npm install
+pnpm dev       # 开发服务器 → http://localhost:5173
+pnpm build     # vue-tsc 类型检查 → vite 构建 → dist/
 ```
 
-### 开发模式
+## 功能
 
-```bash
-npm run dev
+### 我的 Skill（默认首页）
+
+列出已下载的技能，支持按分类筛选（全部/收藏/已分发/待分发）。每个技能卡片显示名称、作者、标签、来源，可一键安装到已检测到的 AI Agent 平台，或卸载、收藏、查看详情。
+
+### Skill 商店
+
+从多个来源浏览和搜索技能：
+
+- **Claude Code** — 官方 [anthropics/skills](https://github.com/anthropics/skills) 仓库
+- **OpenAI Codex** — 官方 [openai/skills](https://github.com/openai/skills) 仓库
+- **skills.sh** — 社区技能市场，支持搜索、热门排序、精选作者
+- **自定义源** — 可添加任意 GitHub 仓库或本地目录作为来源
+
+商店支持模糊搜索和语义搜索，提供技能安全审计信息（风险等级、审查摘要）。
+
+### 项目 Skill
+
+注册本地项目目录，自动扫描其中约定的子目录（`.claude/skills`、`.agents/skills`、`skills`、`.cursor/skills`、`.windsurf/skills` 等），识别项目内定义的 SKILL.md 文件。支持添加、编辑、删除项目，查看项目内技能的原始内容和元数据。
+
+### Agent Skill
+
+自动检测本地已安装的 AI Agent 平台（Claude Code / Codex / Cursor / Windsurf / Cline 等），扫描各平台的技能目录，列出已有技能。支持查看技能详情和原始文件内容。
+
+### 商店源管理
+
+管理自定义技能来源，支持三种类型：
+
+- **GitHub 仓库** — 指定仓库名、分支和子目录
+- **skills.sh 源** — 社区市场
+- **本地目录** — 文件系统中的任意目录
+
+### 设置
+
+- 默认安装模式（符号链接/复制）
+- GitHub Token 配置（用于 API 限频提升）
+- 各 AI Agent 平台的路径自定义
+- 界面主题（浅色/深色/跟随系统）
+- 主题色系（雾霾蓝/烟熏紫/豆沙绿/杏色橙/青碧色等莫兰迪色系）
+- 字体大小、动画偏好、紧凑模式
+- 自定义背景图片
+- AI 翻译模型配置（用于技能内容的翻译）
+
+## 架构
+
+```
+src/
+├── views/            页面视图（8 个路由页面）
+│   ├── MySkills/     我的技能库
+│   ├── SkillStore/   技能商店（列表 + 详情）
+│   ├── ProjectSkills/ 项目技能管理
+│   ├── AgentSkills/   Agent 平台技能（列表 + 详情）
+│   ├── Sources/      商店源管理
+│   └── Settings/     设置页面
+├── components/       共享组件（15 个）
+│   ├── Modal 家族     AddProjectModal / SkillDetailModal / ConfirmModal 等
+│   ├── AppToast      全局 Toast 提示
+│   ├── DownloadIndicator 下载进度指示器
+│   ├── PlatformIcon  平台图标
+│   ├── QuickSwitcher 快捷切换
+│   └── ...           编辑器、选择器等
+├── composables/      Vue 组合式函数
+│   ├── useSettings   设置读写与持久化
+│   ├── useProjectState 项目状态管理
+│   └── useDownloadQueue 下载队列
+├── utils/            工具函数（9 个）
+│   ├── storage.ts    本地存储（localStorage 封装）
+│   ├── ai.ts         AI 翻译与模型调用
+│   ├── theme.ts      主题切换
+│   ├── github.ts     GitHub API 调用
+│   ├── frontmatter.ts SKILL.md 解析
+│   ├── skill-registry.ts 技能注册表
+│   ├── skills-sh.ts  skills.sh API 客户端
+│   ├── source-info.ts 来源信息
+│   └── translate.ts  翻译服务
+├── data/             静态数据
+│   ├── platforms.ts   AI Agent 平台定义
+│   ├── ai-providers.ts AI 提供方配置
+│   └── skill-categories.ts 技能分类
+└── types.ts          全部 TypeScript 类型定义
+
+public/
+├── plugin.json       ZTools 插件配置（4 个 feature / 命令词）
+└── preload/
+    └── services.js   Node.js 桥接层（30+ 方法）
 ```
 
-开发服务器将在 `http://localhost:5173` 启动。ZTools 会自动加载开发版本。
+## 平台支持
 
-### 构建生产版本
+自动检测以下 AI Agent 平台的安装位置，支持一键分发技能：
 
-```bash
-npm run build
-```
+| 平台 | 类型 |
+|---|---|
+| Claude Code | 官方 |
+| OpenAI Codex | 官方 |
+| Cursor | 官方 |
+| Windsurf | 官方 |
+| Cline | 社区 |
+| Gemini | 官方 |
+| Trae | 社区 |
+| Cherry Studio | 社区 |
+| Kiro | 社区 |
+| 及其他社区客户端 | — |
 
-构建产物将输出到 `dist/` 目录。
+## 技术栈
 
-## 📖 开发指南
+- **框架** Vue 3 + TypeScript
+- **构建** Vite 6
+- **编辑器** CodeMirror 6（支持 YAML / JSON / Markdown / Python / JS / CSS / HTML 语法高亮）
+- **后端** ZTools Preload 机制（Node.js 桥接）
+- **包管理** pnpm
 
-### 1. 修改插件配置
+## 说明
 
-编辑 `public/plugin.json` 文件：
-
-```json
-{
-  "name": "你的插件名称",
-  "description": "插件描述",
-  "author": "作者名称",
-  "version": "1.0.0",
-  "features": [
-    // 添加你的功能配置
-  ]
-}
-```
-
-### 2. 创建新功能
-
-#### 步骤 1: 创建 Vue 组件
-
-在 `src/` 目录下创建新的功能组件：
-
-```vue
-<!-- src/MyFeature/index.vue -->
-<template>
-  <div class="my-feature">
-    <h1>{{ title }}</h1>
-    <!-- 你的组件内容 -->
-  </div>
-</template>
-
-<script setup lang="ts">
-import { ref } from 'vue'
-
-const title = ref('我的新功能')
-</script>
-
-<style scoped>
-.my-feature {
-  padding: 20px;
-}
-</style>
-```
-
-#### 步骤 2: 注册路由
-
-在 `src/App.vue` 中添加路由：
-
-```vue
-<script setup lang="ts">
-import MyFeature from './MyFeature/index.vue'
-
-const routes = {
-  hello: Hello,
-  read: Read,
-  write: Write,
-  myfeature: MyFeature // 添加新路由
-}
-</script>
-```
-
-#### 步骤 3: 配置功能
-
-在 `plugin.json` 中添加功能配置：
-
-```json
-{
-  "code": "myfeature",
-  "explain": "我的新功能",
-  "icon": "logo.png",
-  "cmds": ["触发指令"]
-}
-```
-
-### 3. 使用 Node.js 能力
-
-#### 扩展 Preload 服务
-
-编辑 `public/preload/services.js`：
-
-```javascript
-const fs = require('fs')
-const path = require('path')
-
-module.exports = {
-  // 示例：读取文件
-  readFile: (filePath) => {
-    return fs.readFileSync(filePath, 'utf-8')
-  },
-
-  // 添加你的服务
-  myService: (params) => {
-    // 实现你的逻辑
-    return result
-  }
-}
-```
-
-#### 在 Vue 组件中调用
-
-```vue
-<script setup lang="ts">
-const handleRead = async () => {
-  try {
-    const content = await window.services.readFile('/path/to/file')
-    console.log(content)
-  } catch (error) {
-    console.error('读取失败:', error)
-  }
-}
-</script>
-```
-
-### 4. 使用 ZTools API
-
-```vue
-<script setup lang="ts">
-// 获取剪贴板内容
-const text = await window.ztools.getClipboardContent()
-
-// 隐藏主窗口
-window.ztools.hideMainWindow()
-
-// 显示提示
-window.ztools.showTip('操作成功')
-
-// 更多 API 请参考官方文档
-</script>
-```
-
-## 🎨 样式开发
-
-### 使用 CSS 变量
-
-ZTools 提供了一套 CSS 变量用于主题适配：
-
-```css
-.my-component {
-  background: var(--bg-color);
-  color: var(--text-color);
-  border: 1px solid var(--border-color);
-}
-```
-
-### 暗色模式支持
-
-```css
-@media (prefers-color-scheme: dark) {
-  .my-component {
-    /* 暗色模式样式 */
-  }
-}
-```
-
-## 📦 构建与发布
-
-### 1. 构建插件
-
-```bash
-npm run build
-```
-
-### 2. 测试构建产物
-
-将 `dist/` 目录中的所有文件复制到 ZTools 插件目录进行测试。
-
-### 3. 发布到插件市场
-
-1. 确保 `plugin.json` 中的信息完整准确
-2. 准备好插件截图和详细说明
-3. 访问 ZTools 插件市场提交插件
-
-## 📚 相关资源
-
-- [ZTools 官方文档](https://github.com/ztool-center/ztools)
-- [ZTools API 文档](https://github.com/ztool-center/ztools-api-types)
-- [Vue 3 文档](https://vuejs.org/)
-- [Vite 文档](https://vitejs.dev/)
-
-## ❓ 常见问题
-
-### Q: 如何调试插件？
-
-A: 使用 `npm run dev` 启动开发服务器，在插件界面中点击插件头像图标，在弹出的菜单中选择"打开开发者工具"进行调试。
-
-### Q: 如何访问 Node.js 能力？
-
-A: 通过 `public/preload/services.js` 文件扩展服务，然后在组件中使用 `window.services` 调用。
-
-### Q: 插件图标不显示？
-
-A: 确保 `public/logo.png` 文件存在，且在 `plugin.json` 中正确配置了 `logo` 字段。
-
-### Q: 如何处理大文件上传？
-
-A: 建议使用 Node.js 流式处理，在 preload 脚本中实现文件分块处理逻辑。
-
-## 📄 开源协议
-
-MIT License
-
----
-
-**祝你开发愉快！** 🎉
+- 源代码由 AI 辅助生成，本人负责功能设计、使用与持续维护。
+- 详细开发约束与项目规范见 `AGENTS.md`。
