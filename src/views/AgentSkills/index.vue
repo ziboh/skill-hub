@@ -311,6 +311,7 @@ function confirmImportFromMy() {
           skillId: skill.id,
           platformId: targetPlatform.id,
           mode: 'copy',
+          scope: 'global',
           targetPath: dest,
           sourceDir,
           installedAt: new Date().toISOString(),

@@ -1,6 +1,7 @@
 import type { Skill } from '../types'
 import type { SkillIdentity, SkillSourceLocation } from '../types'
-import { STORE_ICONS } from '../data/store-icons'
+import { STORE_ICONS, getStoreIconFromSource } from '../data/store-icons'
+import { storage } from './storage'
 
 export interface SourceInfo {
   label: string
@@ -30,6 +31,10 @@ export function getSourceInfo(skill: Skill, registry?: Map<string, SkillIdentity
     }
     if (skill.storeSourceId.startsWith('agent:')) {
       return { label: '本地', icon: 'folder', color: '#8b5cf6', bg: '#ede9fe' }
+    }
+    const customStore = storage.getStoreSources().find(s => s.id === skill.storeSourceId)
+    if (customStore) {
+      return { label: customStore.name, icon: getStoreIconFromSource(customStore), color: '#16a34a', bg: '#dcfce7' }
     }
     return { label: '商店', icon: STORE_ICONS['skills-sh'], color: '#16a34a', bg: '#dcfce7' }
   }

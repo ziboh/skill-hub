@@ -250,11 +250,11 @@ function loadInstallStatus() {
 }
 
 function isInstalled(platformId: string): boolean {
-  return installRecords.value.some((r) => r.platformId === platformId && (r as any).scope === distScope.value)
+  return installRecords.value.some((r) => r.platformId === platformId && ((r as any).scope === distScope.value || ((r as any).scope === undefined && distScope.value === 'global')))
 }
 
 function getInstallRecord(platformId: string): InstallRecord | undefined {
-  return installRecords.value.find((r) => r.platformId === platformId && (r as any).scope === distScope.value)
+  return installRecords.value.find((r) => r.platformId === platformId && ((r as any).scope === distScope.value || ((r as any).scope === undefined && distScope.value === 'global')))
 }
 
 async function loadSkillContent() {
@@ -430,7 +430,7 @@ async function uninstall(platformId: string) {
   const record = getInstallRecord(platformId)
   if (record) {
     try { window.services.removeFile(record.targetPath) } catch { }
-    storage.removeInstallRecord(props.skill.id, platformId, distScope.value)
+    storage.removeInstallRecord(props.skill.id, platformId, (record as any).scope)
   }
   loadInstallStatus()
   confirmUninstall.value = null

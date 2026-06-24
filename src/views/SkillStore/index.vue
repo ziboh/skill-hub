@@ -115,7 +115,7 @@ watch(() => props.storeId, (id) => {
 })
 
 let scrollObserver: IntersectionObserver | null = null
-function onKeydown(e: KeyboardEvent) { if (e.key === 'Escape' && searchActive.value) exitSearch() }
+function onKeydown(e: KeyboardEvent) { if (e.key === 'Escape' && (searchActive.value || isLocalSearchActive.value)) { searchQuery.value = ''; exitSearch() } }
 onMounted(() => { downloadedIds.value = storage.getDownloadedIds(); fetchCurrentSkills(); setupScrollObserver(); window.addEventListener('keydown', onKeydown) })
 onUnmounted(() => { scrollObserver?.disconnect(); stopLoadingDots(); window.removeEventListener('keydown', onKeydown) })
 
@@ -255,9 +255,11 @@ async function fetchGitHubSkills(url: string, directory?: string) {
     totalCount.value = skillDirs.length
     loading.value = false; stopLoadingDots(); loadingMore.value = true
     nextTick(reobserveScroll)
-    for (const sd of skillDirs) {
+    const BATCH_SIZE = 8
+    for (let i = 0; i < skillDirs.length; i += BATCH_SIZE) {
       if (activePresetId.value !== presetId) { loadingMore.value = false; return }
-      try {
+      const batch = skillDirs.slice(i, i + BATCH_SIZE)
+      const results = await Promise.allSettled(batch.map(async (sd) => {
         const content = await fetchWithTimeout(fetchGitHubFile(info.owner, info.repo, sd.manifestFile, info.defaultBranch), 10000)
         const fm = parseFrontmatter(content)
         const dirName = sd.dir === '.' ? info.repo : sd.dir.split('/').pop() || sd.dir
@@ -266,9 +268,14 @@ async function fetchGitHubSkills(url: string, directory?: string) {
         const category = builtinCategory || inferCategory(dirName, fm.description || '')
         const iconUrl = lookupBuiltinIcon(`${info.owner}/${info.repo}`, dirName)
         const skill: Skill = { id: `${info.owner}/${info.repo}/${sd.dir}`, name: fm.name || dirName, description: fm.description || '', author: fm.author || '', tags, format: 'generic', source: 'github', repo: `${info.owner}/${info.repo}`, path: sd.dir, category, iconUrl, readme: content, storeSourceId: presetId }
-        allEntries.value = [...allEntries.value, skill]
-        sourceSkills.value = allEntries.value.slice(0, Math.max(sourceSkills.value.length, PAGE_SIZE))
-      } catch {}
+        return skill
+      }))
+      if (activePresetId.value !== presetId) { loadingMore.value = false; return }
+      for (const r of results) {
+        if (r.status === 'fulfilled') allEntries.value = [...allEntries.value, r.value]
+      }
+      sourceSkills.value = allEntries.value.slice(0, Math.max(sourceSkills.value.length, PAGE_SIZE))
+      nextTick(reobserveScroll)
     }
     if (activePresetId.value !== presetId) { loadingMore.value = false; return }
     loadingMore.value = false
@@ -351,6 +358,20 @@ async function fetchLocalDirSkills(source: StoreSource) {
     })
   } catch (err: any) { error.value = err.message || '扫描本地目录失败'; loading.value = false; stopLoadingDots(); loadingMore.value = false }
 }
+
+const isLocalSearchActive = computed(() => searchQuery.value.trim() !== '' && activePresetId.value !== 'skills-sh')
+
+const localSearchResults = computed(() => {
+  if (!isLocalSearchActive.value) return []
+  const q = searchQuery.value.trim().toLowerCase()
+  return allEntries.value.filter(s => {
+    const nameMatch = s.name.toLowerCase().includes(q)
+    const descMatch = (s.description || '').toLowerCase().includes(q)
+    const authorMatch = (s.author || '').toLowerCase().includes(q)
+    const tagMatch = s.tags?.some(t => t.toLowerCase().includes(q))
+    return nameMatch || descMatch || authorMatch || tagMatch
+  })
+})
 
 const importedSkills = computed(() => {
   const idMap = new Map<string, Skill>()
@@ -704,13 +725,14 @@ function getSourceIcon(id: string): string | undefined {
           </span>
         </template>
       </QuickSwitcher>
-      <div v-if="activePresetId === 'skills-sh'" class="ss-search-wrapper">
+      <div class="ss-search-wrapper">
         <div class="ss-search-inner">
           <svg class="ss-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
           </svg>
-          <input v-model="searchQuery" type="text" placeholder="搜索技能..." class="ss-search-input" @keyup.enter="onSearch" />
-          <button class="ss-search-btn" @click="onSearch">搜索</button>
+          <input v-model="searchQuery" type="text" placeholder="搜索技能..." class="ss-search-input" @keyup.enter="activePresetId === 'skills-sh' ? onSearch() : null" />
+          <button v-if="searchQuery" class="ss-search-clear" @click="searchQuery = ''; exitSearch()">×</button>
+          <button class="ss-search-btn" @click="activePresetId === 'skills-sh' ? onSearch() : null">搜索</button>
         </div>
       </div>
     </div>
@@ -758,6 +780,45 @@ function getSourceIcon(id: string): string | undefined {
           </div>
           <div v-else class="skill-grid" :class="viewMode">
             <div v-for="skill in searchResults" :key="skill.id" class="skill-card" @click="selectedSkill = skill">
+              <a v-if="getSkillUrl(skill)" :href="getSkillUrl(skill)" target="_blank" class="card-link-btn" title="打开链接" @click.stop>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              </a>
+              <button v-if="isDownloaded(skill.id)" class="download-btn" title="删除" @click.stop="confirmDelete(skill)">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              </button>
+              <button v-else class="download-btn" :disabled="isDownloading(skill.id)" @click.stop="downloadSkill(skill)">
+                {{ isDownloading(skill.id) ? '...' : '+' }}
+              </button>
+              <div class="card-top-row">
+                <div v-if="skill.iconUrl" class="card-avatar-icon"><img :src="skill.iconUrl" :alt="skill.name" /></div>
+                <div v-else class="card-avatar" :style="{ background: getAvatarColor(skill.name) }">{{ skill.name.charAt(0).toUpperCase() }}</div>
+              </div>
+              <h3 class="card-name">{{ skill.name }}</h3>
+              <p class="card-desc">{{ skill.description || '暂无描述' }}</p>
+              <div class="card-badges">
+                <span class="card-badge source-badge">{{ getActivePreset()?.name }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <template v-else-if="isLocalSearchActive">
+        <div class="section">
+          <div class="section-header">
+            <h3>搜索结果</h3>
+            <span class="section-count">{{ localSearchResults.length }}</span>
+            <button class="search-exit-btn" @click="searchQuery = ''">← 返回</button>
+          </div>
+          <div v-if="!localSearchResults.length" class="empty-state">
+            <div class="empty-icon">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            </div>
+            <h3 class="empty-title">未找到匹配的技能</h3>
+            <p class="empty-desc">尝试其他关键词搜索。</p>
+          </div>
+          <div v-else class="skill-grid" :class="viewMode">
+            <div v-for="skill in localSearchResults" :key="skill.id" class="skill-card" @click="selectedSkill = skill">
               <a v-if="getSkillUrl(skill)" :href="getSkillUrl(skill)" target="_blank" class="card-link-btn" title="打开链接" @click.stop>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
               </a>
@@ -1105,6 +1166,28 @@ function getSourceIcon(id: string): string | undefined {
 }
 
 .ss-search-btn:hover { opacity: 0.9; }
+
+.ss-search-clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-right: 4px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  font-size: 16px;
+  cursor: pointer;
+  transition: all var(--duration-base) var(--ease-standard);
+  flex-shrink: 0;
+}
+
+.ss-search-clear:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
+}
 
 .filter-tabs {
   display: flex;

@@ -129,6 +129,7 @@ async function deploy() {
         skillId: props.skill.id,
         platformId: pid,
         mode: installMode.value,
+        scope: 'global',
         targetPath: targetDir,
         sourceDir: props.skill.repo || '',
         installedAt: new Date().toISOString(),

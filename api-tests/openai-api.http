@@ -1,5 +1,7 @@
 ### 
 
+@model = agnes-2.0-flash
+
 # Chat Completions
 
 
@@ -24,7 +26,7 @@ Authorization: Bearer $env:OPENAI_API_KEY
       "role": "user"
     }
   ],
-  "model": "$env:MODEL",
+  "model": "{{model}}",
   "temperature": 0.7
 }
 
@@ -54,7 +56,7 @@ Authorization: Bearer $env:OPENAI_API_KEY
       "role": "user"
     }
   ],
-  "model": "$env:MODEL",
+  "model": "{{model}}",
   "temperature": 0.5
 }
 
@@ -76,7 +78,7 @@ Authorization: Bearer $env:OPENAI_API_KEY
       "role": "user"
     }
   ],
-  "model": "$env:MODEL",
+  "model": "{{model}}",
   "response_format": {
     "type": "json_object"
   },
@@ -97,7 +99,7 @@ Authorization: Bearer $env:OPENAI_API_KEY
       "role": "user"
     }
   ],
-  "model": "$env:MODEL",
+  "model": "{{model}}",
   "stream": true
 }
 
@@ -115,7 +117,7 @@ Authorization: Bearer $env:OPENAI_API_KEY
       "role": "user"
     }
   ],
-  "model": "$env:MODEL",
+  "model": "{{model}}",
   "tool_choice": "auto",
   "tools": [
     {
@@ -173,7 +175,7 @@ Authorization: Bearer $env:OPENAI_API_KEY
       "role": "user"
     }
   ],
-  "model": "$env:MODEL"
+  "model": "{{model}}"
 }
 
 
@@ -193,7 +195,7 @@ Authorization: Bearer $env:OPENAI_API_KEY
 
 ### 获取模型详情
 
-GET $env:OPENAI_BASE_URL/models/$env:MODEL HTTP/1.1
+GET $env:OPENAI_BASE_URL/models/{{model}} HTTP/1.1
 Authorization: Bearer $env:OPENAI_API_KEY
 
 
@@ -387,6 +389,6 @@ Authorization: Bearer $env:OPENAI_API_KEY
 {
   "input": "What is the capital of France?",
   "instructions": "Be concise and factual.",
-  "model": "$env:MODEL"
+  "model": "{{model}}"
 }
 

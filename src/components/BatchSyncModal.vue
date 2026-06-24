@@ -81,6 +81,7 @@ async function deploy() {
           skillId: skill.id,
           platformId: pid,
           mode: installMode.value,
+          scope: 'global',
           targetPath: targetDir,
           sourceDir: skill.repo || '',
           installedAt: new Date().toISOString(),
