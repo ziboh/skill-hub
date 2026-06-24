@@ -80,7 +80,6 @@ export interface StoreSource {
   url?: string
   branch?: string
   directory?: string
-  token?: string
   enabled: boolean
   icon?: string
 }
