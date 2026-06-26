@@ -2,6 +2,7 @@
 import { inject, ref, computed, unref } from 'vue'
 import { storage } from '../../utils/storage'
 import { useSettings } from '../../composables/useSettings'
+import { useTheme } from '../../composables/useTheme'
 import { useProjectState } from '../../composables/useProjectState'
 import { normalizePath } from '../../utils/path'
 import type { Skill, SkillScanResult, PlatformInfo } from '../../types'
@@ -35,18 +36,7 @@ const downloadedIds = ref<string[]>(storage.getDownloadedIds())
 function refreshDownloaded() { downloadedIds.value = storage.getDownloadedIds() }
 
 const { settings, updateSettings } = useSettings()
-
-const isDarkMode = computed(() => {
-  if (settings.themeMode === 'auto') {
-    return window.matchMedia('(prefers-color-scheme: dark)').matches
-  }
-  return settings.themeMode === 'dark'
-})
-
-function toggleTheme() {
-  const next = isDarkMode.value ? 'light' : 'dark'
-  updateSettings({ themeMode: next })
-}
+const { isDarkMode, toggleTheme } = useTheme()
 
 const skillFilter = ref<string>('')
 const viewMode = ref<'grid' | 'list'>('grid')

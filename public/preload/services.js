@@ -166,9 +166,9 @@ window.services = {
         if (res.statusCode !== 200) {
           return reject(new Error(`Download failed: ${res.statusCode}`))
         }
-      res.on('data', (c) => chunks.push(c))
-      res.on('end', () => resolve(Buffer.concat(chunks)))
-      res.on('error', reject)
+        res.on('data', (c) => chunks.push(c))
+        res.on('end', () => resolve(Buffer.concat(chunks)))
+        res.on('error', reject)
       }).on('error', reject)
     })
   },
@@ -378,6 +378,37 @@ window.services = {
     this.copyFile(skillSourceDir, targetDir)
     fs.rmSync(extractDir, { recursive: true })
     return true
+  },
+
+  // === 打包插件 ===
+  createPluginZip(sourceDir) {
+    const downloadsDir = window.ztools.getPath('downloads')
+    const pluginJsonPath = path.join(expandPath(sourceDir), 'plugin.json')
+    let pluginName = 'plugin'
+    let version = '1.0.0'
+    try {
+      const pj = JSON.parse(fs.readFileSync(pluginJsonPath, { encoding: 'utf-8' }))
+      pluginName = pj.name || pluginName
+      version = pj.version || version
+    } catch {}
+    const zipName = `${pluginName}-${version}.zip`
+    const outputPath = path.join(downloadsDir, zipName)
+    const zip = new AdmZip()
+    function addDir(dirPath, zipPath) {
+      const entries = fs.readdirSync(dirPath, { withFileTypes: true })
+      for (const entry of entries) {
+        const full = path.join(dirPath, entry.name)
+        const entryPath = zipPath ? `${zipPath}/${entry.name}` : entry.name
+        if (entry.isDirectory()) {
+          addDir(full, entryPath)
+        } else {
+          zip.addLocalFile(full, path.dirname(entryPath) || '.')
+        }
+      }
+    }
+    addDir(expandPath(sourceDir), '')
+    zip.writeZip(outputPath)
+    return { outputPath, fileName: zipName }
   },
 
   // === Skills Repo ===

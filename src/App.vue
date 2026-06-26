@@ -17,6 +17,7 @@ import DownloadIndicator from './components/DownloadIndicator.vue'
 import { storage } from './utils/storage'
 import { applyTheme } from './utils/theme'
 import { useSettings } from './composables/useSettings'
+import { useTheme } from './composables/useTheme'
 import { detectPlatforms, getPlatformPath, defaultPlatforms } from './data/platforms'
 import type { Skill, AppSettings, PlatformInfo, RegisteredProject } from './types'
 
@@ -179,7 +180,10 @@ async function scanProject(project: RegisteredProject) {
           selectedProjectSkill.value = skills?.[0] || null
         }
       }
-    } catch (err: any) { }
+    } catch (err: any) {
+      console.error('[App] scanProject failed:', err)
+      showToast(err?.message || '扫描项目失败', 'error')
+    }
     projectScanning.value = false
   }, 300)
 }
@@ -355,17 +359,7 @@ const isSettings = computed(() => route.value === 'settings')
 const isFullHeight = computed(() => ['settings', 'detail', 'agent-skill-detail'].includes(route.value))
 const isMySkills = computed(() => route.value === 'my')
 
-const isDarkMode = computed(() => {
-  if (settings.themeMode === 'auto') {
-    return window.matchMedia('(prefers-color-scheme: dark)').matches
-  }
-  return settings.themeMode === 'dark'
-})
-
-function toggleTheme() {
-  const next = isDarkMode.value ? 'light' : 'dark'
-  updateSettings({ themeMode: next })
-}
+const { isDarkMode, toggleTheme } = useTheme()
 
 
 </script>

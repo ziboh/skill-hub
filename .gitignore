@@ -5,6 +5,7 @@ docs/ztools-doc
 test-builtin-skills.html
 .mimocode
 api-tests
+.agents
 
 # 环境变量
 .env
