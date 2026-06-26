@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, inject, onMounted, watch } from 'vue'
+import { KeyShowToast } from '../inject-keys'
 import type { Skill } from '../types'
 import { useSettings } from '../composables/useSettings'
 import SkillFileEditor from './SkillFileEditor.vue'
@@ -100,7 +101,7 @@ function toggleTheme() {
 }
 
 // === Translation ===
-const showToast = inject<(msg: string, type?: 'success' | 'error' | 'info' | 'warning') => void>('showToast', () => {})
+const showToast = inject(KeyShowToast, () => {})
 
 const isTranslating = ref(false)
 const showTranslation = ref(false)

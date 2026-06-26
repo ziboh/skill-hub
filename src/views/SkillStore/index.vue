@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, inject, onUnmounted, nextTick } from 'vue'
+import { KeyRefreshCounts, KeyShowToast } from '../../inject-keys'
 import { storage } from '../../utils/storage'
 import { parseGitHubUrl, fetchGitHubRepoTree, fetchGitHubFile, detectSkillDirectories } from '../../utils/github'
 import { parseFrontmatter } from '../../utils/frontmatter'
@@ -25,8 +26,8 @@ import { loadRegistry, registerSkillFromStore, removeFromRegistry } from '../../
 
 const props = defineProps<{ storeId: string }>()
 const emit = defineEmits(['navigate'])
-const refreshCounts = inject<() => void>('refreshCounts')
-const showToast = inject<(msg: string, type?: 'success' | 'error' | 'info' | 'warning') => void>('showToast', () => {})
+const refreshCounts = inject(KeyRefreshCounts)
+const showToast = inject(KeyShowToast, () => {})
 
 const { addDownload, updateItem } = useDownloadQueue()
 const { settings, updateSettings } = useSettings()

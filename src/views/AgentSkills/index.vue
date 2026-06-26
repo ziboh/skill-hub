@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, inject, unref } from 'vue'
+import { KeyShowToast, KeyDetectedPlatforms, KeyPlatformSkillCounts } from '../../inject-keys'
 import { detectPlatforms, getPlatformPath, defaultPlatforms } from '../../data/platforms'
 import { storage } from '../../utils/storage'
 import { useSettings } from '../../composables/useSettings'
@@ -12,9 +13,9 @@ import ConfirmModal from '../../components/ConfirmModal.vue'
 
 const props = defineProps<{ initialPlatformId?: string }>()
 const emit = defineEmits(['navigate'])
-const showToast = inject<(msg: string, type?: 'success' | 'error' | 'info' | 'warning') => void>('showToast', () => {})
-const allPlatforms = inject<import('../../types').PlatformInfo[]>('detectedPlatforms', [])
-const platformSkillCounts = inject<Record<string, number>>('platformSkillCounts', {})
+const showToast = inject(KeyShowToast, () => {})
+const allPlatforms = inject(KeyDetectedPlatforms, ref([]) as any)
+const platformSkillCounts = inject(KeyPlatformSkillCounts, ref({}) as any)
 
 const detectedPlatforms = ref<PlatformInfo[]>([])
 const selectedId = ref(props.initialPlatformId || '')

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, inject } from 'vue'
+import { KeyShowToast } from '../inject-keys'
 import { detectPlatforms } from '../data/platforms'
 import { storage } from '../utils/storage'
 import type { Skill, InstallMode } from '../types'
@@ -11,7 +12,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits(['close', 'deployed'])
-const showToast = inject<(msg: string, type?: 'success' | 'error' | 'info' | 'warning') => void>('showToast', () => {})
+const showToast = inject(KeyShowToast, () => {})
 
 const installMode = ref<InstallMode>(storage.getSettings().defaultInstallMode)
 const selectedPlatforms = ref<Set<string>>(new Set())

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, inject, watch, nextTick } from 'vue'
+import { KeyShowToast } from '../../inject-keys'
 import { defaultPlatforms } from '../../data/platforms'
 import { BUILTIN_PROVIDERS, getProviderInfo, AVAILABLE_ICONS } from '../../data/ai-providers'
 import { storage } from '../../utils/storage'
@@ -16,7 +17,7 @@ import { loadRegistry } from '../../utils/skill-registry'
 
 const props = defineProps<{ anchor?: string }>()
 const { settings, updateSettings } = useSettings()
-const showToast = inject<(msg: string, type?: 'success' | 'error' | 'info' | 'warning') => void>('showToast', () => {})
+const showToast = inject(KeyShowToast, () => {})
 
 const activeSection = ref('general')
 const showToken = ref(false)

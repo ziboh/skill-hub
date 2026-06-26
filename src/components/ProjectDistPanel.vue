@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, inject, watch } from 'vue'
+import { KeyShowToast, KeySelectedProject, KeyRegisteredProjects, KeySelectProject, KeyNavigateToProjectSkills } from '../inject-keys'
 import { detectPlatforms } from '../data/platforms'
 import { storage } from '../utils/storage'
 import { normalizePath } from '../utils/path'
@@ -20,11 +21,11 @@ const emit = defineEmits<{
   'install-finished': []
 }>()
 
-const showToast = inject<(msg: string, type?: 'success' | 'error' | 'info' | 'warning') => void>('showToast', () => {})
-const selectedProject = inject<any>('selectedProject', null)
-const registeredProjects = inject<any>('registeredProjects', ref([]))
-const selectProject = inject<(project: RegisteredProject) => void>('selectProject', () => {})
-const navigateToProjectSkills = inject<() => void>('navigateToProjectSkills', () => {})
+const showToast = inject(KeyShowToast, () => {})
+const selectedProject = inject(KeySelectedProject, ref(null))
+const registeredProjects = inject(KeyRegisteredProjects, ref([]))
+const selectProject = inject(KeySelectProject, () => {})
+const navigateToProjectSkills = inject(KeyNavigateToProjectSkills, () => {})
 
 const projectList = computed(() => registeredProjects.value || [])
 const selectedProjects = ref<RegisteredProject[]>([])

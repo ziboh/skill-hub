@@ -1,6 +1,15 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, computed, provide } from 'vue'
-import { useProjectState } from './composables/useProjectState'
+import { useRouter } from './composables/useRouter'
+import { useProjectManager } from './composables/useProjectManager'
+import type { RouteName } from './composables/useRouter'
+import {
+  KeyShowToast, KeySelectedProject, KeySelectedProjectSkill, KeySelectProjectSkill,
+  KeySelectProject, KeyRegisteredProjects, KeyOpenAddProjectModal, KeyNavigateToProjectSkills,
+  KeyDetectedPlatforms, KeyPlatformSkillCounts, KeyScanProject, KeyProjectScanning,
+  KeyRefreshCounts, KeyCurrentRoute, KeyFilterCategory, KeyFilterSource,
+  KeyRefreshMySkills, KeyOpenImportModal, KeyRefreshKey, KeyTriggerRefresh,
+} from './inject-keys'
 
 import SkillStore from './views/SkillStore/index.vue'
 import SkillDetail from './views/SkillStore/Detail.vue'
@@ -19,197 +28,58 @@ import { applyTheme } from './utils/theme'
 import { useSettings } from './composables/useSettings'
 import { useTheme } from './composables/useTheme'
 import { detectPlatforms, getPlatformPath, defaultPlatforms } from './data/platforms'
-import type { Skill, AppSettings, PlatformInfo, RegisteredProject, SkillScanResult } from './types'
+import type { Skill, AppSettings, PlatformInfo } from './types'
 
 const { settings, updateSettings } = useSettings()
 
-const route = ref('my')
-const subRoute = ref('')
-const selectedSkill = ref<Skill | null>(null)
-const detailContext = ref<'my' | 'store' | 'project' | 'agent'>('my')
-const selectedAgentSkill = ref<SkillScanResult | null>(null)
-const selectedAgentPlatformId = ref('')
-const selectedDuplicateSkills = ref<SkillScanResult[] | null>(null)
-const settingsAnchor = ref('')
 const appToast = ref<InstanceType<typeof AppToast> | null>(null)
 function showToast(message: string, type?: 'success' | 'error' | 'info' | 'warning') { appToast.value?.showToast(message, type) }
-provide('showToast', showToast)
+provide(KeyShowToast, showToast)
 
 const projectSkillsRef = ref()
 const agentSkillsRef = ref()
-
-const storeSubId = ref('claude')
 
 const downloadedCount = ref(0)
 const agentCount = ref(0)
 const detectedPlatforms = ref<PlatformInfo[]>([])
 const platformSkillCounts = ref<Record<string, number>>({})
 
-// Project skills state
-const { registeredProjects, selectedProject, selectedProjectSkill, persistSelectedProject } = useProjectState()
-registeredProjects.value = storage.getRegisteredProjects()
-const showAddProjectModal = ref(false)
-const showEditProjectModal = ref(false)
-const editingProject = ref<RegisteredProject | null>(null)
-const showImportModal = ref(false)
-const projectScanning = ref(false)
-const addProjectError = ref('')
+const {
+  route, subRoute, selectedSkill, detailContext,
+  selectedAgentSkill, selectedAgentPlatformId, selectedDuplicateSkills,
+  settingsAnchor, storeSubId,
+  activeRoute, isSettings, isFullHeight, isMySkills,
+  navigate: routerNavigate,
+} = useRouter()
 
-function handleProjectSubmit(data: { name: string; rootDir: string; scanPaths: string[]; id?: string }) {
-  addProjectError.value = ''
-  if (data.id) {
-    updateProject(data.id, data)
-  } else {
-    addProject(data)
+function navigate(code: string, params?: any) {
+  routerNavigate(code as any, params)
+  if (code === 'agent-skills') refreshCounts()
+  refreshMySkills()
+  if (code === 'project-skills' && !selectedProject.value && registeredProjects.value.length) {
+    selectProject(registeredProjects.value[0])
   }
 }
 
-function addProject(project: { name: string; rootDir: string; scanPaths: string[] }) {
-  try {
-    const root = project.rootDir.trim()
-    const name = project.name.trim()
-    if (!root || !name) return
+const {
+  registeredProjects, selectedProject, selectedProjectSkill,
+  showAddProjectModal, showEditProjectModal, editingProject,
+  showImportModal, projectScanning, addProjectError,
+  selectProject, selectProjectSkill, scanProject,
+  handleProjectSubmit, editProject, removeProject,
+} = useProjectManager({ showToast, navigate })
 
-    const hasConflict = registeredProjects.value.some(
-      (p) => p.rootDir.toLowerCase() === root.toLowerCase(),
-    )
-    if (hasConflict) {
-      const conflict = registeredProjects.value.find(
-        (p) => p.rootDir.toLowerCase() === root.toLowerCase(),
-      )
-      addProjectError.value = conflict
-        ? `根目录已存在，与项目「${conflict.name}」冲突（${conflict.rootDir}）`
-        : '该项目根目录已存在，请选择其他目录或删除已有项目'
-      return
-    }
-
-    const newProject: RegisteredProject = {
-      id: `project-${Date.now()}`,
-      name,
-      rootDir: root,
-      scanPaths: project.scanPaths.filter((p) => p.trim()),
-      skills: [],
-      createdAt: new Date().toISOString(),
-    }
-    registeredProjects.value = [...registeredProjects.value, newProject]
-    storage.saveRegisteredProjects(registeredProjects.value)
-    selectedProject.value = newProject
-    showAddProjectModal.value = false
-    addProjectError.value = ''
-    scanProject(newProject)
-  } catch (err) {
-    addProjectError.value = err instanceof Error ? err.message : '添加项目时发生未知错误'
-  }
-}
-
-function editProject(project: RegisteredProject) {
-  editingProject.value = project
-  showEditProjectModal.value = true
-}
-
-function updateProject(id: string, data: { name: string; rootDir: string; scanPaths: string[] }) {
-  try {
-    const root = data.rootDir.trim()
-    const name = data.name.trim()
-    if (!root || !name) return
-
-    const hasConflict = registeredProjects.value.some(
-      (p) => p.id !== id && p.rootDir.toLowerCase() === root.toLowerCase(),
-    )
-    if (hasConflict) {
-      showEditProjectModal.value = false
-      return
-    }
-
-    const patch = { name, rootDir: root, scanPaths: data.scanPaths.filter((p) => p.trim()) }
-    storage.updateRegisteredProject(id, patch)
-    const idx = registeredProjects.value.findIndex((p) => p.id === id)
-    if (idx >= 0) {
-      const newList = [...registeredProjects.value]
-      newList[idx] = { ...newList[idx], ...patch }
-      registeredProjects.value = newList
-      selectedProject.value = newList[idx]
-    }
-    showEditProjectModal.value = false
-    editingProject.value = null
-    if (selectedProject.value) {
-      scanProject(selectedProject.value)
-    }
-  } catch (err) {
-    console.error('[App] editProject failed:', err)
-  }
-}
-
-function removeProject(id: string) {
-  registeredProjects.value = registeredProjects.value.filter((p) => p.id !== id)
-  storage.saveRegisteredProjects(registeredProjects.value)
-  if (selectedProject.value?.id === id) {
-    if (registeredProjects.value.length > 0) {
-      selectProject(registeredProjects.value[0])
-    } else {
-      selectedProject.value = null
-      selectedProjectSkill.value = null
-      navigate('my')
-    }
-  }
-  showEditProjectModal.value = false
-  editingProject.value = null
-}
-
-const DEFAULT_PROJECT_SCAN_SUBDIRS = ['.claude/skills', '.agents/skills', 'skills', '.gemini/skills', '.cursor/skills', '.windsurf/skills']
-let projectScanTimer: ReturnType<typeof setTimeout> | null = null
-
-async function scanProject(project: RegisteredProject) {
-  projectScanning.value = true
-  if (projectScanTimer) clearTimeout(projectScanTimer)
-  projectScanTimer = setTimeout(async () => {
-    try {
-      const dirs = [
-        project.rootDir,
-        ...DEFAULT_PROJECT_SCAN_SUBDIRS.map((d) => window.services.pathJoin(project.rootDir, d)),
-        ...project.scanPaths,
-      ]
-      const skills = window.services.scanForSkillFiles(dirs)
-      const idx = registeredProjects.value.findIndex((p) => p.id === project.id)
-      if (idx >= 0) {
-        const newList = [...registeredProjects.value]
-        newList[idx] = { ...newList[idx], skills }
-        registeredProjects.value = newList
-        storage.saveRegisteredProjects(newList)
-        selectedProject.value = newList[idx]
-        if (!selectedProjectSkill.value || !skills?.some((s) => s.dir === selectedProjectSkill.value?.dir)) {
-          selectedProjectSkill.value = skills?.[0] || null
-        }
-      }
-    } catch (err) {
-      console.error('[App] scanProject failed:', err)
-      showToast(err instanceof Error ? err.message : '扫描项目失败', 'error')
-    }
-    projectScanning.value = false
-  }, 300)
-}
-
-function selectProject(project: RegisteredProject) {
-  selectedProject.value = project
-  selectedProjectSkill.value = project.skills?.[0] || null
-  persistSelectedProject()
-}
-
-function selectProjectSkill(skill: any) {
-  selectedProjectSkill.value = skill
-}
-
-provide('selectedProject', selectedProject)
-provide('selectedProjectSkill', selectedProjectSkill)
-provide('selectProjectSkill', selectProjectSkill)
-provide('selectProject', selectProject)
-provide('registeredProjects', registeredProjects)
-provide('openAddProjectModal', () => { showAddProjectModal.value = true })
-provide('navigateToProjectSkills', () => { route.value = 'project-skills'; showAddProjectModal.value = true })
-provide('detectedPlatforms', detectedPlatforms)
-provide('platformSkillCounts', platformSkillCounts)
-provide('scanProject', scanProject)
-provide('projectScanning', projectScanning)
+provide(KeySelectedProject, selectedProject)
+provide(KeySelectedProjectSkill, selectedProjectSkill)
+provide(KeySelectProjectSkill, selectProjectSkill)
+provide(KeySelectProject, selectProject)
+provide(KeyRegisteredProjects, registeredProjects)
+provide(KeyOpenAddProjectModal, () => { showAddProjectModal.value = true })
+provide(KeyNavigateToProjectSkills, () => { route.value = 'project-skills'; showAddProjectModal.value = true })
+provide(KeyDetectedPlatforms, detectedPlatforms)
+provide(KeyPlatformSkillCounts, platformSkillCounts)
+provide(KeyScanProject, scanProject)
+provide(KeyProjectScanning, projectScanning)
 
 function refreshCounts() {
   downloadedCount.value = storage.getDownloadedIds().length
@@ -245,23 +115,8 @@ function refreshCounts() {
   refreshKey.value++
 }
 
-provide('refreshCounts', refreshCounts)
-provide('currentRoute', route)
-
-const activeRoute = computed(() => {
-  if (route.value === 'sources') return 'store'
-  if (route.value === 'detail') {
-    if (detailContext.value === 'store') return 'store'
-    if (detailContext.value === 'project') return 'project-skills'
-    if (detailContext.value === 'agent') return 'agent-skills'
-    return 'my'
-  }
-  if (route.value === 'agent-skill-detail') {
-    if (detailContext.value === 'project') return 'project-skills'
-    return 'agent-skills'
-  }
-  return route.value
-})
+provide(KeyRefreshCounts, refreshCounts)
+provide(KeyCurrentRoute, route)
 
 const navItems = computed(() => [
   { code: 'my', label: '我的 Skill', icon: 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4', count: downloadedCount.value },
@@ -269,32 +124,6 @@ const navItems = computed(() => [
   { code: 'agent-skills', label: 'Agent Skill', icon: 'M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714a2.25 2.25 0 00.659 1.591L19 14.5m-4.25-11.396c.251.023.501.05.75.082M12 21a8.966 8.966 0 005.982-2.275M12 21a8.966 8.966 0 01-5.982-2.275M15.75 3.186a24.284 24.284 0 011.957.967M15.75 3.186c-.376.056-.75.118-1.12.185m1.12-.185a24.284 24.284 0 00-1.957.967M6.258 5.526a24.284 24.284 0 011.957-.967m0 0A24.234 24.234 0 0112 3.493', count: agentCount.value },
   { code: 'store', label: 'Skill 商店', icon: 'M13.5 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0012 9.75c-2.551 0-5.056.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75z', count: 0 },
 ])
-
-function navigate(code: string, params?: any) {
-  route.value = code
-  if (code === 'agent-skills') refreshCounts()
-  refreshMySkills()
-  settingsAnchor.value = ''
-  if (params) {
-    subRoute.value = params.sub || ''
-    if (params.skill) selectedSkill.value = params.skill
-    if (params.sub) storeSubId.value = params.sub
-    if ('platformId' in params) selectedAgentPlatformId.value = params.platformId || ''
-    if (params.context) detailContext.value = params.context
-    if (params.anchor) settingsAnchor.value = params.anchor
-    if (code === 'agent-skill-detail' && params.skill) {
-      selectedAgentSkill.value = params.skill
-    }
-    if (params.duplicateSkills) {
-      selectedDuplicateSkills.value = params.duplicateSkills
-    } else {
-      selectedDuplicateSkills.value = null
-    }
-  }
-  if (code === 'project-skills' && !selectedProject.value && registeredProjects.value.length) {
-    selectProject(registeredProjects.value[0])
-  }
-}
 
 let mqCleanup: (() => void) | null = null
 
@@ -365,18 +194,14 @@ function refreshMySkills() {
   myInstallRecords.value = storage.getInstallRecords()
   myFavoriteIds.value = storage.getFavoriteIds()
 }
-provide('filterCategory', filterCategory)
-provide('filterSource', filterSource)
-provide('refreshMySkills', refreshMySkills)
-provide('openImportModal', () => { showImportModal.value = true })
+provide(KeyFilterCategory, filterCategory)
+provide(KeyFilterSource, filterSource)
+provide(KeyRefreshMySkills, refreshMySkills)
+provide(KeyOpenImportModal, () => { showImportModal.value = true })
 
 const refreshKey = ref(0)
-provide('refreshKey', refreshKey)
-provide('triggerRefresh', () => { refreshKey.value++ })
-
-const isSettings = computed(() => route.value === 'settings')
-const isFullHeight = computed(() => ['settings', 'detail', 'agent-skill-detail'].includes(route.value))
-const isMySkills = computed(() => route.value === 'my')
+provide(KeyRefreshKey, refreshKey)
+provide(KeyTriggerRefresh, () => { refreshKey.value++ })
 
 const { isDarkMode, toggleTheme } = useTheme()
 

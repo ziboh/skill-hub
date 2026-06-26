@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick, inject } from 'vue'
+import { KeyShowToast } from '../inject-keys'
 import SkillCodeEditor from './SkillCodeEditor.vue'
 
 interface FileTreeEntry {
@@ -25,7 +26,7 @@ const emit = defineEmits<{
   'saved': []
 }>()
 
-const showToast = inject<(msg: string, type?: 'success' | 'error' | 'info' | 'warning') => void>('showToast', () => {})
+const showToast = inject(KeyShowToast, () => {})
 
 const files = ref<FileTreeEntry[]>([])
 const selectedFile = ref<string | null>(null)

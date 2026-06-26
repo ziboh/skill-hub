@@ -3,6 +3,16 @@ import { BUILTIN_PROVIDERS } from '../data/ai-providers'
 
 const PREFIX = 'sm_'
 
+export function cleanDescription(desc: string): string {
+  if (!desc) return desc
+  if (desc.startsWith('[') && desc.endsWith(']')) {
+    desc = desc.slice(1, -1).trim()
+  }
+  if (/^[\[\]{}()]+$/.test(desc)) return ''
+  if (/^[>|][+-]?$/.test(desc)) return ''
+  return desc
+}
+
 function dbSet(key: string, value: any): void {
   try {
     window.ztools.dbStorage.setItem(PREFIX + key, JSON.stringify(value))
@@ -206,28 +216,15 @@ export const storage = {
 
   // === Cached Skills ===
   getCachedSkills(): Skill[] {
-    const skills: Skill[] = dbGet<Skill[]>(KEYS.CACHED_SKILLS) || []
-    for (const s of skills) {
-      if (s.description) {
-        if (s.description.startsWith('[') && s.description.endsWith(']')) {
-          const inner = s.description.slice(1, -1).trim()
-          s.description = inner
-        }
-        if (/^[\[\]{}()]+$/.test(s.description)) {
-          s.description = ''
-        }
-        if (/^[>|][+-]?$/.test(s.description)) {
-          s.description = ''
-        }
-      }
-    }
-    return skills
+    return dbGet<Skill[]>(KEYS.CACHED_SKILLS) || []
   },
   saveCachedSkills(skills: Skill[]): void {
     const existing = this.getCachedSkills()
     const map = new Map(existing.map((s) => [s.id, s]))
     for (const s of skills) {
-      map.set(s.id, JSON.parse(JSON.stringify(s)))
+      const copy = JSON.parse(JSON.stringify(s)) as Skill
+      copy.description = cleanDescription(copy.description)
+      map.set(copy.id, copy)
     }
     dbSet(KEYS.CACHED_SKILLS, Array.from(map.values()))
   },

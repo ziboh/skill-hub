@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, inject, watch, nextTick } from 'vue'
-import { storage } from '../../utils/storage'
+import { storage, cleanDescription } from '../../utils/storage'
 import type { Skill, SkillIdentity } from '../../types'
 import { defaultPlatforms } from '../../data/platforms'
 import { useSettings } from '../../composables/useSettings'
 import { useTheme } from '../../composables/useTheme'
-import { SKILL_CATEGORIES, ALL_CATEGORIES, inferCategory, CATEGORY_ICONS, type SkillCategory } from '../../data/skill-categories'
+import { useFilteredSkills, SKILL_CATEGORIES, CATEGORY_ICONS } from '../../composables/useFilteredSkills'
 import { STORE_ICONS } from '../../data/store-icons'
 import PlatformIcon from '../../components/PlatformIcon.vue'
 import DeployModal from '../../components/DeployModal.vue'
@@ -15,6 +15,7 @@ import ConfirmBatchDeleteModal from '../../components/ConfirmBatchDeleteModal.vu
 import { loadRegistry, getSourceLabel as getRegistrySourceLabel } from '../../utils/skill-registry'
 import { getSourceInfo as getSourceInfoUtil } from '../../utils/source-info'
 import { getAvatarColor } from '../../utils/color'
+import { KeyFilterCategory, KeyFilterSource, KeyRefreshMySkills, KeyOpenImportModal, KeyCurrentRoute, KeyRefreshKey } from '../../inject-keys'
 
 const emit = defineEmits(['navigate'])
 
@@ -22,12 +23,12 @@ const { settings, updateSettings } = useSettings()
 
 const { isDarkMode, toggleTheme } = useTheme()
 
-const filterCategory = inject('filterCategory', ref('all'))
-const filterSource = inject('filterSource', ref(''))
+const filterCategory = inject(KeyFilterCategory, ref('all'))
+const filterSource = inject(KeyFilterSource, ref(''))
 const filterTag = ref('')
-const refreshMySkills = inject<() => void>('refreshMySkills', () => {})
-const openImportModal = inject<() => void>('openImportModal', () => {})
-const currentRoute = inject<import('vue').Ref<string>>('currentRoute', ref('my'))
+const refreshMySkills = inject(KeyRefreshMySkills, () => {})
+const openImportModal = inject(KeyOpenImportModal, () => {})
+const currentRoute = inject(KeyCurrentRoute, ref('my'))
 
 const allSkills = ref<Skill[]>([])
 const installRecords = ref(storage.getInstallRecords())
@@ -41,7 +42,7 @@ onMounted(() => {
 })
 
 
-const refreshKey = inject<import('vue').Ref<number>>('refreshKey', ref(0))
+const refreshKey = inject(KeyRefreshKey, ref(0))
 watch(refreshKey, () => { if (currentRoute.value === 'my') refreshData() })
 
 watch(currentRoute, (r) => { if (r === 'my') refreshData() })
@@ -58,9 +59,12 @@ function refreshData() {
 async function enrichLocalDescriptions() {
   let changed = false
   for (const skill of allSkills.value) {
-    const hasBadDesc = skill.description && (/^[\[\]{}()]+$/.test(skill.description) || /^[>|][+-]?$/.test(skill.description))
-    if ((skill.description && !hasBadDesc) || !downloadedIds.value.includes(skill.id)) continue
-    if (hasBadDesc) { skill.description = ''; changed = true }
+    if (!downloadedIds.value.includes(skill.id)) continue
+    const cleaned = cleanDescription(skill.description)
+    if (cleaned && cleaned === skill.description) continue
+    if (cleaned) { skill.description = cleaned; changed = true; continue }
+    skill.description = ''
+    changed = true
     try {
       const skillDir = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', skill.id)
       const files = window.services.readDir(skillDir)
@@ -83,52 +87,19 @@ const downloadedSkills = computed(() =>
   allSkills.value.filter((s) => downloadedIds.value.includes(s.id))
 )
 
-function getSkillCategory(skill: Skill): SkillCategory {
-  return (skill.userTags?.[0] as SkillCategory) || inferCategory(skill.name, skill.description || '')
-}
-
-const filteredBaseCount = computed(() => {
-  let list = downloadedSkills.value
-  if (filterSource.value) list = list.filter((s) => getSourceLabel(s) === filterSource.value)
-  switch (filterCategory.value) {
-    case 'favorites': list = list.filter((s) => favoriteIds.value.includes(s.id)); break
-    case 'distributed': list = list.filter((s) => installedSkillIds.value.has(s.id)); break
-    case 'pending': list = list.filter((s) => !installedSkillIds.value.has(s.id)); break
-  }
-  return list.length
-})
-
-const allUserTags = computed(() => {
-  const counts = new Map<SkillCategory, number>()
-  let baseList = downloadedSkills.value
-  if (filterSource.value) baseList = baseList.filter((s) => getSourceLabel(s) === filterSource.value)
-  switch (filterCategory.value) {
-    case 'favorites': baseList = baseList.filter((s) => favoriteIds.value.includes(s.id)); break
-    case 'distributed': baseList = baseList.filter((s) => installedSkillIds.value.has(s.id)); break
-    case 'pending': baseList = baseList.filter((s) => !installedSkillIds.value.has(s.id)); break
-  }
-  for (const s of baseList) {
-    const cat = getSkillCategory(s)
-    counts.set(cat, (counts.get(cat) || 0) + 1)
-  }
-  return ALL_CATEGORIES.map((cat) => ({
-    id: cat,
-    label: SKILL_CATEGORIES[cat].label,
-    icon: CATEGORY_ICONS[cat],
-    count: counts.get(cat) || 0,
-  }))
-})
-
-const filteredSkills = computed(() => {
-  let list = downloadedSkills.value
-  if (filterSource.value) list = list.filter((s) => getSourceLabel(s) === filterSource.value)
-  if (filterTag.value) list = list.filter((s) => getSkillCategory(s) === filterTag.value)
-  switch (filterCategory.value) {
-    case 'favorites': list = list.filter((s) => favoriteIds.value.includes(s.id)); break
-    case 'distributed': list = list.filter((s) => installedSkillIds.value.has(s.id)); break
-    case 'pending': list = list.filter((s) => !installedSkillIds.value.has(s.id)); break
-  }
-  return list
+const {
+  filteredSkills,
+  filteredBaseCount,
+  allUserTags,
+  getSkillCategory,
+} = useFilteredSkills({
+  downloadedSkills: () => downloadedSkills.value,
+  filterSource: () => filterSource.value,
+  filterCategory: () => filterCategory.value,
+  filterTag: () => filterTag.value,
+  favoriteIds: () => favoriteIds.value,
+  installedSkillIds: () => installedSkillIds.value,
+  getSourceLabel,
 })
 
 const totalDownloaded = computed(() => downloadedSkills.value.length)

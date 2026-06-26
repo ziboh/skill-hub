@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, inject, computed } from 'vue'
+import { KeyShowToast, KeyRefreshCounts } from '../inject-keys'
 import { fetchSkillDetailFromSkill } from '../utils/skills-sh'
 import { storage } from '../utils/storage'
 import { parseFrontmatter } from '../utils/frontmatter'
@@ -14,8 +15,8 @@ import { getSourceInfo } from '../utils/source-info'
 
 const props = defineProps<{ skill: Skill }>()
 const emit = defineEmits(['close', 'imported'])
-const showToast = inject<(msg: string, type?: 'success' | 'error' | 'info' | 'warning') => void>('showToast', () => {})
-const refreshCounts = inject<() => void>('refreshCounts')
+const showToast = inject(KeyShowToast, () => {})
+const refreshCounts = inject(KeyRefreshCounts)
 
 const { settings } = useSettings()
 

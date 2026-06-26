@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, inject, watch } from 'vue'
+import { KeyShowToast } from '../../inject-keys'
 import { defaultPlatforms, getPlatformPath } from '../../data/platforms'
 import { storage } from '../../utils/storage'
 import { normalizePath } from '../../utils/path'
@@ -11,7 +12,7 @@ import type { SkillScanResult, PlatformInfo, Skill } from '../../types'
 
 const props = defineProps<{ skill: SkillScanResult | null; platformId: string; duplicateSkills?: SkillScanResult[] | null }>()
 const emit = defineEmits(['navigate'])
-const showToast = inject<(msg: string, type?: 'success' | 'error' | 'info' | 'warning') => void>('showToast', () => {})
+const showToast = inject(KeyShowToast, () => {})
 
 const activeTab = ref<'preview' | 'source' | 'files'>('preview')
 const skillContent = ref('')

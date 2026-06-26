@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { inject, ref, computed, unref } from 'vue'
+import { KeyShowToast, KeySelectedProject, KeyScanProject, KeyProjectScanning, KeySelectProject, KeyOpenAddProjectModal, KeyDetectedPlatforms } from '../../inject-keys'
 import { storage } from '../../utils/storage'
 import { useSettings } from '../../composables/useSettings'
 import { useTheme } from '../../composables/useTheme'
@@ -16,14 +17,14 @@ import { getAvatarColor } from '../../utils/color'
 
 const emit = defineEmits(['navigate', 'edit-project', 'delete-project'])
 
-const selectedProject = inject<any>('selectedProject', null)
-const scanProject = inject<any>('scanProject', () => {})
-const projectScanning = inject<any>('projectScanning', false)
-const showToast = inject<(msg: string, type?: 'success' | 'error' | 'info' | 'warning') => void>('showToast', () => {})
+const selectedProject = inject(KeySelectedProject, ref(null))
+const scanProject = inject(KeyScanProject, () => {})
+const projectScanning = inject(KeyProjectScanning, ref(false))
+const showToast = inject(KeyShowToast, () => {})
 const { registeredProjects } = useProjectState()
-const selectProject = inject<(p: import('../../types').RegisteredProject) => void>('selectProject', () => {})
-const openAddProjectModal = inject<() => void>('openAddProjectModal', () => {})
-const detectedPlatforms = inject<PlatformInfo[]>('detectedPlatforms', [])
+const selectProject = inject(KeySelectProject, () => {})
+const openAddProjectModal = inject(KeyOpenAddProjectModal, () => {})
+const detectedPlatforms = inject(KeyDetectedPlatforms, ref([]) as any)
 
 const importing = ref<Record<string, boolean>>({})
 const confirmDeleteProjectId = ref<string | null>(null)

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, inject } from 'vue'
+import { KeyShowToast } from '../inject-keys'
 import { detectPlatforms } from '../data/platforms'
 import { storage } from '../utils/storage'
 import { normalizePath } from '../utils/path'
@@ -13,7 +14,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits(['close', 'deployed'])
-const showToast = inject<(msg: string, type?: 'success' | 'error' | 'info' | 'warning') => void>('showToast', () => {})
+const showToast = inject(KeyShowToast, () => {})
 
 const installMode = ref<InstallMode>(storage.getSettings().defaultInstallMode)
 const selectedPlatforms = ref<Set<string>>(new Set())
@@ -37,7 +38,7 @@ const physicallyInstalledPlatforms = computed(() => {
     const expandedBase = base.replace(/^~/, window.services.homeDir())
     if (!window.services.pathExists(expandedBase)) continue
     const existingSkills = window.services.scanForSkillFiles([expandedBase])
-    const skillDir = (props.skill.path && props.skill.path !== '.') ? props.skill.path.split('/').pop() || props.skill.name : props.skill.name
+    const skillDir = (props.skill.path && props.skill.path !== '.') ? normalizePath(props.skill.path).split('/').pop() || props.skill.name : props.skill.name
     const exists = existingSkills.some(
       (s) => s.dir.includes(skillDir) || (s.manifest?.name || s.name).toLowerCase() === props.skill.name.toLowerCase()
     )
@@ -116,7 +117,7 @@ async function deploy() {
       continue
     }
 
-    const skillDir = (props.skill.path && props.skill.path !== '.') ? props.skill.path.split('/').pop() || props.skill.name : props.skill.name
+    const skillDir = (props.skill.path && props.skill.path !== '.') ? normalizePath(props.skill.path).split('/').pop() || props.skill.name : props.skill.name
     const targetDir = window.services.pathJoin(base.replace(/^~/, window.services.homeDir()), skillDir)
 
     try {
@@ -136,8 +137,8 @@ async function deploy() {
         installedAt: new Date().toISOString(),
       })
       deployResults.value.push({ platform: platform.name, status: 'ok', msg: installMode.value === 'symlink' ? '已链接' : '已复制' })
-    } catch (err: any) {
-      deployResults.value.push({ platform: platform.name, status: 'error', msg: err.message })
+    } catch (err) {
+      deployResults.value.push({ platform: platform.name, status: 'error', msg: err instanceof Error ? err.message : '未知错误' })
     }
     done++
   }

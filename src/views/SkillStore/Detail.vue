@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, inject } from 'vue'
+import { KeyShowToast, KeySelectedProject } from '../../inject-keys'
 import { storage } from '../../utils/storage'
 import { parseFrontmatter } from '../../utils/frontmatter'
 import { fetchSkillDetailFromSkill } from '../../utils/skills-sh'
@@ -10,8 +11,8 @@ import ProjectDistPanel from '../../components/ProjectDistPanel.vue'
 
 const props = defineProps<{ skill: Skill | null; context?: 'my' | 'store' | 'project' | 'agent' }>()
 const emit = defineEmits(['navigate'])
-const showToast = inject<(msg: string, type?: 'success' | 'error' | 'info' | 'warning') => void>('showToast', () => {})
-const selectedProject = inject<any>('selectedProject', null)
+const showToast = inject(KeyShowToast, () => {})
+const selectedProject = inject(KeySelectedProject, ref(null))
 
 const activeTab = ref<'preview' | 'source' | 'files'>('preview')
 const skillContent = ref('')

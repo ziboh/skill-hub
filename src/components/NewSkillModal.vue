@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, inject } from 'vue'
+import { KeyRefreshCounts } from '../inject-keys'
 import { storage } from '../utils/storage'
 import { parseGitHubUrl, fetchGitHubRepoTree, fetchGitHubFile, detectSkillDirectories } from '../utils/github'
 import { parseFrontmatter } from '../utils/frontmatter'
@@ -7,7 +8,7 @@ import type { Skill } from '../types'
 import { getAvatarColor } from '../utils/color'
 
 const emit = defineEmits(['close', 'imported', 'navigate'])
-const refreshCounts = inject<() => void>('refreshCounts')
+const refreshCounts = inject(KeyRefreshCounts)
 
 const step = ref<'choose' | 'git-input' | 'git-scan' | 'git-confirm'>('choose')
 const gitUrl = ref('')

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, inject, watch } from 'vue'
+import { KeyShowToast } from '../inject-keys'
 import { detectPlatforms } from '../data/platforms'
 import { storage } from '../utils/storage'
 import { normalizePath } from '../utils/path'
@@ -21,7 +22,7 @@ const emit = defineEmits<{
   'install-finished': []
 }>()
 
-const showToast = inject<(msg: string, type?: 'success' | 'error' | 'info' | 'warning') => void>('showToast', () => {})
+const showToast = inject(KeyShowToast, () => {})
 const { addInstall, updateItem } = useDownloadQueue()
 
 const selectedPlatforms = ref<string[]>([])
