@@ -1,9 +1,10 @@
 import type { Skill } from '../types'
 import { parseFrontmatter } from './frontmatter'
+import { fetchGitHubFile, fetchGitHubRepoTree } from './github'
 
 const BASE = 'https://skills.sh'
 
-// ── Filter definitions (like PromptHub) ──
+// ── Filter definitions ──
 
 export interface LeaderboardFilter {
   key: string
@@ -36,11 +37,6 @@ export interface SkillDetailRaw {
   name: string
   description: string
   content: string
-}
-
-export interface SkillDetailMeta extends SkillDetailRaw {
-  githubStars?: string
-  weeklyInstalls?: string
 }
 
 // ── Error ──
@@ -91,65 +87,11 @@ function stripTags(input: string): string {
   )
 }
 
-function htmlToText(html: string): string {
-  return normalizeWhitespace(
-    decodeHtmlEntities(
-      html
-        .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
-        .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
-        .replace(/<svg\b[^>]*>[\s\S]*?<\/svg>/gi, '')
-        .replace(/<br\s*\/?>/gi, '\n')
-        .replace(/<\/(p|div|section|article|header|footer|aside|main|nav|li|ul|ol|h1|h2|h3|h4|h5|h6|pre|code|blockquote|table|thead|tbody|tr)>/gi, '\n')
-        .replace(/<[^>]+>/g, ''),
-    )
-      .replace(/\u00a0/g, ' ')
-      .replace(/[ \t]+\n/g, '\n'),
-  )
-}
-
-// ── Section parsing ──
-
-function getSectionLines(text: string, heading: string, stopHeadings: string[]): string[] {
-  const lines = text.split('\n').map((l) => l.trim())
-  const startIdx = lines.findIndex((l) => l.toLowerCase() === heading.toLowerCase())
-  if (startIdx === -1) return []
-  const stopSet = new Set(stopHeadings.map((h) => h.toLowerCase()))
-  const collected: string[] = []
-  for (let i = startIdx + 1; i < lines.length; i++) {
-    if (stopSet.has(lines[i].toLowerCase())) break
-    collected.push(lines[i])
-  }
-  return collected
-}
-
-function normalizeSectionContent(lines: string[]): string {
-  return normalizeWhitespace(lines.join('\n'))
-}
-
-function extractSimpleMetric(text: string, heading: string): string | undefined {
-  const lines = getSectionLines(text, heading, ['Summary', 'SKILL.md', 'Weekly Installs', 'Repository', 'GitHub Stars', 'Installed on', 'Security audits'])
-  return lines.length ? lines[0] : undefined
-}
-
-function extractInstalledOnAgents(lines: string[]): string[] {
-  return lines
-    .map((l) => l.match(/^([a-z0-9-]+)\s+\d+/i)?.[1]?.toLowerCase() ?? null)
-    .filter((v): v is string => Boolean(v))
-}
-
 // ── Leaderboard HTML scraping ──
 
 export interface LeaderboardResult {
   entries: LeaderboardEntry[]
   totalCount: number
-}
-
-function parseSkillsShTotalCount(html: string): number {
-  const m = html.match(/"totalSkills"\s*:\s*(\d+)/)
-  if (m) return parseInt(m[1], 10)
-  const m2 = html.match(/(\d[\d,]*)\s*skills?/i)
-  if (m2) return parseInt(m2[1].replace(/,/g, ''), 10)
-  return 0
 }
 
 export async function fetchLeaderboard(filterKey?: string): Promise<LeaderboardResult> {
@@ -193,94 +135,60 @@ export async function fetchLeaderboard(filterKey?: string): Promise<LeaderboardR
   return { entries: filtered, totalCount }
 }
 
-// ── Detail page scraping (like PromptHub) ──
-
-export async function fetchDetailPageHtml(entry: LeaderboardEntry): Promise<string> {
-  return fetchText(entry.detailUrl)
-}
-
-function htmlToMarkdown(html: string): string {
-  return normalizeWhitespace(
-    decodeHtmlEntities(
-      html
-        .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
-        .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
-        .replace(/<svg\b[^>]*>[\s\S]*?<\/svg>/gi, '')
-        .replace(/<pre><code[^>]*>([\s\S]*?)<\/code><\/pre>/gi, '```\n$1\n```')
-        .replace(/<pre>([\s\S]*?)<\/pre>/gi, '```\n$1\n```')
-        .replace(/<h([1-6])[^>]*>(.+?)<\/h\1>/gi, (_, level, content) => '#'.repeat(Number(level)) + ' ' + content)
-        .replace(/<strong[^>]*>([\s\S]*?)<\/strong>/gi, '**$1**')
-        .replace(/<b[^>]*>([\s\S]*?)<\/b>/gi, '**$1**')
-        .replace(/<em[^>]*>([\s\S]*?)<\/em>/gi, '*$1*')
-        .replace(/<i[^>]*>([\s\S]*?)<\/i>/gi, '*$1*')
-        .replace(/<code[^>]*>([\s\S]*?)<\/code>/gi, '`$1`')
-        .replace(/<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi, '[$2]($1)')
-        .replace(/<img[^>]*src="([^"]+)"[^>]*alt="([^"]*)"[^>]*>/gi, '![$2]($1)')
-        .replace(/<button\b[^>]*>[\s\S]*?<\/button>/gi, '')
-        .replace(/<img[^>]*src="([^"]+)"[^>]*>/gi, '![]($1)')
-        .replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, '- $1\n')
-        .replace(/<br\s*\/?>/gi, '\n')
-        .replace(/<\/(p|div|section|article|header|footer|aside|main|nav|li|ul|ol|h[1-6]|pre|code|blockquote|table|thead|tbody|tr)>/gi, '\n')
-        .replace(/<hr\s*\/?>/gi, '\n---\n')
-        .replace(/<[^>]+>/g, ''),
-    )
-      .replace(/\u00a0/g, ' ')
-      .replace(/[ \t]+\n/g, '\n'),
-  )
-}
-
-export function parseDetailPage(html: string, entry: LeaderboardEntry): SkillDetailMeta | null {
-  const md = htmlToMarkdown(html)
-  const summary = normalizeSectionContent(
-    getSectionLines(md, 'Summary', ['SKILL.md', 'Installs', 'Repository', 'GitHub Stars', 'First Seen', 'Security Audits']),
-  )
-  const skillMd = normalizeSectionContent(
-    getSectionLines(md, 'SKILL.md', ['Related skills', 'Installs', 'Repository', 'GitHub Stars', 'First Seen', 'Security Audits']),
-  )
-
-  if (!summary && !skillMd) return null
-
-  const repository = extractSimpleMetric(md, 'Repository') || `${entry.owner}/${entry.repo}`
-  const weeklyInstalls = extractSimpleMetric(md, 'Installs') || ''
-  const githubStars = extractSimpleMetric(md, 'GitHub Stars')
-
-  const fm = parseFrontmatter(skillMd)
-  const name = fm.name || entry.skillName
-  const description = summary || fm.description || `${name} community skill`
-
-  return {
-    name,
-    description,
-    content: skillMd || `# ${name}\n\n${description}`,
-    githubStars,
-    weeklyInstalls,
-  }
-}
-
-// ── Fetch skill detail (from skills.sh, not GitHub raw) ──
-
-export async function fetchSkillDetail(entry: LeaderboardEntry): Promise<SkillDetailRaw | null> {
-  try {
-    const html = await fetchDetailPageHtml(entry)
-    return parseDetailPage(html, entry)
-  } catch {
-    return null
-  }
-}
+// ── Fetch skill detail from GitHub SKILL.md ──
 
 export async function fetchSkillDetailFromSkill(skill: Skill): Promise<SkillDetailRaw | null> {
   if (!skill.repo) return null
   const parts = skill.repo.split('/')
   if (parts.length < 2) return null
-  const entry: LeaderboardEntry = {
-    owner: parts[0],
-    repo: parts[1],
-    skillName: skill.name,
-    detailPath: `/${parts[0]}/${parts[1]}/${skill.path || skill.name.toLowerCase().replace(/\s+/g, '-')}`,
-    detailUrl: `${BASE}/${parts[0]}/${parts[1]}/${skill.path || skill.name.toLowerCase().replace(/\s+/g, '-')}`,
-    installs: skill.installCount || 0,
+  const [owner, repo] = parts
+  const skillPath = skill.path || skill.name.toLowerCase().replace(/\s+/g, '-')
+  const token = undefined
+
+  try {
+    const tree = await fetchGitHubRepoTree(owner, repo, 'main', token)
+    const skillFiles = tree.filter(item =>
+      item.type === 'blob' && /SKILL\.md$/i.test(item.path)
+    )
+
+    const normalizedName = skillPath.toLowerCase().replace(/[^a-z0-9]/g, '')
+    let bestMatch = skillFiles[0]?.path || null
+    let bestScore = 0
+
+    for (const file of skillFiles) {
+      const dir = file.path.replace(/\/SKILL\.md$/i, '').toLowerCase().replace(/[^a-z0-9]/g, '')
+      if (dir === normalizedName) { bestMatch = file.path; break }
+      if (dir.includes(normalizedName) || normalizedName.includes(dir)) {
+        const score = Math.min(dir.length, normalizedName.length)
+        if (score > bestScore) { bestScore = score; bestMatch = file.path }
+      }
+    }
+
+    if (bestMatch) {
+      const content = await fetchGitHubFile(owner, repo, bestMatch)
+      if (content) {
+        const fm = parseFrontmatter(content)
+        return { name: fm.name || skill.name, description: fm.description || '', content }
+      }
+    }
+  } catch {}
+
+  const pathCandidates = [
+    `${skillPath}/SKILL.md`,
+    `skills/${skillPath}/SKILL.md`,
+    `agent-skills/${skillPath}/SKILL.md`,
+    'SKILL.md',
+  ]
+  for (const p of pathCandidates) {
+    try {
+      const content = await fetchGitHubFile(owner, repo, p)
+      if (content) {
+        const fm = parseFrontmatter(content)
+        return { name: fm.name || skill.name, description: fm.description || '', content }
+      }
+    } catch { continue }
   }
-  return fetchSkillDetail(entry)
+  return null
 }
 
 // ── Search ──
@@ -289,6 +197,7 @@ export interface PublicSearchResult {
   name: string
   source: string
   installs: number
+  skillId?: string
 }
 
 export async function searchSkillsSh(q: string): Promise<PublicSearchResult[]> {
@@ -321,9 +230,9 @@ export function leaderboardEntryToSkill(e: LeaderboardEntry): Skill {
 export function searchResultToSkill(s: PublicSearchResult): Skill {
   const parts = s.source.split('/')
   const owner = parts[0] || ''
-  const slug = s.name.toLowerCase().replace(/\s+/g, '-')
+  const path = s.skillId || s.name.toLowerCase().replace(/\s+/g, '-')
   return {
-    id: `${s.source}/${slug}`,
+    id: `${s.source}/${path}`,
     name: s.name,
     description: '',
     author: owner,
@@ -331,7 +240,7 @@ export function searchResultToSkill(s: PublicSearchResult): Skill {
     format: 'generic',
     source: 'skills-sh',
     repo: s.source,
-    path: slug,
+    path,
     installCount: s.installs,
   }
 }
