@@ -215,7 +215,7 @@ function select(id: string) {
               <button
                 v-if="item.deletable"
                 class="qs-item-delete"
-                @click.stop="emit('delete', item.id)"
+                @click.stop="isOpen = false; emit('delete', item.id)"
                 title="删除商店"
               >
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

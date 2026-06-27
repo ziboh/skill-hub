@@ -41,7 +41,10 @@ const presets: PresetSource[] = [
   { id: 'skills-sh', name: 'skills.sh', url: '', desc: '社区技能市场', icon: STORE_ICONS['skills-sh'] },
 ]
 
+const _storeVersion = ref(0)
+
 const storeSources = computed(() => {
+  void _storeVersion.value
   const builtin = [
     { id: 'claude', label: 'Claude Code', icon: STORE_ICONS.claude },
     { id: 'codex', label: 'Codex', icon: STORE_ICONS.codex },
@@ -697,16 +700,27 @@ function openEditStoreModal(id: string) {
 }
 
 function onStoreConfigSaved() {
-  storage.savePageState('skill-store', { presetId: activePresetId.value })
+  _storeVersion.value++
+  if (!editingStoreSource.value) {
+    const sources = storage.getStoreSources()
+    if (sources.length) {
+      const latest = sources[sources.length - 1]
+      activePresetId.value = latest.id
+      storage.savePageState('skill-store', { presetId: latest.id })
+      fetchCurrentSkills()
+    }
+  }
 }
 
 const isCurrentStoreCustom = computed(() => {
+  void _storeVersion.value
   return storage.getStoreSources().some(s => s.id === activePresetId.value)
 })
 
 function confirmDeleteStore() {
   if (!storeToDelete.value) return
   storage.removeStoreSource(storeToDelete.value.id)
+  _storeVersion.value++
   showDeleteStoreConfirm.value = false
   storeToDelete.value = null
 }
