@@ -1,5 +1,6 @@
-import type { ModelConfig } from '../types'
+import type { ModelConfig, Skill } from '../types'
 import { chatCompletion } from './ai'
+import { storage } from './storage'
 
 export type TranslationMode = 'immersive' | 'full'
 
@@ -159,4 +160,40 @@ export async function translateDescription(
   )
 
   return result.content
+}
+
+export function resolveTranslationKey(skill: Skill, skillDir?: string): string {
+  const cachedSkills = storage.getCachedSkills()
+  const downloadedIds = storage.getDownloadedIds()
+  const installRecords = storage.getInstallRecords()
+
+  const isMySkill = cachedSkills.some(s => s.id === skill.id) && downloadedIds.includes(skill.id)
+  if (isMySkill) {
+    return skill.id
+  }
+
+  if (skillDir) {
+    const normalizedDir = skillDir.replace(/\\/g, '/').toLowerCase()
+    const record = installRecords.find(r => {
+      const normalizedTarget = r.targetPath.replace(/\\/g, '/').toLowerCase()
+      return normalizedTarget.startsWith(normalizedDir) || normalizedDir.startsWith(normalizedTarget)
+    })
+    if (record) {
+      return record.skillId
+    }
+  }
+
+  const skillName = (skill.name || '').toLowerCase()
+  const matchedRecord = installRecords.find(r => {
+    const recordSkill = cachedSkills.find(s => s.id === r.skillId)
+    if (recordSkill && recordSkill.name.toLowerCase() === skillName) {
+      return true
+    }
+    return false
+  })
+  if (matchedRecord) {
+    return matchedRecord.skillId
+  }
+
+  return skill.id
 }

@@ -4,7 +4,7 @@ import { KeyShowToast } from '../inject-keys'
 import type { Skill } from '../types'
 import { useSettings } from '../composables/useSettings'
 import SkillFileEditor from './SkillFileEditor.vue'
-import { translateContent, translateDescription, stripFrontmatter, renderImmersiveSegments, isChineseContent } from '../utils/translate'
+import { translateContent, translateDescription, stripFrontmatter, renderImmersiveSegments, isChineseContent, resolveTranslationKey } from '../utils/translate'
 import type { TranslationMode } from '../utils/translate'
 import { storage } from '../utils/storage'
 import { getAvatarColor } from '../utils/color'
@@ -53,7 +53,7 @@ const debugFields = computed(() => {
     { key: 'path', label: '路径', value: s.path || '—' },
     { key: 'homepage', label: '主页', value: s.homepage || '—' },
     { key: 'category', label: '分类', value: s.category || '—' },
-    { key: 'installCount', label: '安装数', value: s.installCount ?? '—' },
+    { key: 'installCount', label: '下载数', value: s.installCount ?? '—' },
     { key: 'iconUrl', label: '图标URL', value: s.iconUrl || '—' },
     { key: 'userTags', label: '用户标签', value: s.userTags?.length ? s.userTags.join(', ') : '—' },
     { key: 'storeSourceId', label: '商店来源ID', value: s.storeSourceId || '—' },
@@ -108,6 +108,7 @@ const showTranslation = ref(false)
 const translatedContent = ref('')
 const translationMode = ref<TranslationMode>('immersive')
 const isContentChinese = ref(false)
+const translationKey = computed(() => resolveTranslationKey(props.skill, props.skillDir))
 
 const isTranslatingDesc = ref(false)
 const descTranslationDone = ref(false)
@@ -133,7 +134,7 @@ const translationModel = computed(() => {
 })
 
 function loadTranslationCache() {
-  const cached = storage.getTranslation(props.skill.id)
+  const cached = storage.getTranslation(translationKey.value)
   if (cached) {
     translatedContent.value = cached.translatedContent
     translationMode.value = cached.mode as TranslationMode
@@ -143,7 +144,7 @@ function loadTranslationCache() {
     showTranslation.value = false
   }
   isContentChinese.value = isChineseContent(props.skillContent)
-  const cachedDesc = storage.getTranslationDesc(props.skill.id)
+  const cachedDesc = storage.getTranslationDesc(translationKey.value)
   if (cachedDesc) {
     translatedDesc.value = cachedDesc
     descTranslationDone.value = true
@@ -158,7 +159,7 @@ function loadTranslationCache() {
 
 function saveTranslationCache() {
   if (translatedContent.value) {
-    storage.saveTranslation(props.skill.id, {
+    storage.saveTranslation(translationKey.value, {
       sourceContent: props.skillContent,
       translatedContent: translatedContent.value,
       mode: translationMode.value,
@@ -168,7 +169,7 @@ function saveTranslationCache() {
 
 function saveDescTranslationCache() {
   if (translatedDesc.value) {
-    storage.saveTranslationDesc(props.skill.id, translatedDesc.value)
+    storage.saveTranslationDesc(translationKey.value, translatedDesc.value)
   }
 }
 
@@ -210,7 +211,7 @@ onMounted(() => {
   loadUserTags()
 })
 
-watch(() => props.skill.id, () => {
+watch(() => translationKey.value, () => {
   loadTranslationCache()
   loadUserTags()
 })

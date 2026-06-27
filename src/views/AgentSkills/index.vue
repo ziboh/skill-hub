@@ -412,7 +412,7 @@ function confirmImportFromMy() {
           <h2>Agent Skill</h2>
           <span class="count-badge">{{ selectedSkills.length }}</span>
         </div>
-        <p class="page-subtitle">浏览每个 Agent 的 Skill 目录，并管理复制或软链接安装。</p>
+        <p class="page-subtitle">浏览每个 Agent 的 Skill 目录，并管理复制或软链接分发。</p>
       </div>
       <div class="header-toolbar">
         <button class="toolbar-btn import-btn" :disabled="!selectedPlatform" @click="openImportModal">

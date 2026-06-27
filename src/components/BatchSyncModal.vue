@@ -91,7 +91,7 @@ async function deploy() {
           mode: installMode.value,
           scope: 'global',
           targetPath: targetDir,
-          sourceDir: skill.repo || '',
+          sourceDir,
           installedAt: new Date().toISOString(),
         })
         deployResults.value.push({ skill: skill.name, platform: platform.name, status: 'ok', msg: installMode.value === 'symlink' ? '已链接' : '已复制' })
@@ -170,7 +170,7 @@ async function deploy() {
           </div>
 
           <div v-if="!platforms.length" class="deploy-empty">
-            <p>未检测到已安装的 AI 平台</p>
+            <p>未检测到已配置的 AI 平台</p>
           </div>
           <div v-else class="deploy-platform-grid">
             <button

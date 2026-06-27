@@ -1412,14 +1412,14 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
       <template v-if="activeSection === 'general'">
         <div class="settings-scroll">
           <h1 class="settings-page-title">通用设置</h1>
-          <p class="settings-page-desc">配置技能安装的默认行为和 GitHub 访问令牌。</p>
+          <p class="settings-page-desc">配置技能分发的默认行为和 GitHub 访问令牌。</p>
 
           <div class="setting-section">
-            <h3 class="setting-section-title">安装模式</h3>
+            <h3 class="setting-section-title">分发模式</h3>
             <div class="setting-card">
               <div class="setting-row">
                 <div class="setting-row-info">
-                  <div class="setting-row-label">默认安装模式</div>
+                  <div class="setting-row-label">默认分发模式</div>
                   <div class="setting-row-desc">技能文件分发到 Agent 平台的方式</div>
                 </div>
               </div>
