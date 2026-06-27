@@ -1095,7 +1095,7 @@ function confirmImportFromMy() {
 .modal-select-all:hover { background: hsl(var(--muted)); }
 .modal-skill-list { flex: 1; overflow-y: auto; padding: 12px 24px; min-height: 200px; }
 .modal-empty { display: flex; align-items: center; justify-content: center; height: 120px; color: hsl(var(--muted-foreground)); font-size: 13px; }
-.modal-skill-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; }
+.modal-skill-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; }
 .modal-skill-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 12px; border: 1px solid hsl(var(--border)); background: hsl(var(--card)); cursor: pointer; transition: all var(--duration-base) var(--ease-standard); }
 .modal-skill-card:hover:not(.disabled) { border-color: hsl(var(--primary) / 0.4); background: hsl(var(--primary) / 0.03); }
 .modal-skill-card.selected { border-color: hsl(var(--primary)); background: hsl(var(--primary) / 0.06); }
