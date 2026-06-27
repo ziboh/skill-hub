@@ -63,7 +63,18 @@ const sourcePlatformIds = computed(() => {
 
 const recordPlatformIds = computed(() => {
   const records = storage.getInstalledForSkill(props.skill.id)
-  return new Set(records.map((r) => r.platformId))
+  const validIds = new Set<string>()
+  for (const r of records) {
+    if (r.targetPath && window.services.pathExists(r.targetPath)) {
+      const files = window.services.readDir(r.targetPath)
+      if (files.some((f: any) => f.name === 'SKILL.md' || f.name === 'skill.md')) {
+        validIds.add(r.platformId)
+      }
+    } else {
+      validIds.add(r.platformId)
+    }
+  }
+  return validIds
 })
 
 const installedPlatformIds = computed(() => {
@@ -95,13 +106,26 @@ function toggleAll() {
   }
 }
 
+function resolveSourceDir(skill: Skill): string | null {
+  const repoDir = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', skill.id)
+  if (window.services.pathExists(repoDir)) return repoDir
+  const localPath = (skill as any).path
+  if (localPath && window.services.pathExists(localPath)) return localPath
+  return null
+}
+
 async function deploy() {
   if (!selectedPlatforms.value.size || deploying.value) return
   deploying.value = true
   deployResults.value = []
   deployProgress.value = { current: 0, total: selectedPlatforms.value.size, platform: '' }
 
-  const sourceDir = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', props.skill.id)
+  const sourceDir = resolveSourceDir(props.skill)
+  if (!sourceDir) {
+    showToast(`「${props.skill.name}」的源文件不存在，无法分发`, 'error')
+    deploying.value = false
+    return
+  }
   const pids = Array.from(selectedPlatforms.value)
   let done = 0
 

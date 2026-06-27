@@ -530,17 +530,30 @@ function selectAllMySkills() {
   }
 }
 
+function resolveSourceDir(skill: Skill): string | null {
+  const repoDir = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', skill.id)
+  if (window.services.pathExists(repoDir)) return repoDir
+  const localPath = (skill as any).path
+  if (localPath && window.services.pathExists(localPath)) return localPath
+  return null
+}
+
 async function confirmImportFromMy() {
   if (!selectedProject.value || !selectedImportIds.value.size || !importTargetDirs.value.length) return
   importingFromMy.value = true
   let importedCount = 0
+  let failCount = 0
   try {
     for (const skillId of selectedImportIds.value) {
       const skill = mySkills.value.find((s) => s.id === skillId)
       if (!skill) continue
       const skillDirName = skill.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || skill.id
-      const sourceDir = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', skillId)
-      if (!window.services.pathExists(sourceDir)) continue
+      const sourceDir = resolveSourceDir(skill)
+      if (!sourceDir) {
+        showToast(`「${skill.name}」的源文件不存在，已跳过`, 'warning')
+        failCount++
+        continue
+      }
       for (const targetRel of importTargetDirs.value) {
         const targetDir = window.services.pathJoin(selectedProject.value.rootDir, targetRel, skillDirName)
         try {
@@ -562,12 +575,18 @@ async function confirmImportFromMy() {
           importedCount++
         } catch (err: any) {
               showToast(`导入「${skill.name}」到 ${targetRel} 失败：${err?.message || '未知错误'}`, 'error')
+              failCount++
             }
       }
     }
-    if (importedCount > 0) {
+    if (importedCount > 0 && failCount > 0) {
+      showToast(`导入完成：${importedCount} 成功，${failCount} 失败`, 'warning')
+      scanProject(selectedProject.value)
+    } else if (importedCount > 0) {
       showToast(`已导入 ${importedCount} 个技能到项目`, 'success')
       scanProject(selectedProject.value)
+    } else if (failCount > 0) {
+      showToast(`所有技能导入失败`, 'error')
     }
   } catch (err: any) { showToast(err.message, 'error') }
   importingFromMy.value = false
@@ -593,7 +612,7 @@ async function confirmImportFromMy() {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
             添加项目
           </button>
-          <button class="toolbar-btn import-btn" :disabled="!allProjectSkills.length" @click="showImportModal = true">
+          <button class="toolbar-btn import-btn" :disabled="!selectedProject" @click="showImportModal = true">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             导入
           </button>
@@ -1352,7 +1371,7 @@ async function confirmImportFromMy() {
 .ps-scroll { flex: 1; overflow-y: auto; overscroll-behavior: contain; min-height: 0; padding: 20px 28px 28px; scrollbar-gutter: stable; }
 
 .skill-grid { display: grid; }
-.skill-grid.grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.skill-grid.grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
 .skill-grid.list { grid-template-columns: 1fr; gap: 10px; }
 
 .skill-card {
@@ -1626,7 +1645,7 @@ async function confirmImportFromMy() {
 .modal-select-all:hover { background: hsl(var(--muted)); }
 .modal-skill-list { flex: 1; overflow-y: auto; padding: 12px 24px; min-height: 200px; }
 .modal-empty { display: flex; align-items: center; justify-content: center; height: 120px; color: hsl(var(--muted-foreground)); font-size: 13px; }
-.modal-skill-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+.modal-skill-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; }
 .modal-skill-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 12px; border: 1px solid hsl(var(--border)); background: hsl(var(--card)); cursor: pointer; transition: all var(--duration-base) var(--ease-standard); }
 .modal-skill-card:hover:not(.disabled) { border-color: hsl(var(--primary) / 0.4); background: hsl(var(--primary) / 0.03); }
 .modal-skill-card.selected { border-color: hsl(var(--primary)); background: hsl(var(--primary) / 0.06); }

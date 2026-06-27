@@ -129,6 +129,7 @@ let mqCleanup: (() => void) | null = null
 
 onMounted(() => {
   storage.cleanStaleCachedSkills()
+  storage.updateChineseTags()
   refreshCounts()
   refreshMySkills()
   applyTheme(settings)

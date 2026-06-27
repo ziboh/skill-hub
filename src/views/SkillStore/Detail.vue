@@ -215,7 +215,7 @@ async function loadSkillContent() {
   }
 
   if (skill.source === 'skills-sh' && skill.repo && !skill.readme) {
-    const result = await fetchSkillDetailFromSkill(skill)
+    const result = await fetchSkillDetailFromSkill(skill, storage.getSettings().githubToken || undefined)
     if (result) {
       skillName.value = result.name
       skillDesc.value = result.description

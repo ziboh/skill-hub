@@ -83,10 +83,7 @@ function getPhysicallyExistingAgentDirs(project: RegisteredProject): Set<string>
   return result
 }
 
-const physicallyExistingAgentDirs = computed(() => {
-  if (!selectedProjects.value.length || !primaryProject.value) return new Set<string>()
-  return getPhysicallyExistingAgentDirs(primaryProject.value)
-})
+const physicallyExistingAgentDirs = ref<Set<string>>(new Set())
 
 function getSourceAgentDirs(project: RegisteredProject): Set<string> {
   const result = new Set<string>()
@@ -115,7 +112,14 @@ function makeRecordKey(agentPath: string, projectId?: string): string {
 
 function isInstalled(agentPath: string, projectId?: string): boolean {
   const key = makeRecordKey(agentPath, projectId)
-  return installRecords.value.some((r) => r.platformId === key && r.scope === 'project')
+  const hasRecord = installRecords.value.some((r) => r.platformId === key && r.scope === 'project')
+  if (!hasRecord) return false
+  const project = primaryProject.value
+  if (!project) return true
+  const targetDir = window.services.pathJoin(project.rootDir, agentPath, skillDirName.value)
+  if (!window.services.pathExists(targetDir)) return false
+  const files = window.services.readDir(targetDir)
+  return files.some((f: any) => f.name === 'SKILL.md' || f.name === 'skill.md')
 }
 
 const uninstalledAgentDirs = computed(() =>
@@ -127,14 +131,30 @@ function loadInstallStatus() {
   const allRecords = storage.getInstallRecords()
   const pids = new Set(selectedProjects.value.map((p) => p.id))
   if (primaryProject.value?.id) pids.add(primaryProject.value.id)
-  if (!pids.size) { installRecords.value = []; return }
-  installRecords.value = allRecords.filter((r) => {
-    if (r.scope !== 'project') return false
+  if (!pids.size) { installRecords.value = []; physicallyExistingAgentDirs.value = new Set(); return }
+  const valid: InstallRecord[] = []
+  for (const r of allRecords) {
+    if (r.scope !== 'project') continue
+    let matched = false
     for (const pid of pids) {
-      if (r.platformId.startsWith(`project:${pid}/`)) return true
+      if (r.platformId.startsWith(`project:${pid}/`)) { matched = true; break }
     }
-    return false
-  })
+    if (!matched) continue
+    if (r.targetPath && window.services.pathExists(r.targetPath)) {
+      const files = window.services.readDir(r.targetPath)
+      if (files.some((f: any) => f.name === 'SKILL.md' || f.name === 'skill.md')) {
+        valid.push(r)
+        continue
+      }
+    }
+    storage.removeInstallRecord(r.skillId, r.platformId, 'project')
+  }
+  installRecords.value = valid
+  if (primaryProject.value) {
+    physicallyExistingAgentDirs.value = getPhysicallyExistingAgentDirs(primaryProject.value)
+  } else {
+    physicallyExistingAgentDirs.value = new Set<string>()
+  }
 }
 
 const confirmUninstall = ref(false)
@@ -165,7 +185,12 @@ async function uninstall() {
     }
     storage.removeInstallRecord(props.skill.id, key, 'project')
     loadInstallStatus()
-    showToast(`已从项目卸载`, 'success')
+    const stillExists = installRecords.value.some((r) => r.platformId === key)
+    if (stillExists) {
+      showToast('卸载失败：记录删除异常', 'error')
+    } else {
+      showToast(`已从项目卸载`, 'success')
+    }
   } catch (err: any) {
     showToast('卸载失败: ' + (err.message || '未知错误'), 'error')
   }
@@ -217,61 +242,90 @@ async function install() {
   if (customDirInput.value && !agentPaths.includes(customDirInput.value)) {
     agentPaths.push(customDirInput.value)
   }
-  if (!agentPaths.length) { showToast('请指定保存位置', 'error'); return }
+  if (!agentPaths.length) { showToast('请先选择保存位置', 'error'); return }
 
   emit('install-started')
   installLog.value = []
-  const sourceDir = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', props.skill.id)
-  const installedNames: string[] = []
 
-  for (const project of projects) {
-    for (const agentPath of agentPaths) {
-      const targetDir = getTargetPath(agentPath, project)
+  try {
+    const repoDir = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', props.skill.id)
+    const sourceDir = window.services.pathExists(repoDir) ? repoDir : ((props.skill as any).path && window.services.pathExists((props.skill as any).path) ? (props.skill as any).path : null)
+    if (!sourceDir) {
+      showToast(`「${props.skill.name}」的源文件不存在，无法分发`, 'error')
+      return
+    }
+    const srcFiles = window.services.readDir(sourceDir)
+    const hasSkillMd = srcFiles.some((f: any) => f.name === 'SKILL.md' || f.name === 'skill.md')
+    if (!hasSkillMd) {
+      showToast(`「${props.skill.name}」源目录中未找到 SKILL.md`, 'error')
+      return
+    }
+    const installedNames: string[] = []
+    const failedMessages: string[] = []
 
-      if (!showStatusBadges.value) {
-        const key = makeRecordKey(agentPath, project.id)
-        const alreadyInstalled = storage.getInstallRecords().some(
-          (r) => r.skillId === props.skill.id && r.platformId === key && r.scope === 'project'
-        )
-        if (alreadyInstalled) {
-          addLog(`${project.name}/${agentPath}`, 'ok', '已存在，跳过')
-          continue
+    for (const project of projects) {
+      for (const agentPath of agentPaths) {
+        const targetDir = getTargetPath(agentPath, project)
+
+        if (!showStatusBadges.value) {
+          const key = makeRecordKey(agentPath, project.id)
+          const alreadyInstalled = storage.getInstallRecords().some(
+            (r) => r.skillId === props.skill.id && r.platformId === key && r.scope === 'project'
+          )
+          if (alreadyInstalled) {
+            addLog(`${project.name}/${agentPath}`, 'ok', '已存在，跳过')
+            continue
+          }
         }
-      }
 
-      try {
-        window.services.mkdir(targetDir)
-        if (props.installMode === 'symlink') {
-          window.services.createSymlink(sourceDir, targetDir)
-          addLog(`${project.name}/${agentPath}`, 'ok', `Symlink: ${targetDir}`)
-        } else {
-          window.services.copyFile(sourceDir, targetDir)
-          addLog(`${project.name}/${agentPath}`, 'ok', `Copied: ${targetDir}`)
+        try {
+          window.services.mkdir(targetDir)
+          if (props.installMode === 'symlink') {
+            window.services.createSymlink(sourceDir, targetDir)
+          } else {
+            window.services.copyFile(sourceDir, targetDir)
+          }
+          const verifyFiles = window.services.readDir(targetDir)
+          const hasContent = verifyFiles.some((f: any) => f.name === 'SKILL.md' || f.name === 'skill.md')
+          if (!hasContent) {
+            failedMessages.push(`${project.name}/${agentPath}: 目标目录为空，拷贝未生效 → ${targetDir}`)
+            addLog(`${project.name}/${agentPath}`, 'error', `拷贝未生效: ${targetDir}`)
+            continue
+          }
+          storage.saveInstallRecord({
+            skillId: props.skill.id,
+            platformId: makeRecordKey(agentPath, project.id),
+            mode: props.installMode,
+            scope: 'project',
+            targetPath: targetDir,
+            sourceDir: props.skill.repo || '',
+            installedAt: new Date().toISOString(),
+          })
+          installedNames.push(`${project.name}/${agentPath}`)
+          addLog(`${project.name}/${agentPath}`, 'ok', `源: ${sourceDir} → ${targetDir}`)
+        } catch (err: any) {
+          failedMessages.push(`${project.name}/${agentPath}: ${err.message || '未知错误'} (源: ${sourceDir} → 目标: ${targetDir})`)
+          addLog(`${project.name}/${agentPath}`, 'error', `${err.message}: ${sourceDir} → ${targetDir}`)
         }
-        storage.saveInstallRecord({
-          skillId: props.skill.id,
-          platformId: makeRecordKey(agentPath, project.id),
-          mode: props.installMode,
-          scope: 'project',
-          targetPath: targetDir,
-          sourceDir: props.skill.repo || '',
-          installedAt: new Date().toISOString(),
-        })
-        installedNames.push(`${project.name}/${agentPath}`)
-      } catch (err: any) {
-        addLog(`${project.name}/${agentPath}`, 'error', err.message)
       }
     }
-  }
 
-  if (installedNames.length) {
-    const detail = installedNames.length === 1 ? installedNames[0] : `${installedNames.length} 个位置：${installedNames.join('、')}`
-    showToast(`已将 ${props.skill.name} 分发到${detail}`, 'success')
+    if (installedNames.length && failedMessages.length) {
+      showToast(`分发完成：${installedNames.length} 成功，${failedMessages.length} 失败`, 'warning')
+    } else if (installedNames.length) {
+      const detail = installedNames.length === 1 ? installedNames[0] : `${installedNames.length} 个位置`
+      showToast(`已将 ${props.skill.name} 分发到${detail}`, 'success')
+    } else if (failedMessages.length) {
+      showToast(`分发失败：${failedMessages[0]}`, 'error')
+    }
+  } catch (err: any) {
+    showToast('分发出错：' + (err.message || '未知错误'), 'error')
+  } finally {
+    loadInstallStatus()
+    selectedAgentDirs.value = []
+    customDirInput.value = ''
+    emit('install-finished')
   }
-  loadInstallStatus()
-  selectedAgentDirs.value = []
-  customDirInput.value = ''
-  emit('install-finished')
 }
 
 watch(() => props.skill.id, () => { loadInstallStatus(); selectedAgentDirs.value = []; customDirInput.value = '' })

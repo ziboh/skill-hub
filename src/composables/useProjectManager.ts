@@ -4,9 +4,12 @@ import { storage } from '../utils/storage'
 import { defaultPlatforms } from '../data/platforms'
 import type { RegisteredProject, SkillScanResult } from '../types'
 
-const DEFAULT_PROJECT_SCAN_SUBDIRS = defaultPlatforms
-  .filter(p => p.projectPath)
-  .map(p => p.projectPath!.replace(/^\.\//, ''))
+const DEFAULT_PROJECT_SCAN_SUBDIRS = [
+  '.agents/skills',
+  ...defaultPlatforms
+    .filter(p => p.projectPath)
+    .map(p => p.projectPath!.replace(/^\.\//, '')),
+]
 
 export function useProjectManager(opts: {
   showToast: (msg: string, type?: 'success' | 'error' | 'info' | 'warning') => void

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, inject, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, inject, watch, nextTick, reactive } from 'vue'
 import { storage, cleanDescription } from '../../utils/storage'
 import type { Skill, SkillIdentity } from '../../types'
 import { defaultPlatforms } from '../../data/platforms'
@@ -14,6 +14,7 @@ import ConfirmDeleteModal from '../../components/ConfirmDeleteModal.vue'
 import ConfirmBatchDeleteModal from '../../components/ConfirmBatchDeleteModal.vue'
 import { loadRegistry, getSourceLabel as getRegistrySourceLabel } from '../../utils/skill-registry'
 import { getSourceInfo as getSourceInfoUtil } from '../../utils/source-info'
+import { isChineseContent } from '../../utils/translate'
 import { getAvatarColor } from '../../utils/color'
 import { KeyFilterCategory, KeyFilterSource, KeyRefreshMySkills, KeyOpenImportModal, KeyCurrentRoute, KeyRefreshKey } from '../../inject-keys'
 
@@ -78,7 +79,11 @@ async function enrichLocalDescriptions() {
       }
     } catch { }
   }
-  if (changed) storage.saveCachedSkills(allSkills.value.map(s => ({ ...s })))
+  if (changed) {
+    storage.saveCachedSkills(allSkills.value.map(s => ({ ...s })))
+    storage.updateChineseTags()
+    allSkills.value = storage.getCachedSkills()
+  }
 }
 
 const installedSkillIds = computed(() => new Set(installRecords.value.map((r) => r.skillId)))
@@ -104,18 +109,69 @@ const {
 
 const totalDownloaded = computed(() => downloadedSkills.value.length)
 
-const platformNameMap = computed(() => {
-  const map: Record<string, string> = {}
-  for (const p of defaultPlatforms) map[p.id] = p.name
-  return map
-})
-
-function getInstalledPlatforms(skillId: string) {
-  return installRecords.value.filter((r) => r.skillId === skillId && r.scope !== 'project').map((r) => ({
-    id: r.platformId,
-    name: platformNameMap.value[r.platformId] || r.platformId,
-  }))
+function getInstalledPlatforms(skillId: string): string[] {
+  return installRecords.value
+    .filter((r) => r.skillId === skillId && r.scope !== 'project')
+    .map((r) => r.platformId)
 }
+
+const iconRowCounts = reactive<Record<string, number>>({})
+const iconRowWidths = reactive<Record<string, number>>({})
+const iconObservers = new Map<string, ResizeObserver>()
+
+function getFirstRowIcons(skillId: string): string[] {
+  const all = getInstalledPlatforms(skillId)
+  const count = iconRowCounts[skillId]
+  return count === undefined || count <= 0 ? all : all.slice(0, count)
+}
+
+function getSecondRowIcons(skillId: string): string[] {
+  const all = getInstalledPlatforms(skillId)
+  const count = iconRowCounts[skillId]
+  if (count === undefined || count <= 0) return []
+  return all.slice(count)
+}
+
+function hasSecondRow(skillId: string): boolean {
+  const count = iconRowCounts[skillId]
+  return count !== undefined && count > 0 && count < getInstalledPlatforms(skillId).length
+}
+
+function getSecondRowOffset(skillId: string): number {
+  const count = iconRowCounts[skillId]
+  const w = iconRowWidths[skillId]
+  if (!count || !w) return 0
+  const iconsW = count * 16 + (count - 1) * 4
+  return Math.max(0, w - iconsW)
+}
+
+function observeIconContainer(skillId: string, el: any) {
+  if (!el || !(el instanceof Element)) {
+    if (!el) {
+      iconObservers.get(skillId)?.disconnect()
+      iconObservers.delete(skillId)
+    }
+    return
+  }
+  if (iconObservers.has(skillId)) return
+  function update() {
+    const w = el.clientWidth
+    if (w <= 0) return
+    iconRowWidths[skillId] = w
+    const total = getInstalledPlatforms(skillId).length
+    const maxFit = Math.max(1, Math.floor((w + 4) / (16 + 4)))
+    iconRowCounts[skillId] = Math.min(maxFit, total)
+  }
+  const obs = new ResizeObserver(update)
+  obs.observe(el)
+  iconObservers.set(skillId, obs)
+  update()
+}
+
+onUnmounted(() => {
+  for (const obs of iconObservers.values()) obs.disconnect()
+  iconObservers.clear()
+})
 
 function isFavorited(id: string) { return favoriteIds.value.includes(id) }
 function toggleFavorite(id: string) { storage.toggleFavorite(id); favoriteIds.value = storage.getFavoriteIds(); refreshMySkills() }
@@ -499,15 +555,19 @@ function batchSyncToPlatform() {
         </div>
         <div class="card-top-row">
           <div class="card-avatar" :style="{ background: getAvatarColor(skill.name) }">{{ skill.name.charAt(0).toUpperCase() }}</div>
+          <div v-if="getInstalledPlatforms(skill.id).length"
+            class="card-platform-icons"
+            :ref="(el) => observeIconContainer(skill.id, el)"
+          >
+            <div class="icons-row icons-row-reverse">
+              <PlatformIcon v-for="p in getFirstRowIcons(skill.id)" :key="p" :platform-id="p" :size="16" />
+            </div>
+            <div v-if="hasSecondRow(skill.id)" class="icons-row" :style="{ paddingLeft: getSecondRowOffset(skill.id) + 'px' }">
+              <PlatformIcon v-for="p in getSecondRowIcons(skill.id)" :key="p" :platform-id="p" :size="16" />
+            </div>
+          </div>
           <div class="card-top-right">
             <div class="card-badges-row">
-              <PlatformIcon
-                v-for="p in getInstalledPlatforms(skill.id)"
-                :key="p.id"
-                :platform-id="p.id"
-                :size="16"
-                :title="p.name"
-              />
               <span class="card-tag source-tag" :style="{ background: getSourceInfo(skill).bg, color: getSourceInfo(skill).color }">
                 <svg v-if="getSourceInfo(skill).icon === 'multi'" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <circle cx="12" cy="12" r="10"/>
@@ -528,6 +588,7 @@ function batchSyncToPlatform() {
                 {{ getSourceInfo(skill).label }}
               </span>
               <span class="card-tag category-tag">{{ getCategoryInfo(skill).icon }} {{ getCategoryInfo(skill).label }}</span>
+              <span v-if="isChineseContent(skill.description || '')" class="card-tag chinese-tag">中文</span>
             </div>
             <div v-if="!batchMode" class="card-actions">
               <button class="card-action-btn" title="分发" @click.stop="openDeploy(skill)">
@@ -1057,7 +1118,7 @@ function batchSyncToPlatform() {
 }
 
 .skill-grid.grid {
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
 }
 
 .skill-grid.list {
@@ -1116,7 +1177,7 @@ function batchSyncToPlatform() {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 10px;
+  gap: 4px;
   margin-bottom: 4px;
 }
 
@@ -1139,6 +1200,27 @@ function batchSyncToPlatform() {
   align-items: flex-end;
   gap: 8px;
 }
+
+.card-platform-icons {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  padding-top: 2px;
+}
+
+.icons-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.icons-row-reverse {
+  flex-direction: row-reverse;
+  justify-content: flex-start;
+}
+
 
 .card-badges-row {
   display: flex;
@@ -1204,6 +1286,11 @@ function batchSyncToPlatform() {
 .card-tag.category-tag {
   background: hsl(var(--primary) / 0.1);
   color: hsl(var(--primary));
+}
+
+.card-tag.chinese-tag {
+  background: hsl(0 70% 50% / 0.1);
+  color: hsl(0 70% 50%);
 }
 
 .card-actions {

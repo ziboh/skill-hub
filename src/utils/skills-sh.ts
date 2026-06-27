@@ -135,15 +135,30 @@ export async function fetchLeaderboard(filterKey?: string): Promise<LeaderboardR
   return { entries: filtered, totalCount }
 }
 
+// ── Fetch description from skills.sh detail page ──
+
+export async function fetchSkillDescriptionFromSh(skill: Skill): Promise<string | null> {
+  if (!skill.repo) return null
+  const detailUrl = `${BASE}/${skill.repo}/${skill.path}`
+  try {
+    const html = await fetchText(detailUrl)
+    const ldMatch = html.match(/<script type="application\/ld\+json">(\{[^<]*"@type"\s*:\s*"SoftwareApplication"[^<]*\})<\/script>/i)
+    if (ldMatch) {
+      const data = JSON.parse(ldMatch[1])
+      if (data.description) return data.description
+    }
+  } catch {}
+  return null
+}
+
 // ── Fetch skill detail from GitHub SKILL.md ──
 
-export async function fetchSkillDetailFromSkill(skill: Skill): Promise<SkillDetailRaw | null> {
+export async function fetchSkillDetailFromSkill(skill: Skill, token?: string): Promise<SkillDetailRaw | null> {
   if (!skill.repo) return null
   const parts = skill.repo.split('/')
   if (parts.length < 2) return null
   const [owner, repo] = parts
   const skillPath = skill.path || skill.name.toLowerCase().replace(/\s+/g, '-')
-  const token = undefined
 
   try {
     const tree = await fetchGitHubRepoTree(owner, repo, 'main', token)
@@ -152,14 +167,28 @@ export async function fetchSkillDetailFromSkill(skill: Skill): Promise<SkillDeta
     )
 
     const normalizedName = skillPath.toLowerCase().replace(/[^a-z0-9]/g, '')
+    const ownerPrefix = owner.toLowerCase().replace(/[^a-z0-9]/g, '')
     let bestMatch = skillFiles[0]?.path || null
     let bestScore = 0
 
     for (const file of skillFiles) {
-      const dir = file.path.replace(/\/SKILL\.md$/i, '').toLowerCase().replace(/[^a-z0-9]/g, '')
+      const fullPath = file.path.replace(/\/SKILL\.md$/i, '')
+      const dir = fullPath.toLowerCase().replace(/[^a-z0-9]/g, '')
+      const dirSegments = fullPath.split('/')
+      const lastDir = dirSegments[dirSegments.length - 1] || ''
+      const lastDirNormalized = lastDir.toLowerCase().replace(/[^a-z0-9]/g, '')
+      const withoutOwnerPrefix = lastDirNormalized.startsWith(ownerPrefix) ? lastDirNormalized.slice(ownerPrefix.length) : lastDirNormalized
+
       if (dir === normalizedName) { bestMatch = file.path; break }
       if (dir.includes(normalizedName) || normalizedName.includes(dir)) {
         const score = Math.min(dir.length, normalizedName.length)
+        if (score > bestScore) { bestScore = score; bestMatch = file.path }
+      }
+      if (lastDirNormalized === normalizedName || withoutOwnerPrefix === normalizedName) {
+        bestMatch = file.path; break
+      }
+      if (lastDirNormalized.includes(normalizedName) || normalizedName.includes(lastDirNormalized)) {
+        const score = Math.min(lastDirNormalized.length, normalizedName.length)
         if (score > bestScore) { bestScore = score; bestMatch = file.path }
       }
     }
@@ -173,10 +202,21 @@ export async function fetchSkillDetailFromSkill(skill: Skill): Promise<SkillDeta
     }
   } catch {}
 
+  const fallbackPath = skillPath.startsWith(owner.toLowerCase().replace(/[^a-z]/g, ''))
+    ? skillPath.slice(owner.length)
+    : skillPath
+  const strippedNames = new Set<string>()
+  strippedNames.add(skillPath)
+  strippedNames.add(fallbackPath)
+  const ownerSegments = owner.toLowerCase().split(/[^a-z]+/).filter(Boolean)
+  const repoSegments = repo.toLowerCase().split(/[^a-z]+/).filter(Boolean)
+  for (const seg of [...ownerSegments, ...repoSegments]) {
+    if (seg && skillPath.toLowerCase().startsWith(seg + '-')) {
+      strippedNames.add(skillPath.slice(seg.length + 1))
+    }
+  }
   const pathCandidates = [
-    `${skillPath}/SKILL.md`,
-    `skills/${skillPath}/SKILL.md`,
-    `agent-skills/${skillPath}/SKILL.md`,
+    ...Array.from(strippedNames).flatMap(n => [`${n}/SKILL.md`, `skills/${n}/SKILL.md`, `agent-skills/${n}/SKILL.md`]),
     'SKILL.md',
   ]
   for (const p of pathCandidates) {

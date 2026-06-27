@@ -4,7 +4,7 @@ import { KeyShowToast } from '../inject-keys'
 import type { Skill } from '../types'
 import { useSettings } from '../composables/useSettings'
 import SkillFileEditor from './SkillFileEditor.vue'
-import { translateContent, translateDescription, stripFrontmatter, renderImmersiveSegments } from '../utils/translate'
+import { translateContent, translateDescription, stripFrontmatter, renderImmersiveSegments, isChineseContent } from '../utils/translate'
 import type { TranslationMode } from '../utils/translate'
 import { storage } from '../utils/storage'
 import { getAvatarColor } from '../utils/color'
@@ -107,11 +107,13 @@ const isTranslating = ref(false)
 const showTranslation = ref(false)
 const translatedContent = ref('')
 const translationMode = ref<TranslationMode>('immersive')
+const isContentChinese = ref(false)
 
 const isTranslatingDesc = ref(false)
 const descTranslationDone = ref(false)
 const showDescTranslation = ref(false)
 const translatedDesc = ref('')
+const isDescChinese = ref(false)
 
 const translationModel = computed(() => {
   if (!settings.translationModelId) {
@@ -140,6 +142,7 @@ function loadTranslationCache() {
     translatedContent.value = ''
     showTranslation.value = false
   }
+  isContentChinese.value = isChineseContent(props.skillContent)
   const cachedDesc = storage.getTranslationDesc(props.skill.id)
   if (cachedDesc) {
     translatedDesc.value = cachedDesc
@@ -150,6 +153,7 @@ function loadTranslationCache() {
     descTranslationDone.value = false
     showDescTranslation.value = false
   }
+  isDescChinese.value = isChineseContent(props.skillDesc || props.skill.description || '')
 }
 
 function saveTranslationCache() {
@@ -223,6 +227,16 @@ function getVisibleContent(): string {
 
 async function handleTranslate() {
   if (!props.skillContent.trim()) return
+
+  isContentChinese.value = isChineseContent(props.skillContent)
+
+  if (isContentChinese.value) {
+    translatedContent.value = props.skillContent
+    showTranslation.value = true
+    saveTranslationCache()
+    return
+  }
+
   if (translatedContent.value) {
     showTranslation.value = !showTranslation.value
     return
@@ -255,6 +269,16 @@ async function handleTranslateDesc() {
   const desc = props.skillDesc || props.skill.description
   if (!desc) return
 
+  isDescChinese.value = isChineseContent(desc)
+
+  if (isDescChinese.value) {
+    translatedDesc.value = desc
+    descTranslationDone.value = true
+    showDescTranslation.value = true
+    saveDescTranslationCache()
+    return
+  }
+
   if (descTranslationDone.value) {
     showDescTranslation.value = !showDescTranslation.value
     return
@@ -285,6 +309,16 @@ async function handleTranslateDesc() {
 async function handleReTranslateDesc() {
   const desc = props.skillDesc || props.skill.description
   if (!desc) return
+
+  isDescChinese.value = isChineseContent(desc)
+
+  if (isDescChinese.value) {
+    translatedDesc.value = desc
+    descTranslationDone.value = true
+    showDescTranslation.value = true
+    saveDescTranslationCache()
+    return
+  }
 
   if (!translationModel.value) {
     showToast('请先在设置中配置 AI 模型', 'error')
@@ -420,54 +454,22 @@ async function handleReTranslateDesc() {
               <div class="panel-card desc-panel">
                 <p class="desc-text">{{ descTranslationDone && showDescTranslation ? translatedDesc : (skillDesc || skill.description || '暂无描述') }}</p>
                 <div class="desc-footer">
-                  <div class="desc-actions">
-                    <button v-if="descTranslationDone" class="heading-btn" @click="handleReTranslateDesc" :disabled="isTranslatingDesc">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/><path d="M21 3v9h-9"/></svg>
-                      重新翻译
-                    </button>
-                    <button class="heading-btn" :class="{ active: descTranslationDone && showDescTranslation }" @click="handleTranslateDesc" :disabled="isTranslatingDesc">
-                      <svg v-if="isTranslatingDesc" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-                      <svg v-else width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>
-                      {{ isTranslatingDesc ? '翻译中...' : descTranslationDone ? (showDescTranslation ? '显示原文' : '显示译文') : '翻译描述' }}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <!-- User Tags (only for 'my' context) -->
-            <section v-if="context === 'my'" class="space-y-4">
-              <h3 class="section-heading">分类</h3>
-              <div class="panel-card tags-panel">
-                <div v-if="!editingTags" class="tags-display">
-                  <div class="tags-list">
-                    <span v-if="currentCategory" class="user-tag category-selected">
-                      {{ currentCategory.icon }} {{ currentCategory.label }}
-                    </span>
-                    <span v-else class="tags-empty">未分类</span>
-                  </div>
-                  <button class="heading-btn" @click="startEditTags">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                    修改
-                  </button>
-                </div>
-                <div v-else class="tags-editing">
-                  <div class="category-grid">
-                    <button
-                      v-for="cat in ALL_CATEGORIES"
-                      :key="cat"
-                      class="category-option"
-                      :class="{ active: selectedCategory === cat }"
-                      @click="selectedCategory = cat"
-                    >
-                      <span class="category-icon">{{ CATEGORY_ICONS[cat] }}</span>
-                      <span class="category-label">{{ SKILL_CATEGORIES[cat].label }}</span>
-                    </button>
-                  </div>
-                  <div class="tag-input-row">
-                    <button class="heading-btn primary" @click="saveCategoryTag">保存</button>
-                    <button class="heading-btn" @click="cancelEditTags">取消</button>
-                  </div>
+                  <template v-if="isDescChinese && descTranslationDone">
+                    <span class="already-chinese-hint">此描述已是中文</span>
+                  </template>
+                  <template v-else>
+                    <div class="desc-actions">
+                      <button v-if="descTranslationDone" class="heading-btn" @click="handleReTranslateDesc" :disabled="isTranslatingDesc">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/><path d="M21 3v9h-9"/></svg>
+                        重新翻译
+                      </button>
+                      <button class="heading-btn" :class="{ active: descTranslationDone && showDescTranslation }" @click="handleTranslateDesc" :disabled="isTranslatingDesc">
+                        <svg v-if="isTranslatingDesc" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                        <svg v-else width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>
+                        {{ isTranslatingDesc ? '翻译中...' : descTranslationDone ? (showDescTranslation ? '显示原文' : '显示译文') : '翻译描述' }}
+                      </button>
+                    </div>
+                  </template>
                 </div>
               </div>
             </section>
@@ -480,11 +482,16 @@ async function handleReTranslateDesc() {
                   <span class="section-hint">预览</span>
                 </h3>
                 <div class="section-actions">
-                  <button class="heading-btn" :class="{ active: showTranslation && translatedContent }" @click="handleTranslate" :disabled="isTranslating">
-                    <svg v-if="isTranslating" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-                    <svg v-else width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>
-                    {{ isTranslating ? '翻译中...' : showTranslation && translatedContent ? '显示原文' : translatedContent ? '显示译文' : '翻译内容' }}
-                  </button>
+                  <template v-if="isContentChinese && showTranslation">
+                    <span class="already-chinese-hint">此内容已是中文</span>
+                  </template>
+                  <template v-else>
+                    <button class="heading-btn" :class="{ active: showTranslation && translatedContent }" @click="handleTranslate" :disabled="isTranslating">
+                      <svg v-if="isTranslating" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                      <svg v-else width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>
+                      {{ isTranslating ? '翻译中...' : showTranslation && translatedContent ? '显示原文' : translatedContent ? '显示译文' : '翻译内容' }}
+                    </button>
+                  </template>
                   <button class="heading-btn" @click="emit('copy-content', isEditing ? editedContent : skillContent, 'instr')">
                     <svg v-if="copyStatus['instr']" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                     <svg v-else width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
@@ -522,7 +529,43 @@ async function handleReTranslateDesc() {
           </div>
 
           <!-- Right column: context-specific (slot) -->
-          <div v-if="$slots['context-panel']" v-show="!sidePanelCollapsed" class="preview-side space-y-6">
+          <div v-if="$slots['context-panel'] || context === 'my'" v-show="!sidePanelCollapsed" class="preview-side space-y-6">
+            <!-- User Tags (only for 'my' context) -->
+            <div v-if="context === 'my'" class="side-panel-section">
+              <h3 class="side-panel-heading">分类</h3>
+              <div class="panel-card tags-panel">
+                <div v-if="!editingTags" class="tags-display">
+                  <div class="tags-list">
+                    <span v-if="currentCategory" class="user-tag category-selected">
+                      {{ currentCategory.icon }} {{ currentCategory.label }}
+                    </span>
+                    <span v-else class="tags-empty">未分类</span>
+                  </div>
+                  <button class="heading-btn" @click="startEditTags">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    修改
+                  </button>
+                </div>
+                <div v-else class="tags-editing">
+                  <div class="category-grid">
+                    <button
+                      v-for="cat in ALL_CATEGORIES"
+                      :key="cat"
+                      class="category-option"
+                      :class="{ active: selectedCategory === cat }"
+                      @click="selectedCategory = cat"
+                    >
+                      <span class="category-icon">{{ CATEGORY_ICONS[cat] }}</span>
+                      <span class="category-label">{{ SKILL_CATEGORIES[cat].label }}</span>
+                    </button>
+                  </div>
+                  <div class="tag-input-row">
+                    <button class="heading-btn primary" @click="saveCategoryTag">保存</button>
+                    <button class="heading-btn" @click="cancelEditTags">取消</button>
+                  </div>
+                </div>
+              </div>
+            </div>
             <slot name="context-panel" />
           </div>
         </div>
@@ -778,6 +821,7 @@ async function handleReTranslateDesc() {
 .section-hint { font-size: 10px; font-weight: 400; text-transform: none; letter-spacing: 0; opacity: 0.5; margin-left: 6px; }
 .section-header-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .section-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.already-chinese-hint { font-size: 12px; color: hsl(var(--muted-foreground)); font-style: italic; }
 
 /* ═══ Preview two-column ═══ */
 .preview-layout { display: grid; grid-template-columns: 1fr 280px; gap: 20px; align-items: start; transition: grid-template-columns var(--duration-smooth) var(--ease-standard); }
@@ -812,6 +856,22 @@ async function handleReTranslateDesc() {
 }
 @media (max-width: 640px) {
   .preview-layout { grid-template-columns: 1fr; }
+}
+
+/* ═══ Side panel section ═══ */
+.side-panel-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.side-panel-heading {
+  font-size: 11px;
+  font-weight: 700;
+  color: hsl(var(--muted-foreground));
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  white-space: nowrap;
+  margin: 0;
 }
 
 /* ═══ Panel cards (element block feel) ═══ */

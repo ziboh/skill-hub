@@ -1,5 +1,21 @@
 import type { SkillIdentity, SkillSourceLocation, SkillScanResult } from '../types'
 
+function isChineseContent(text: string): boolean {
+  if (!text) return false
+  const chineseChars = text.match(/[\u4e00-\u9fff]/g)
+  if (!chineseChars) return false
+  const chineseRatio = chineseChars.length / text.length
+  return chineseRatio > 0.1
+}
+
+function addChineseTag(tags: string[], content?: string): string[] {
+  const result = [...tags]
+  if (content && isChineseContent(content) && !result.includes('中文')) {
+    result.push('中文')
+  }
+  return result
+}
+
 const STORAGE_KEY = 'sh_skill_registry'
 
 
@@ -42,7 +58,7 @@ export function getOrCreateIdentity(
     name: scanResult.manifest.name || scanResult.name,
     description: scanResult.manifest.description,
     author: scanResult.manifest.author,
-    tags: scanResult.manifest.tags || [],
+    tags: addChineseTag(scanResult.manifest.tags || [], scanResult.content),
     format: scanResult.manifest.format as any,
     contentHash: '',
     sources: [source],
@@ -94,7 +110,7 @@ export function registerSkillFromStore(
     name: scanResult.manifest.name || scanResult.name,
     description: scanResult.manifest.description,
     author: scanResult.manifest.author,
-    tags: scanResult.manifest.tags || [],
+    tags: addChineseTag(scanResult.manifest.tags || [], scanResult.content),
     format: scanResult.manifest.format as any,
     contentHash: '',
     sources: [source],

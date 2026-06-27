@@ -28,6 +28,7 @@ const { addInstall, updateItem } = useDownloadQueue()
 const selectedPlatforms = ref<string[]>([])
 const installRecords = ref<InstallRecord[]>([])
 const installLog = ref<{ platform: string; status: 'ok' | 'error' | 'pending'; msg: string }[]>([])
+const refreshTick = ref(0)
 
 const platforms = computed(() => {
   const saved = storage.getPlatformConfigs()
@@ -38,6 +39,7 @@ const platforms = computed(() => {
 })
 
 const physicallyInstalledPlatforms = computed(() => {
+  void refreshTick.value
   const result = new Set<string>()
   const skillDir = props.skill.path ? props.skill.path.split('/').pop() || props.skill.name : props.skill.name
   for (const p of platforms.value) {
@@ -69,14 +71,29 @@ const sourcePlatformIds = computed(() => {
 })
 
 function isInstalled(platformId: string): boolean {
-  return installRecords.value.some((r) => r.platformId === platformId && (!(r as any).scope || (r as any).scope === 'global'))
+  const hasRecord = installRecords.value.some((r) => r.platformId === platformId && (!(r as any).scope || (r as any).scope === 'global'))
+  if (!hasRecord) return false
+  const record = installRecords.value.find((r) => r.platformId === platformId)
+  if (!record?.targetPath) return true
+  if (!window.services.pathExists(record.targetPath)) return false
+  const files = window.services.readDir(record.targetPath)
+  return files.some((f: any) => f.name === 'SKILL.md' || f.name === 'skill.md')
 }
 
 const uninstalledPlatforms = computed(() => platforms.value.filter((p) => !isInstalled(p.id) && !sourcePlatformIds.value.has(p.id)))
 const totalUninstalled = computed(() => uninstalledPlatforms.value.length)
 
 function loadInstallStatus() {
-  installRecords.value = storage.getInstalledForSkill(props.skill.id)
+  const allRecords = storage.getInstalledForSkill(props.skill.id)
+  const valid = allRecords.filter((r) => {
+    if (r.targetPath && window.services.pathExists(r.targetPath)) {
+      const files = window.services.readDir(r.targetPath)
+      if (files.some((f: any) => f.name === 'SKILL.md' || f.name === 'skill.md')) return true
+    }
+    storage.removeInstallRecord(r.skillId, r.platformId, 'global')
+    return false
+  })
+  installRecords.value = valid
 }
 
 const confirmUninstall = ref(false)
@@ -103,7 +120,13 @@ async function uninstall() {
     }
     storage.removeInstallRecord(props.skill.id, pid, 'global')
     loadInstallStatus()
-    showToast(`已从 ${pid} 卸载`, 'success')
+    refreshTick.value++
+    const stillExists = installRecords.value.some((r) => r.platformId === pid)
+    if (stillExists) {
+      showToast('卸载失败：记录删除异常', 'error')
+    } else {
+      showToast(`已从 ${pid} 卸载`, 'success')
+    }
   } catch (err: any) {
     showToast('卸载失败: ' + (err.message || '未知错误'), 'error')
   }
@@ -125,11 +148,24 @@ function addLog(platform: string, status: 'ok' | 'error' | 'pending', msg: strin
   installLog.value.push({ platform, status, msg })
 }
 
+function resolveSourceDir(skill: Skill): string | null {
+  const repoDir = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', skill.id)
+  if (window.services.pathExists(repoDir)) return repoDir
+  const localPath = (skill as any).path
+  if (localPath && window.services.pathExists(localPath)) return localPath
+  return null
+}
+
 async function install() {
   if (!selectedPlatforms.value.length) { showToast('请先选择平台', 'error'); return }
   emit('install-started')
   installLog.value = []
-  const sourceDir = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', props.skill.id)
+  const sourceDir = resolveSourceDir(props.skill)
+  if (!sourceDir) {
+    showToast(`「${props.skill.name}」的源文件不存在，无法分发`, 'error')
+    emit('install-finished')
+    return
+  }
   const skillDir = props.skill.path ? props.skill.path.split('/').pop()! : props.skill.name
   const installedNames: string[] = []
 
@@ -163,6 +199,7 @@ async function install() {
   }
 
   loadInstallStatus()
+  refreshTick.value++
   selectedPlatforms.value = []
   emit('install-finished')
 }

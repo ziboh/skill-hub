@@ -243,11 +243,16 @@ async function fetchWithTimeout<T>(promise: Promise<T>, ms: number): Promise<T> 
 }
 
 async function enrichSkillDetails(skills: Skill[]) {
+  const token = storage.getSettings().githubToken || undefined
   await Promise.all(skills.map(async (s) => {
     try {
-      const result = await fetchWithTimeout(skillsSh.fetchSkillDetailFromSkill(s), 10000)
+      const desc = await fetchWithTimeout(skillsSh.fetchSkillDescriptionFromSh(s), 5000)
+      if (desc) s.description = desc
+    } catch {}
+    try {
+      const result = await fetchWithTimeout(skillsSh.fetchSkillDetailFromSkill(s, token), 10000)
       if (result) {
-        s.description = result.description
+        if (!s.description) s.description = result.description
         s.readme = result.content
       }
     } catch {}
@@ -1367,7 +1372,7 @@ function confirmDeleteStore() {
 .search-exit-btn:hover { background: hsl(var(--primary) / 0.2); }
 
 .skill-grid { display: grid; }
-.skill-grid.grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.skill-grid.grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
 .skill-grid.list { grid-template-columns: 1fr; gap: 10px; }
 
 .skill-card {

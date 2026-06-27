@@ -7,7 +7,7 @@ import { parseFrontmatter } from '../utils/frontmatter'
 import type { Skill } from '../types'
 import SkillPickModal from './SkillPickModal.vue'
 import { useSettings } from '../composables/useSettings'
-import { translateContent, translateDescription } from '../utils/translate'
+import { translateContent, translateDescription, isChineseContent } from '../utils/translate'
 import type { TranslationMode } from '../utils/translate'
 import { getAvatarColor } from '../utils/color'
 import { SKILL_CATEGORIES, inferCategory, CATEGORY_ICONS } from '../data/skill-categories'
@@ -36,11 +36,13 @@ const isTranslating = ref(false)
 const showTranslation = ref(false)
 const translatedContent = ref('')
 const translationMode = ref<TranslationMode>('immersive')
+const isContentChinese = ref(false)
 
 const isTranslatingDesc = ref(false)
 const descTranslationDone = ref(false)
 const showDescTranslation = ref(false)
 const translatedDesc = ref('')
+const isDescChinese = ref(false)
 
 const favorites = ref<string[]>([])
 const isFavorited = computed(() => props.skill && favorites.value.includes(props.skill.id))
@@ -83,15 +85,17 @@ async function fetchContent() {
       skillDesc.value = fm.description || props.skill.description || ''
       skillContent.value = bodyMatch ? bodyMatch[1].trim() : props.skill.readme
       loading.value = false
+      initChineseDetection()
       return
     }
     if (props.skill.repo) {
-      const result = await fetchSkillDetailFromSkill(props.skill)
+      const result = await fetchSkillDetailFromSkill(props.skill, storage.getSettings().githubToken || undefined)
       if (result) {
         skillName.value = props.skill.name
         skillDesc.value = result.description
         skillContent.value = result.content
         loading.value = false
+        initChineseDetection()
         return
       }
     }
@@ -100,6 +104,18 @@ async function fetchContent() {
     skillContent.value = ''
   } catch {}
   loading.value = false
+  initChineseDetection()
+}
+
+function initChineseDetection() {
+  const desc = skillDesc.value || props.skill.description || ''
+  isDescChinese.value = isChineseContent(desc)
+  if (isDescChinese.value) {
+    translatedDesc.value = desc
+    descTranslationDone.value = true
+    showDescTranslation.value = true
+  }
+  isContentChinese.value = isChineseContent(skillContent.value)
 }
 
 onMounted(() => { fetchContent(); loadFavorites() })
@@ -139,6 +155,15 @@ const translationModel = computed(() => {
 
 async function handleTranslate() {
   if (!skillContent.value.trim()) return
+
+  isContentChinese.value = isChineseContent(skillContent.value)
+
+  if (isContentChinese.value) {
+    translatedContent.value = skillContent.value
+    showTranslation.value = true
+    return
+  }
+
   if (translatedContent.value) { showTranslation.value = !showTranslation.value; return }
   if (!translationModel.value) { showToast('AI 模型未配置', 'error'); return }
   isTranslating.value = true
@@ -158,6 +183,16 @@ async function handleTranslate() {
 async function handleTranslateDesc() {
   const desc = skillDesc.value || props.skill.description
   if (!desc) return
+
+  isDescChinese.value = isChineseContent(desc)
+
+  if (isDescChinese.value) {
+    translatedDesc.value = desc
+    descTranslationDone.value = true
+    showDescTranslation.value = true
+    return
+  }
+
   if (descTranslationDone.value) { showDescTranslation.value = !showDescTranslation.value; return }
   if (!translationModel.value) { showToast('AI 模型未配置', 'error'); return }
   isTranslatingDesc.value = true
@@ -178,6 +213,16 @@ async function handleTranslateDesc() {
 async function handleReTranslateDesc() {
   const desc = skillDesc.value || props.skill.description
   if (!desc) return
+
+  isDescChinese.value = isChineseContent(desc)
+
+  if (isDescChinese.value) {
+    translatedDesc.value = desc
+    descTranslationDone.value = true
+    showDescTranslation.value = true
+    return
+  }
+
   if (!translationModel.value) { showToast('AI 模型未配置', 'error'); return }
   isTranslatingDesc.value = true
   try {
@@ -369,17 +414,22 @@ async function handleImport() {
               <div class="panel-card desc-panel">
                 <p class="desc-text">{{ descTranslationDone && showDescTranslation ? translatedDesc : (skillDesc || skill.description || '暂无描述') }}</p>
                 <div class="desc-footer">
-                  <div class="desc-actions">
-                    <button v-if="descTranslationDone" class="heading-btn" @click="handleReTranslateDesc" :disabled="isTranslatingDesc">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/><path d="M21 3v9h-9"/></svg>
-                      重新翻译
-                    </button>
-                    <button class="heading-btn" :class="{ active: descTranslationDone && showDescTranslation }" @click="handleTranslateDesc" :disabled="isTranslatingDesc">
-                      <svg v-if="isTranslatingDesc" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-                      <svg v-else width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>
-                      {{ isTranslatingDesc ? '翻译中...' : descTranslationDone ? (showDescTranslation ? '显示原文' : '显示译文') : '翻译描述' }}
-                    </button>
-                  </div>
+                  <template v-if="isDescChinese">
+                    <span class="already-chinese-hint">此描述已是中文</span>
+                  </template>
+                  <template v-else>
+                    <div class="desc-actions">
+                      <button v-if="descTranslationDone" class="heading-btn" @click="handleReTranslateDesc" :disabled="isTranslatingDesc">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/><path d="M21 3v9h-9"/></svg>
+                        重新翻译
+                      </button>
+                      <button class="heading-btn" :class="{ active: descTranslationDone && showDescTranslation }" @click="handleTranslateDesc" :disabled="isTranslatingDesc">
+                        <svg v-if="isTranslatingDesc" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                        <svg v-else width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>
+                        {{ isTranslatingDesc ? '翻译中...' : descTranslationDone ? (showDescTranslation ? '显示原文' : '显示译文') : '翻译描述' }}
+                      </button>
+                    </div>
+                  </template>
                 </div>
               </div>
             </section>
@@ -392,11 +442,16 @@ async function handleImport() {
                   <span class="section-hint">预览</span>
                 </h3>
                 <div class="section-actions">
-                  <button class="heading-btn" :class="{ active: showTranslation && translatedContent }" @click="handleTranslate" :disabled="isTranslating">
-                    <svg v-if="isTranslating" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-                    <svg v-else width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>
-                    {{ isTranslating ? '翻译中...' : showTranslation && translatedContent ? '显示原文' : translatedContent ? '显示译文' : '翻译内容' }}
-                  </button>
+                  <template v-if="isContentChinese && showTranslation">
+                    <span class="already-chinese-hint">此内容已是中文</span>
+                  </template>
+                  <template v-else>
+                    <button class="heading-btn" :class="{ active: showTranslation && translatedContent }" @click="handleTranslate" :disabled="isTranslating">
+                      <svg v-if="isTranslating" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                      <svg v-else width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>
+                      {{ isTranslating ? '翻译中...' : showTranslation && translatedContent ? '显示原文' : translatedContent ? '显示译文' : '翻译内容' }}
+                    </button>
+                  </template>
                   <button class="heading-btn" @click="handleCopy(skillContent, 'instr')">
                     <svg v-if="copyStatus['instr']" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                     <svg v-else width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
@@ -473,6 +528,7 @@ async function handleImport() {
 .section-hint { font-size: 10px; font-weight: 400; text-transform: none; letter-spacing: 0; opacity: 0.5; margin-left: 6px; }
 .section-header-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .section-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.already-chinese-hint { font-size: 12px; color: hsl(var(--muted-foreground)); font-style: italic; }
 .mb-0 { margin-bottom: 0; }
 
 /* ═══ Panel cards ═══ */

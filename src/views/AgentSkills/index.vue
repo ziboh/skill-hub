@@ -360,14 +360,20 @@ function confirmImportFromMy() {
     const targetDir = getPlatformPath(targetPlatform, 'global') || getPlatformPath(targetPlatform, 'project')
     if (!targetDir) { showToast('未找到 Agent 路径', 'error'); importingFromMy.value = false; return }
     let importedCount = 0
+    let failCount = 0
     for (const skillId of selectedImportIds.value) {
       const skill = myAllSkills.value.find((s) => s.id === skillId)
       if (!skill) continue
       const skillDirName = skill.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || skill.id
       const dest = window.services.pathJoin(targetDir, skillDirName)
-      const sourceDir = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', skillId)
+      const repoDir = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', skillId)
+      const sourceDir = window.services.pathExists(repoDir) ? repoDir : ((skill as any).path && window.services.pathExists((skill as any).path) ? (skill as any).path : null)
       try {
-        if (!window.services.pathExists(sourceDir)) continue
+        if (!sourceDir) {
+          showToast(`「${skill.name}」的源文件不存在，已跳过`, 'warning')
+          failCount++
+          continue
+        }
         window.services.mkdir(dest)
         window.services.copyFile(sourceDir, dest)
         storage.saveInstallRecord({
@@ -380,11 +386,16 @@ function confirmImportFromMy() {
           installedAt: new Date().toISOString(),
         })
         importedCount++
-      } catch {}
+      } catch { failCount++ }
     }
-    if (importedCount > 0) {
+    if (importedCount > 0 && failCount > 0) {
+      showToast(`导入完成：${importedCount} 成功，${failCount} 失败`, 'warning')
+      refreshCurrent()
+    } else if (importedCount > 0) {
       showToast(`已导入 ${importedCount} 个技能到 ${targetPlatform.name}`, 'success')
       refreshCurrent()
+    } else if (failCount > 0) {
+      showToast(`所有技能导入失败`, 'error')
     }
   } catch (err: any) { showToast(err.message, 'error') }
   importingFromMy.value = false
@@ -929,7 +940,7 @@ function confirmImportFromMy() {
 .as-scroll { flex: 1; overflow-y: auto; overscroll-behavior: contain; min-height: 0; padding: 20px 28px 28px; scrollbar-gutter: stable; }
 
 .skill-grid { display: grid; }
-.skill-grid.grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.skill-grid.grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
 .skill-grid.list { grid-template-columns: 1fr; gap: 10px; }
 
 .skill-card {
@@ -1084,7 +1095,7 @@ function confirmImportFromMy() {
 .modal-select-all:hover { background: hsl(var(--muted)); }
 .modal-skill-list { flex: 1; overflow-y: auto; padding: 12px 24px; min-height: 200px; }
 .modal-empty { display: flex; align-items: center; justify-content: center; height: 120px; color: hsl(var(--muted-foreground)); font-size: 13px; }
-.modal-skill-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+.modal-skill-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; }
 .modal-skill-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 12px; border: 1px solid hsl(var(--border)); background: hsl(var(--card)); cursor: pointer; transition: all var(--duration-base) var(--ease-standard); }
 .modal-skill-card:hover:not(.disabled) { border-color: hsl(var(--primary) / 0.4); background: hsl(var(--primary) / 0.03); }
 .modal-skill-card.selected { border-color: hsl(var(--primary)); background: hsl(var(--primary) / 0.06); }

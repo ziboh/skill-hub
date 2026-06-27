@@ -303,6 +303,21 @@ export const storage = {
     if (aliveInstallRecords.length !== this.getInstallRecords().length) dbSet(KEYS.INSTALLED_SKILLS, aliveInstallRecords)
   },
 
+  updateChineseTags(): void {
+    const skills = this.getCachedSkills()
+    let changed = false
+    for (const skill of skills) {
+      const content = skill.description || ''
+      const chineseChars = content.match(/[\u4e00-\u9fff]/g)
+      const hasChinese = chineseChars && chineseChars.length / content.length > 0.1
+      if (hasChinese && !skill.tags?.includes('中文')) {
+        skill.tags = [...(skill.tags || []), '中文']
+        changed = true
+      }
+    }
+    if (changed) dbSet(KEYS.CACHED_SKILLS, skills)
+  },
+
   // === Registered Projects ===
   getRegisteredProjects(): RegisteredProject[] {
     return dbGet<RegisteredProject[]>(KEYS.REGISTERED_PROJECTS) || []

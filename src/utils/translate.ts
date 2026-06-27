@@ -11,6 +11,14 @@ function getTargetLang(): string {
   return 'English'
 }
 
+export function isChineseContent(text: string): boolean {
+  if (!text) return false
+  const chineseChars = text.match(/[\u4e00-\u9fff]/g)
+  if (!chineseChars) return false
+  const chineseRatio = chineseChars.length / text.length
+  return chineseRatio > 0.1
+}
+
 const IMMERSIVE_SYSTEM_PROMPT = `You are a professional translator working on complete SKILL.md documents.
 
 Return a valid SKILL.md document in {targetLang}.
@@ -109,6 +117,11 @@ export async function translateContent(
   targetLang?: string,
 ): Promise<string> {
   const lang = targetLang || getTargetLang()
+
+  if (isChineseContent(content)) {
+    return content
+  }
+
   const systemPrompt = (mode === 'immersive' ? IMMERSIVE_SYSTEM_PROMPT : FULL_SYSTEM_PROMPT).replace('{targetLang}', lang)
 
   const result = await chatCompletion(
@@ -129,6 +142,11 @@ export async function translateDescription(
   targetLang?: string,
 ): Promise<string> {
   const lang = targetLang || getTargetLang()
+
+  if (isChineseContent(description)) {
+    return description
+  }
+
   const systemPrompt = DESCRIPTION_SYSTEM_PROMPT.replace(/{targetLang}/g, lang)
 
   const result = await chatCompletion(

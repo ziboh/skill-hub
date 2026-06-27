@@ -55,7 +55,13 @@ async function deploy() {
   let done = 0
 
   for (const skill of props.skills) {
-    const sourceDir = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', skill.id)
+    const repoDir = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', skill.id)
+    const sourceDir = window.services.pathExists(repoDir) ? repoDir : ((skill as any).path && window.services.pathExists((skill as any).path) ? (skill as any).path : null)
+    if (!sourceDir) {
+      deployResults.value.push({ skill: skill.name, platform: '', status: 'error', msg: '源文件不存在' })
+      done += pids.length
+      continue
+    }
 
     for (const pid of pids) {
       const platform = platforms.value.find((p) => p.id === pid)
