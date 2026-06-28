@@ -7,6 +7,11 @@ import type { Skill } from '../types'
 
 const emit = defineEmits<{
   close: []
+  'navigate': [route: string]
+}>()
+
+const props = defineProps<{
+  currentRoute?: string
 }>()
 
 const { queue, addTranslation, removeTranslation, isTranslating: isTranslatingInQueue } = useTranslationQueue()
@@ -14,6 +19,7 @@ const { queue, addTranslation, removeTranslation, isTranslating: isTranslatingIn
 const skills = ref<Skill[]>([])
 const translationProgress = ref<Record<string, { desc: boolean; content: boolean }>>({})
 const downloadVersion = ref(0)
+const translateScope = ref<'current' | 'all'>('all')
 
 function loadSkills() {
   const downloadedIds = storage.getDownloadedIds()
@@ -34,6 +40,14 @@ const translationModel = computed(() => {
   if (!settings.translationModelId) return null
   const models = settings.aiModels || []
   return models.find(m => m.id === settings.translationModelId) || null
+})
+
+const filteredSkills = computed(() => {
+  if (translateScope.value === 'all') {
+    return skills.value
+  }
+  // For 'current' scope, return all skills (could be filtered by page context in future)
+  return skills.value
 })
 
 async function translateSkill(skill: Skill) {
@@ -112,6 +126,17 @@ function getTranslationStatus(skill: Skill): 'pending' | 'translating' | 'done' 
       </div>
 
       <div class="panel-content">
+        <div class="panel-scope">
+          <label class="scope-option">
+            <input type="radio" v-model="translateScope" value="all" />
+            <span>所有已下载技能</span>
+          </label>
+          <label class="scope-option">
+            <input type="radio" v-model="translateScope" value="current" />
+            <span>当前页面技能</span>
+          </label>
+        </div>
+
         <div class="panel-actions">
           <button class="translate-all-btn" @click="translateAll" :disabled="queue.length > 0 || !translationModel">
             {{ queue.length > 0 ? '翻译中...' : '翻译所有' }}
@@ -119,12 +144,12 @@ function getTranslationStatus(skill: Skill): 'pending' | 'translating' | 'done' 
           <p v-if="!translationModel" class="no-model-hint">请先在设置中配置翻译模型</p>
         </div>
 
-        <div v-if="skills.length === 0" class="empty-state">
+        <div v-if="filteredSkills.length === 0" class="empty-state">
           暂无已下载的技能
         </div>
 
         <div v-else class="skills-list">
-          <div v-for="skill in skills" :key="skill.id" class="skill-item">
+          <div v-for="skill in filteredSkills" :key="skill.id" class="skill-item">
             <div class="skill-info">
               <div class="skill-name">{{ skill.name }}</div>
               <div class="skill-status" :class="getTranslationStatus(skill)">
@@ -210,6 +235,27 @@ function getTranslationStatus(skill: Skill): 'pending' | 'translating' | 'done' 
   flex: 1;
   overflow-y: auto;
   padding: 16px 20px;
+}
+
+.panel-scope {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.scope-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: hsl(var(--foreground));
+  cursor: pointer;
+}
+
+.scope-option input[type="radio"] {
+  margin: 0;
 }
 
 .panel-actions {
