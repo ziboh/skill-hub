@@ -2146,6 +2146,22 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                   </div>
               </div>
             </div>
+
+            <div class="setting-card" style="margin-top: 16px;">
+              <div class="setting-row">
+                <div class="setting-row-info">
+                  <div class="setting-row-label">自动翻译</div>
+                  <div class="setting-row-desc">下载技能后自动翻译描述和内容</div>
+                </div>
+                <button
+                  class="toggle-switch"
+                  :class="{ on: settings.autoTranslate }"
+                  @click="updateSettings({ autoTranslate: !settings.autoTranslate })"
+                >
+                  <span class="toggle-thumb"></span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </template>
