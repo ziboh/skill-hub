@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { inject, ref, computed, unref } from 'vue'
-import { KeyShowToast, KeySelectedProject, KeyScanProject, KeyProjectScanning, KeySelectProject, KeyOpenAddProjectModal, KeyDetectedPlatforms } from '../../inject-keys'
+import { KeyShowToast, KeySelectedProject, KeyScanProject, KeyProjectScanning, KeySelectProject, KeyOpenAddProjectModal, KeyDetectedPlatforms, KeyRefreshCounts } from '../../inject-keys'
 import { storage } from '../../utils/storage'
 import { useSettings } from '../../composables/useSettings'
 import { useTheme } from '../../composables/useTheme'
@@ -25,6 +25,7 @@ const { registeredProjects } = useProjectState()
 const selectProject = inject(KeySelectProject, () => {})
 const openAddProjectModal = inject(KeyOpenAddProjectModal, () => {})
 const detectedPlatforms = inject(KeyDetectedPlatforms, ref([]) as any)
+const refreshCounts = inject(KeyRefreshCounts, () => {})
 
 const importing = ref<Record<string, boolean>>({})
 const confirmDeleteProjectId = ref<string | null>(null)
@@ -243,6 +244,7 @@ async function importSkill(skill: SkillScanResult) {
     const registry = loadRegistry()
     registerSkillFromProject(registry, skill, selectedProject.value?.id || '')
     refreshDownloaded()
+    refreshCounts()
   } catch (err: any) {
     showToast(err?.message || `导入「${skill.manifest?.name || skill.name}」失败`, 'error')
   }
@@ -283,6 +285,7 @@ async function uninstallSkillFromProject(skill: SkillScanResult) {
     }
 
     refreshDownloaded()
+    refreshCounts()
     showToast(`已卸载「${skill.manifest?.name || skill.name}」`, 'success')
     confirmUninstallSkillDir.value = null
   } catch (err: any) {
@@ -365,6 +368,7 @@ async function batchImportToMySkills() {
     } catch { failCount++ }
   }
   refreshDownloaded()
+  refreshCounts()
   selectedIds.value.clear()
   batchMode.value = false
   if (failCount > 0) {
@@ -406,6 +410,7 @@ function batchRemoveFromLibrary() {
     })
   }
   refreshDownloaded()
+  refreshCounts()
   selectedIds.value.clear()
   batchMode.value = false
 }

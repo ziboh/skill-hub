@@ -12,6 +12,7 @@ import type { TranslationMode } from '../utils/translate'
 import { getAvatarColor } from '../utils/color'
 import { SKILL_CATEGORIES, inferCategory, CATEGORY_ICONS } from '../data/skill-categories'
 import { getSourceInfo } from '../utils/source-info'
+import { useTranslationQueue } from '../composables/useTranslationQueue'
 
 const props = defineProps<{ skill: Skill }>()
 const emit = defineEmits(['close', 'imported'])
@@ -19,6 +20,7 @@ const showToast = inject(KeyShowToast, () => {})
 const refreshCounts = inject(KeyRefreshCounts)
 
 const { settings } = useSettings()
+const { addTranslation, removeTranslation, isTranslating: isTranslatingInQueue } = useTranslationQueue()
 
 const loading = ref(true)
 const skillName = ref('')
@@ -118,8 +120,25 @@ function initChineseDetection() {
   isContentChinese.value = isChineseContent(skillContent.value)
 }
 
-onMounted(() => { fetchContent(); loadFavorites() })
-watch(() => props.skill?.id, () => { fetchContent(); loadFavorites() })
+onMounted(() => { fetchContent(); loadFavorites(); restoreTranslatingState() })
+watch(() => props.skill?.id, () => { fetchContent(); loadFavorites(); restoreTranslatingState() })
+
+function restoreTranslatingState() {
+  if (isTranslatingInQueue(props.skill.id, 'content')) {
+    if (storage.getTranslation(props.skill.id)) {
+      removeTranslation(props.skill.id, 'content')
+    } else {
+      isTranslating.value = true
+    }
+  }
+  if (isTranslatingInQueue(props.skill.id, 'desc')) {
+    if (storage.getTranslationDesc(props.skill.id)) {
+      removeTranslation(props.skill.id, 'desc')
+    } else {
+      isTranslatingDesc.value = true
+    }
+  }
+}
 
 function renderMarkdown(md: string): string {
   if (!md) return ''
@@ -167,17 +186,20 @@ async function handleTranslate() {
   if (translatedContent.value) { showTranslation.value = !showTranslation.value; return }
   if (!translationModel.value) { showToast('AI 模型未配置', 'error'); return }
   isTranslating.value = true
+  addTranslation(props.skill.id, props.skill.name, 'content')
   try {
     translatedContent.value = await translateContent(skillContent.value, translationModel.value, translationMode.value)
     showTranslation.value = true
-    showToast('翻译完成', 'success')
+    showToast(`${props.skill.name} 内容翻译完成`, 'success')
   } catch (err: any) {
     const msg = err.message === 'AI_NOT_CONFIGURED' ? 'AI 模型未配置' :
                 err.message === 'AI_AUTH_ERROR' ? 'API 认证失败，请检查 API Key' :
                 err.message || '翻译失败'
     showToast(msg, 'error')
+  } finally {
+    isTranslating.value = false
+    removeTranslation(props.skill.id, 'content')
   }
-  isTranslating.value = false
 }
 
 async function handleTranslateDesc() {
@@ -196,18 +218,21 @@ async function handleTranslateDesc() {
   if (descTranslationDone.value) { showDescTranslation.value = !showDescTranslation.value; return }
   if (!translationModel.value) { showToast('AI 模型未配置', 'error'); return }
   isTranslatingDesc.value = true
+  addTranslation(props.skill.id, props.skill.name, 'desc')
   try {
     translatedDesc.value = await translateDescription(desc, translationModel.value)
     descTranslationDone.value = true
     showDescTranslation.value = true
-    showToast('描述翻译完成', 'success')
+    showToast(`${props.skill.name} 描述翻译完成`, 'success')
   } catch (err: any) {
     const msg = err.message === 'AI_NOT_CONFIGURED' ? 'AI 模型未配置' :
                 err.message === 'AI_AUTH_ERROR' ? 'API 认证失败，请检查 API Key' :
                 err.message || '翻译失败'
     showToast(msg, 'error')
+  } finally {
+    isTranslatingDesc.value = false
+    removeTranslation(props.skill.id, 'desc')
   }
-  isTranslatingDesc.value = false
 }
 
 async function handleReTranslateDesc() {
@@ -225,18 +250,21 @@ async function handleReTranslateDesc() {
 
   if (!translationModel.value) { showToast('AI 模型未配置', 'error'); return }
   isTranslatingDesc.value = true
+  addTranslation(props.skill.id, props.skill.name, 'desc')
   try {
     translatedDesc.value = await translateDescription(desc, translationModel.value)
     descTranslationDone.value = true
     showDescTranslation.value = true
-    showToast('描述翻译完成', 'success')
+    showToast(`${props.skill.name} 描述翻译完成`, 'success')
   } catch (err: any) {
     const msg = err.message === 'AI_NOT_CONFIGURED' ? 'AI 模型未配置' :
                 err.message === 'AI_AUTH_ERROR' ? 'API 认证失败，请检查 API Key' :
                 err.message || '翻译失败'
     showToast(msg, 'error')
+  } finally {
+    isTranslatingDesc.value = false
+    removeTranslation(props.skill.id, 'desc')
   }
-  isTranslatingDesc.value = false
 }
 
 function collectAllSkillDirs(root: string): string[] {
@@ -420,6 +448,7 @@ async function handleImport() {
                   </template>
                   <template v-else>
                     <div class="desc-actions">
+                      <span v-if="descTranslationDone && !isDescChinese" class="translation-success-badge">翻译成功</span>
                       <button v-if="descTranslationDone" class="heading-btn" @click="handleReTranslateDesc" :disabled="isTranslatingDesc">
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/><path d="M21 3v9h-9"/></svg>
                         重新翻译
@@ -447,6 +476,7 @@ async function handleImport() {
                     <span class="already-chinese-hint">此内容已是中文</span>
                   </template>
                   <template v-else>
+                    <span v-if="translatedContent && !isContentChinese" class="translation-success-badge">翻译成功</span>
                     <button class="heading-btn" :class="{ active: showTranslation && translatedContent }" @click="handleTranslate" :disabled="isTranslating">
                       <svg v-if="isTranslating" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
                       <svg v-else width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>
@@ -530,6 +560,7 @@ async function handleImport() {
 .section-header-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .section-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .already-chinese-hint { font-size: 12px; color: hsl(var(--muted-foreground)); font-style: italic; }
+.translation-success-badge { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 6px; background: hsl(142 60% 44% / 0.1); color: hsl(142 60% 44%); white-space: nowrap; }
 .mb-0 { margin-bottom: 0; }
 
 /* ═══ Panel cards ═══ */

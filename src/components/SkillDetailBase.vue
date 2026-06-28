@@ -10,6 +10,7 @@ import { storage } from '../utils/storage'
 import { getAvatarColor } from '../utils/color'
 import { SKILL_CATEGORIES, ALL_CATEGORIES, inferCategory, CATEGORY_ICONS, type SkillCategory } from '../data/skill-categories'
 import { getSourceInfo } from '../utils/source-info'
+import { useTranslationQueue } from '../composables/useTranslationQueue'
 
 const props = defineProps<{
   skill: Skill
@@ -37,6 +38,7 @@ const activeTab = defineModel<'preview' | 'source' | 'files'>('activeTab', { def
 const sidePanelCollapsed = ref(false)
 
 const sourceInfo = computed(() => getSourceInfo(props.skill))
+const { addTranslation, removeTranslation, isTranslating: isTranslatingInQueue, notifyCacheChanged } = useTranslationQueue()
 
 const debugFields = computed(() => {
   const s = props.skill as any
@@ -155,6 +157,11 @@ function loadTranslationCache() {
     showDescTranslation.value = false
   }
   isDescChinese.value = isChineseContent(props.skillDesc || props.skill.description || '')
+  if (isDescChinese.value && !cachedDesc) {
+    translatedDesc.value = props.skillDesc || props.skill.description || ''
+    descTranslationDone.value = true
+    showDescTranslation.value = true
+  }
 }
 
 function saveTranslationCache() {
@@ -164,12 +171,14 @@ function saveTranslationCache() {
       translatedContent: translatedContent.value,
       mode: translationMode.value,
     })
+    notifyCacheChanged()
   }
 }
 
 function saveDescTranslationCache() {
   if (translatedDesc.value) {
     storage.saveTranslationDesc(translationKey.value, translatedDesc.value)
+    notifyCacheChanged()
   }
 }
 
@@ -208,13 +217,32 @@ function saveCategoryTag() {
 
 onMounted(() => {
   loadTranslationCache()
+  restoreTranslatingState()
   loadUserTags()
 })
 
 watch(() => translationKey.value, () => {
   loadTranslationCache()
+  restoreTranslatingState()
   loadUserTags()
 })
+
+function restoreTranslatingState() {
+  if (isTranslatingInQueue(props.skill.id, 'content')) {
+    if (translatedContent.value) {
+      removeTranslation(props.skill.id, 'content')
+    } else {
+      isTranslating.value = true
+    }
+  }
+  if (isTranslatingInQueue(props.skill.id, 'desc')) {
+    if (descTranslationDone.value) {
+      removeTranslation(props.skill.id, 'desc')
+    } else {
+      isTranslatingDesc.value = true
+    }
+  }
+}
 
 function getVisibleContent(): string {
   if (showTranslation.value && translatedContent.value) {
@@ -247,6 +275,7 @@ async function handleTranslate() {
     return
   }
   isTranslating.value = true
+  addTranslation(props.skill.id, props.skill.name || props.skillName, 'content')
   try {
     const result = await translateContent(
       props.skillContent,
@@ -256,14 +285,16 @@ async function handleTranslate() {
     translatedContent.value = result
     showTranslation.value = true
     saveTranslationCache()
-    showToast('翻译完成', 'success')
+    showToast(`${props.skillName || props.skill.name} 内容翻译完成`, 'success')
   } catch (err: any) {
     const msg = err.message === 'AI_NOT_CONFIGURED' ? 'AI 模型未配置' :
                 err.message === 'AI_AUTH_ERROR' ? 'API 认证失败，请检查 API Key' :
                 err.message || '翻译失败'
     showToast(msg, 'error')
+  } finally {
+    isTranslating.value = false
+    removeTranslation(props.skill.id, 'content')
   }
-  isTranslating.value = false
 }
 
 async function handleTranslateDesc() {
@@ -291,20 +322,23 @@ async function handleTranslateDesc() {
   }
 
   isTranslatingDesc.value = true
+  addTranslation(props.skill.id, props.skill.name || props.skillName, 'desc')
   try {
     const result = await translateDescription(desc, translationModel.value)
     translatedDesc.value = result
     descTranslationDone.value = true
     showDescTranslation.value = true
     saveDescTranslationCache()
-    showToast('描述翻译完成', 'success')
+    showToast(`${props.skillName || props.skill.name} 描述翻译完成`, 'success')
   } catch (err: any) {
     const msg = err.message === 'AI_NOT_CONFIGURED' ? 'AI 模型未配置' :
                 err.message === 'AI_AUTH_ERROR' ? 'API 认证失败，请检查 API Key' :
                 err.message || '描述翻译失败'
     showToast(msg, 'error')
+  } finally {
+    isTranslatingDesc.value = false
+    removeTranslation(props.skill.id, 'desc')
   }
-  isTranslatingDesc.value = false
 }
 
 async function handleReTranslateDesc() {
@@ -327,20 +361,23 @@ async function handleReTranslateDesc() {
   }
 
   isTranslatingDesc.value = true
+  addTranslation(props.skill.id, props.skill.name || props.skillName, 'desc')
   try {
     const result = await translateDescription(desc, translationModel.value)
     translatedDesc.value = result
     descTranslationDone.value = true
     showDescTranslation.value = true
     saveDescTranslationCache()
-    showToast('描述翻译完成', 'success')
+    showToast(`${props.skillName || props.skill.name} 描述翻译完成`, 'success')
   } catch (err: any) {
     const msg = err.message === 'AI_NOT_CONFIGURED' ? 'AI 模型未配置' :
                 err.message === 'AI_AUTH_ERROR' ? 'API 认证失败，请检查 API Key' :
                 err.message || '描述翻译失败'
     showToast(msg, 'error')
+  } finally {
+    isTranslatingDesc.value = false
+    removeTranslation(props.skill.id, 'desc')
   }
-  isTranslatingDesc.value = false
 }
 </script>
 
@@ -460,6 +497,7 @@ async function handleReTranslateDesc() {
                   </template>
                   <template v-else>
                     <div class="desc-actions">
+                      <span v-if="descTranslationDone && !isDescChinese" class="translation-success-badge">翻译成功</span>
                       <button v-if="descTranslationDone" class="heading-btn" @click="handleReTranslateDesc" :disabled="isTranslatingDesc">
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/><path d="M21 3v9h-9"/></svg>
                         重新翻译
@@ -487,6 +525,7 @@ async function handleReTranslateDesc() {
                     <span class="already-chinese-hint">此内容已是中文</span>
                   </template>
                   <template v-else>
+                    <span v-if="translatedContent && !isContentChinese" class="translation-success-badge">翻译成功</span>
                     <button class="heading-btn" :class="{ active: showTranslation && translatedContent }" @click="handleTranslate" :disabled="isTranslating">
                       <svg v-if="isTranslating" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
                       <svg v-else width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>
@@ -823,6 +862,7 @@ async function handleReTranslateDesc() {
 .section-header-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .section-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .already-chinese-hint { font-size: 12px; color: hsl(var(--muted-foreground)); font-style: italic; }
+.translation-success-badge { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 6px; background: hsl(142 60% 44% / 0.1); color: hsl(142 60% 44%); white-space: nowrap; }
 
 /* ═══ Preview two-column ═══ */
 .preview-layout { display: grid; grid-template-columns: 1fr 280px; gap: 20px; align-items: start; transition: grid-template-columns var(--duration-smooth) var(--ease-standard); }

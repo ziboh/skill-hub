@@ -383,7 +383,7 @@ export const storage = {
   },
 
   // === Translation Cache ===
-  _readTranslationCache(): Record<string, { sourceContent: string; translatedContent: string; mode: string }> {
+  _readTranslationCache(): Record<string, { sourceContent: string; translatedContent: string; mode: string; updatedAt: number }> {
     let cache: Record<string, any> = {}
     try { cache = dbGet<Record<string, any>>(KEYS.TRANSLATIONS) || {} } catch {
       console.warn('[storage] failed to read translation cache')
@@ -393,13 +393,13 @@ export const storage = {
   _writeTranslationCache(cache: Record<string, any>): void {
     dbSet(KEYS.TRANSLATIONS, cache)
   },
-  getTranslation(skillId: string): { sourceContent: string; translatedContent: string; mode: string } | null {
+  getTranslation(skillId: string): { sourceContent: string; translatedContent: string; mode: string; updatedAt: number } | null {
     const cache = this._readTranslationCache()
     return cache[skillId] || null
   },
   saveTranslation(skillId: string, data: { sourceContent: string; translatedContent: string; mode: string }): void {
     const cache = this._readTranslationCache()
-    cache[skillId] = data
+    cache[skillId] = { ...data, updatedAt: Date.now() }
     this._writeTranslationCache(cache)
   },
   removeTranslation(skillId: string): void {
@@ -412,21 +412,21 @@ export const storage = {
   },
 
   // === Description Translation Cache ===
-  _readDescTranslationCache(): Record<string, string> {
-    let cache: Record<string, string> = {}
-    try { cache = dbGet<Record<string, string>>(KEYS.TRANSLATIONS + '_desc') || {} } catch { /* ignore */ }
+  _readDescTranslationCache(): Record<string, { translatedDesc: string; updatedAt: number }> {
+    let cache: Record<string, any> = {}
+    try { cache = dbGet<Record<string, any>>(KEYS.TRANSLATIONS + '_desc') || {} } catch { /* ignore */ }
     return cache
   },
-  _writeDescTranslationCache(cache: Record<string, string>): void {
+  _writeDescTranslationCache(cache: Record<string, any>): void {
     dbSet(KEYS.TRANSLATIONS + '_desc', cache)
   },
   getTranslationDesc(skillId: string): string | null {
     const cache = this._readDescTranslationCache()
-    return cache[skillId] || null
+    return cache[skillId]?.translatedDesc || null
   },
   saveTranslationDesc(skillId: string, translatedDesc: string): void {
     const cache = this._readDescTranslationCache()
-    cache[skillId] = translatedDesc
+    cache[skillId] = { translatedDesc, updatedAt: Date.now() }
     this._writeDescTranslationCache(cache)
   },
   removeTranslationDesc(skillId: string): void {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, inject, unref } from 'vue'
-import { KeyShowToast, KeyDetectedPlatforms, KeyPlatformSkillCounts } from '../../inject-keys'
+import { KeyShowToast, KeyDetectedPlatforms, KeyPlatformSkillCounts, KeyRefreshCounts } from '../../inject-keys'
 import { detectPlatforms, getPlatformPath, defaultPlatforms } from '../../data/platforms'
 import { storage } from '../../utils/storage'
 import { useSettings } from '../../composables/useSettings'
@@ -16,6 +16,7 @@ const emit = defineEmits(['navigate'])
 const showToast = inject(KeyShowToast, () => {})
 const allPlatforms = inject(KeyDetectedPlatforms, ref([]) as any)
 const platformSkillCounts = inject(KeyPlatformSkillCounts, ref({}) as any)
+const refreshCounts = inject(KeyRefreshCounts, () => {})
 
 const detectedPlatforms = ref<PlatformInfo[]>([])
 const selectedId = ref(props.initialPlatformId || '')
@@ -213,6 +214,7 @@ function executeUninstallByScope() {
     try { window.services.removeFile(dir) } catch {}
     refreshCurrent()
   }
+  refreshCounts()
   showToast('已卸载', 'success')
   uninstallScopeDir.value = null
   confirmDeleteDir.value = null
@@ -234,6 +236,7 @@ function uninstallSkill(skill: any) {
 
   try { window.services.removeFile(dir); refreshCurrent() } catch {}
   for (const r of allRecords) storage.removeInstallRecord(r.skillId, r.platformId, r.scope)
+  refreshCounts()
   confirmDeleteDir.value = null
 }
 
@@ -289,6 +292,7 @@ function batchDelete() {
     for (const r of records) storage.removeInstallRecord(r.skillId, r.platformId, r.scope)
   }
   refreshCurrent()
+  refreshCounts()
   selectedIds.value.clear()
   batchMode.value = false
 }
@@ -391,9 +395,11 @@ function confirmImportFromMy() {
     if (importedCount > 0 && failCount > 0) {
       showToast(`导入完成：${importedCount} 成功，${failCount} 失败`, 'warning')
       refreshCurrent()
+      refreshCounts()
     } else if (importedCount > 0) {
       showToast(`已导入 ${importedCount} 个技能到 ${targetPlatform.name}`, 'success')
       refreshCurrent()
+      refreshCounts()
     } else if (failCount > 0) {
       showToast(`所有技能导入失败`, 'error')
     }

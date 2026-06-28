@@ -56,8 +56,12 @@ function navigate(code: string, params?: any) {
   routerNavigate(code as any, params)
   if (code === 'agent-skills') refreshCounts()
   refreshMySkills()
-  if (code === 'project-skills' && !selectedProject.value && registeredProjects.value.length) {
-    selectProject(registeredProjects.value[0])
+  if (code === 'project-skills') {
+    if (selectedProject.value) {
+      scanProject(selectedProject.value)
+    } else if (registeredProjects.value.length) {
+      selectProject(registeredProjects.value[0])
+    }
   }
 }
 

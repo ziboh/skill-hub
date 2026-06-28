@@ -5,6 +5,7 @@ import type { InstallRecord } from '../../types'
 import { defaultPlatforms } from '../../data/platforms'
 import { KeyCurrentRoute } from '../../inject-keys'
 import { useDownloadQueue } from '../../composables/useDownloadQueue'
+import { useTranslationQueue } from '../../composables/useTranslationQueue'
 import { getSourceInfo as getSourceInfoUtil } from '../../utils/source-info'
 import type { Skill } from '../../types'
 import PlatformIcon from '../../components/PlatformIcon.vue'
@@ -15,11 +16,12 @@ const currentRoute = inject(KeyCurrentRoute, ref('my'))
 const activeTab = ref<'downloads' | 'dist' | 'translations'>('downloads')
 
 const { queue, activeCount, clearCompleted } = useDownloadQueue()
+const { queue: translationQueue, cacheVersion } = useTranslationQueue()
 
 const sessionDownloads = computed(() => storage.getSessionDownloads())
 const installRecords = ref<InstallRecord[]>([])
-const translations = ref<Record<string, { sourceContent: string; translatedContent: string; mode: string }>>({})
-const descTranslations = ref<Record<string, string>>({})
+const translations = ref<Record<string, { sourceContent: string; translatedContent: string; mode: string; updatedAt: number }>>({})
+const descTranslations = ref<Record<string, { translatedDesc: string; updatedAt: number }>>({})
 
 const PAGE_SIZE_OPTIONS = [100, 50, 20, 10, 5]
 const pageState = storage.getPageState('records') || {}
@@ -35,6 +37,57 @@ function toggleSort() {
 
 const showDeleteConfirm = ref(false)
 const deleteTarget = ref<{ type: 'dist' | 'translation'; data: any } | null>(null)
+const selectedItems = ref<Set<string>>(new Set())
+const showBatchDeleteConfirm = ref(false)
+
+function toggleSelect(key: string) {
+  if (selectedItems.value.has(key)) {
+    selectedItems.value.delete(key)
+  } else {
+    selectedItems.value.add(key)
+  }
+  selectedItems.value = new Set(selectedItems.value)
+}
+
+function isAllSelected(items: Array<{ key: string }>) {
+  if (items.length === 0) return false
+  return items.every(item => selectedItems.value.has(item.key))
+}
+
+function toggleSelectAll(items: Array<{ key: string }>) {
+  if (isAllSelected(items)) {
+    items.forEach(item => selectedItems.value.delete(item.key))
+  } else {
+    items.forEach(item => selectedItems.value.add(item.key))
+  }
+  selectedItems.value = new Set(selectedItems.value)
+}
+
+function clearSelection() {
+  selectedItems.value = new Set()
+}
+
+function confirmBatchDelete() {
+  if (selectedItems.value.size === 0) return
+  showBatchDeleteConfirm.value = true
+}
+
+function executeBatchDelete() {
+  for (const key of selectedItems.value) {
+    const [type, ...rest] = key.split(':')
+    if (type === 'dist') {
+      const [skillId, platformId, scope] = rest
+      storage.removeInstallRecord(skillId, platformId, scope || undefined)
+    } else if (type === 'content') {
+      storage.removeTranslation(rest[0])
+    } else if (type === 'desc') {
+      storage.removeTranslationDesc(rest[0])
+    }
+  }
+  clearSelection()
+  loadData()
+  showBatchDeleteConfirm.value = false
+}
 
 function confirmDeleteDist(record: InstallRecord) {
   deleteTarget.value = { type: 'dist', data: record }
@@ -82,6 +135,10 @@ onMounted(() => {
   loadData()
 })
 
+watch(cacheVersion, () => {
+  loadData()
+})
+
 function loadData() {
   installRecords.value = storage.getInstallRecords()
   const cacheRaw = storage._readTranslationCache()
@@ -94,6 +151,23 @@ function getSkillName(skillId: string): string {
   const cached = storage.getCachedSkills()
   const skill = cached.find(s => s.id === skillId)
   return skill?.name || skillId
+}
+
+function formatTime(ts: number | string): string {
+  if (!ts) return '—'
+  const d = new Date(ts)
+  if (isNaN(d.getTime())) return '—'
+  const now = new Date()
+  const diffMs = now.getTime() - d.getTime()
+  const diffMin = Math.floor(diffMs / 60000)
+  if (diffMin < 1) return '刚刚'
+  if (diffMin < 60) return `${diffMin} 分钟前`
+  const diffHour = Math.floor(diffMin / 60)
+  if (diffHour < 24) return `${diffHour} 小时前`
+  const diffDay = Math.floor(diffHour / 24)
+  if (diffDay < 7) return `${diffDay} 天前`
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 function getSourceInfoForDownload(source: string): { label: string; icon: string; color: string; bg: string } {
@@ -147,15 +221,7 @@ function getDistPlatformId(record: InstallRecord): string {
   return record.platformId
 }
 
-function formatTime(iso: string): string {
-  try {
-    const d = new Date(iso)
-    const pad = (n: number) => n.toString().padStart(2, '0')
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-  } catch {
-    return iso
-  }
-}
+
 
 function truncate(str: string, len: number): string {
   if (!str) return ''
@@ -226,13 +292,17 @@ const distPaged = computed(() => {
 })
 
 const translationsList = computed(() => {
-  const list: Array<{ skillId: string; type: 'content' | 'desc'; preview: string }> = []
+  const list: Array<{ skillId: string; skillName: string; type: 'content' | 'desc'; preview: string; inProgress: boolean; updatedAt: number }> = []
+  for (const item of translationQueue.value) {
+    list.push({ skillId: item.skillId, skillName: item.skillName, type: item.type, preview: '翻译中...', inProgress: true, updatedAt: item.startedAt })
+  }
   for (const [skillId, data] of Object.entries(translations.value)) {
-    list.push({ skillId, type: 'content', preview: data.translatedContent })
+    list.push({ skillId, skillName: getSkillName(skillId), type: 'content', preview: data.translatedContent, inProgress: false, updatedAt: data.updatedAt || 0 })
   }
-  for (const [skillId, desc] of Object.entries(descTranslations.value)) {
-    list.push({ skillId, type: 'desc', preview: desc })
+  for (const [skillId, data] of Object.entries(descTranslations.value)) {
+    list.push({ skillId, skillName: getSkillName(skillId), type: 'desc', preview: data.translatedDesc, inProgress: false, updatedAt: data.updatedAt || 0 })
   }
+  list.sort((a, b) => b.updatedAt - a.updatedAt)
   return list
 })
 const translationsTotal = computed(() => translationsList.value.length)
@@ -392,6 +462,12 @@ watch(activeTab, () => {
         <template v-else>
           <div class="record-table dist-table">
             <div class="record-row header-row">
+              <div class="col-check">
+                <label class="checkbox-wrap">
+                  <input type="checkbox" :checked="isAllSelected(distPaged.map(r => ({ key: `dist:${r.skillId}:${r.platformId}:${r.scope || ''}` })))" @change="toggleSelectAll(distPaged.map(r => ({ key: `dist:${r.skillId}:${r.platformId}:${r.scope || ''}` })))">
+                  <span class="checkbox-custom"></span>
+                </label>
+              </div>
               <div class="col-name">Skill 名称</div>
               <div class="col-platform">目标平台</div>
               <div class="col-mode">模式</div>
@@ -406,7 +482,13 @@ watch(activeTab, () => {
               </div>
               <div class="col-action"></div>
             </div>
-            <div v-for="(record, idx) in distPaged" :key="idx" class="record-row">
+            <div v-for="(record, idx) in distPaged" :key="idx" class="record-row" :class="{ selected: selectedItems.has(`dist:${record.skillId}:${record.platformId}:${record.scope || ''}`) }">
+              <div class="col-check">
+                <label class="checkbox-wrap">
+                  <input type="checkbox" :checked="selectedItems.has(`dist:${record.skillId}:${record.platformId}:${record.scope || ''}`)" @change="toggleSelect(`dist:${record.skillId}:${record.platformId}:${record.scope || ''}`)">
+                  <span class="checkbox-custom"></span>
+                </label>
+              </div>
               <div class="col-name">
                 <span class="skill-name">{{ getSkillName(record.skillId) }}</span>
                 <span class="skill-id">{{ record.skillId }}</span>
@@ -445,24 +527,44 @@ watch(activeTab, () => {
         <template v-else>
           <div class="record-table trans-table">
             <div class="record-row header-row">
+              <div class="col-check">
+                <label class="checkbox-wrap">
+                  <input type="checkbox" :checked="isAllSelected(translationsPaged.filter(i => !i.inProgress).map(i => ({ key: `${i.type}:${i.skillId}` })))" @change="toggleSelectAll(translationsPaged.filter(i => !i.inProgress).map(i => ({ key: `${i.type}:${i.skillId}` })))">
+                  <span class="checkbox-custom"></span>
+                </label>
+              </div>
               <div class="col-name">Skill 名称</div>
               <div class="col-type">翻译类型</div>
               <div class="col-preview">内容预览</div>
+              <div class="col-time">时间</div>
               <div class="col-action"></div>
             </div>
-            <div v-for="(item, idx) in translationsPaged" :key="idx" class="record-row">
+            <div v-for="(item, idx) in translationsPaged" :key="idx" class="record-row" :class="{ 'in-progress': item.inProgress, selected: selectedItems.has(`${item.type}:${item.skillId}`) }">
+              <div class="col-check">
+                <label v-if="!item.inProgress" class="checkbox-wrap">
+                  <input type="checkbox" :checked="selectedItems.has(`${item.type}:${item.skillId}`)" @change="toggleSelect(`${item.type}:${item.skillId}`)">
+                  <span class="checkbox-custom"></span>
+                </label>
+              </div>
               <div class="col-name">
-                <span class="skill-name">{{ getSkillName(item.skillId) }}</span>
+                <span class="skill-name">{{ item.skillName }}</span>
                 <span class="skill-id">{{ item.skillId }}</span>
               </div>
               <div class="col-type">
                 <span class="type-badge" :class="item.type">{{ item.type === 'content' ? '内容翻译' : '描述翻译' }}</span>
               </div>
               <div class="col-preview">
-                <span class="preview-text">{{ truncate(item.preview, 80) }}</span>
+                <span v-if="item.inProgress" class="preview-text translating-preview">
+                  <svg class="spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                  翻译中...
+                </span>
+                <span v-else class="preview-text">{{ truncate(item.preview, 80) }}</span>
+              </div>
+              <div class="col-time">
+                <span class="time-text">{{ item.updatedAt ? formatTime(item.updatedAt) : '—' }}</span>
               </div>
               <div class="col-action">
-                <button class="delete-btn" @click.stop="confirmDeleteTranslation(item)" title="删除">
+                <button v-if="!item.inProgress" class="delete-btn" @click.stop="confirmDeleteTranslation(item)" title="删除">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
                 </button>
               </div>
@@ -473,7 +575,14 @@ watch(activeTab, () => {
     </div>
 
     <div class="page-footer">
-      <span class="footer-total">共 {{ currentTotal }} 条</span>
+      <div class="footer-left">
+        <div v-if="selectedItems.size > 0" class="batch-toolbar">
+          <span class="batch-count">已选择 {{ selectedItems.size }} 项</span>
+          <button class="batch-delete-btn" @click="confirmBatchDelete">批量删除</button>
+          <button class="batch-cancel-btn" @click="clearSelection">取消选择</button>
+        </div>
+        <span v-else class="footer-total">共 {{ currentTotal }} 条</span>
+      </div>
       <div class="footer-right">
         <span class="footer-label">每页</span>
         <div class="page-size-dropdown-wrap">
@@ -511,6 +620,18 @@ watch(activeTab, () => {
         <div class="confirm-actions">
           <button class="confirm-cancel" @click="showDeleteConfirm = false">取消</button>
           <button class="confirm-ok" @click="executeDelete">删除</button>
+        </div>
+      </div>
+    </div>
+    <div v-if="showBatchDeleteConfirm" class="confirm-overlay" @click="showBatchDeleteConfirm = false">
+      <div class="confirm-modal" @click.stop>
+        <div class="confirm-title">批量删除</div>
+        <div class="confirm-message">
+          确定要删除选中的 {{ selectedItems.size }} 条记录吗？此操作不可撤销。
+        </div>
+        <div class="confirm-actions">
+          <button class="confirm-cancel" @click="showBatchDeleteConfirm = false">取消</button>
+          <button class="confirm-ok" @click="executeBatchDelete">删除 {{ selectedItems.size }} 项</button>
         </div>
       </div>
     </div>
@@ -595,10 +716,11 @@ watch(activeTab, () => {
 }
 
 .dist-table .record-row {
-  grid-template-columns: 2fr 2fr 1fr 1.2fr 40px;
+  grid-template-columns: 36px 2fr 2fr 1fr 1.2fr 40px;
 }
 .record-row:last-child { border-bottom: none; }
 .record-row:not(.header-row):hover { background: hsl(var(--accent) / 0.5); }
+.record-row.selected { background: hsl(var(--primary) / 0.05); }
 
 .header-row {
   background: hsl(var(--muted)); font-weight: 600; font-size: 12px; color: hsl(var(--muted-foreground));
@@ -614,8 +736,10 @@ watch(activeTab, () => {
 .sort-indicator.active { color: hsl(var(--primary)); }
 
 .trans-table .record-row {
-  grid-template-columns: 2fr 1fr 2fr 40px;
+  grid-template-columns: 36px 2fr 1fr 2fr 1fr 40px;
 }
+
+.col-time { font-size: 12px; color: hsl(var(--muted-foreground)); white-space: nowrap; }
 
 .col-status { width: 28px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 
@@ -676,15 +800,53 @@ watch(activeTab, () => {
 .mode-badge.symlink { background: hsl(142 60% 44% / 0.1); color: hsl(142 60% 44%); }
 .mode-badge.copy { background: hsl(210 80% 50% / 0.1); color: hsl(210 80% 50%); }
 
-.type-badge { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 6px; white-space: nowrap; }
+.type-badge { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 6px; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; }
 .type-badge.content { background: hsl(260 60% 55% / 0.1); color: hsl(260 60% 55%); }
 .type-badge.desc { background: hsl(38 90% 50% / 0.1); color: hsl(38 90% 50%); }
+.type-badge.translating { background: hsl(210 80% 50% / 0.1); color: hsl(210 80% 50%); }
+.record-row.in-progress { background: hsl(210 80% 50% / 0.03); }
 
 .col-preview { overflow: hidden; }
 .preview-text { font-size: 12px; color: hsl(var(--muted-foreground)); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.translating-preview { display: inline-flex; align-items: center; gap: 4px; color: hsl(210 80% 50%); }
+
+.col-check { width: 36px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.checkbox-wrap { display: inline-flex; align-items: center; cursor: pointer; }
+.checkbox-wrap input[type="checkbox"] { display: none; }
+.checkbox-custom {
+  width: 16px; height: 16px; border: 1.5px solid hsl(var(--border)); border-radius: 4px;
+  background: hsl(var(--card)); display: flex; align-items: center; justify-content: center;
+  transition: all var(--duration-base) var(--ease-standard);
+}
+.checkbox-wrap input[type="checkbox"]:checked + .checkbox-custom {
+  background: hsl(var(--primary)); border-color: hsl(var(--primary));
+}
+.checkbox-wrap input[type="checkbox"]:checked + .checkbox-custom::after {
+  content: ''; width: 8px; height: 5px; border-left: 2px solid white; border-bottom: 2px solid white;
+  transform: rotate(-45deg) translateY(-1px);
+}
+.checkbox-wrap:hover .checkbox-custom { border-color: hsl(var(--primary) / 0.5); }
+
+.batch-toolbar {
+  display: flex; align-items: center; gap: 12px;
+}
+.batch-count { font-size: 13px; font-weight: 500; color: hsl(var(--primary)); }
+.batch-delete-btn {
+  padding: 5px 12px; font-size: 12px; font-weight: 500; border: none; border-radius: 6px;
+  background: hsl(var(--destructive)); color: hsl(var(--destructive-foreground)); cursor: pointer;
+  transition: opacity var(--duration-base) var(--ease-standard);
+}
+.batch-delete-btn:hover { opacity: 0.9; }
+.batch-cancel-btn {
+  padding: 5px 12px; font-size: 12px; font-weight: 500; border: 1px solid hsl(var(--border));
+  border-radius: 6px; background: transparent; color: hsl(var(--muted-foreground)); cursor: pointer;
+  transition: all var(--duration-base) var(--ease-standard);
+}
+.batch-cancel-btn:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
 
 @keyframes spin { to { transform: rotate(360deg); } }
 .spinning { animation: spin 1s linear infinite; }
+.spin { animation: spin 0.7s linear infinite; }
 
 .queue-list { background: hsl(var(--card)); border: 1px solid hsl(var(--border)); border-radius: 12px; overflow: hidden; }
 .queue-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid hsl(var(--border)); background: hsl(var(--muted) / 0.3); }
@@ -713,6 +875,7 @@ watch(activeTab, () => {
   background: hsl(var(--card)); flex-shrink: 0;
 }
 
+.footer-left { display: flex; align-items: center; gap: 8px; }
 .footer-total { font-size: 13px; color: hsl(var(--muted-foreground)); }
 .footer-right { display: flex; align-items: center; gap: 8px; }
 .footer-label { font-size: 13px; color: hsl(var(--muted-foreground)); }

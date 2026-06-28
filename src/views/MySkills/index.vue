@@ -16,7 +16,7 @@ import { loadRegistry, getSourceLabel as getRegistrySourceLabel } from '../../ut
 import { getSourceInfo as getSourceInfoUtil } from '../../utils/source-info'
 import { isChineseContent } from '../../utils/translate'
 import { getAvatarColor } from '../../utils/color'
-import { KeyFilterCategory, KeyFilterSource, KeyRefreshMySkills, KeyOpenImportModal, KeyCurrentRoute, KeyRefreshKey } from '../../inject-keys'
+import { KeyFilterCategory, KeyFilterSource, KeyRefreshMySkills, KeyOpenImportModal, KeyCurrentRoute, KeyRefreshKey, KeyRefreshCounts } from '../../inject-keys'
 
 const emit = defineEmits(['navigate'])
 
@@ -30,6 +30,7 @@ const filterTag = ref('')
 const refreshMySkills = inject(KeyRefreshMySkills, () => {})
 const openImportModal = inject(KeyOpenImportModal, () => {})
 const currentRoute = inject(KeyCurrentRoute, ref('my'))
+const refreshCounts = inject(KeyRefreshCounts, () => {})
 
 const allSkills = ref<Skill[]>([])
 const installRecords = ref(storage.getInstallRecords())
@@ -186,6 +187,7 @@ function onSkillDeleted() {
   downloadedIds.value = storage.getDownloadedIds()
   allSkills.value = storage.getCachedSkills()
   refreshMySkills()
+  refreshCounts()
 }
 
 function getSourceLabel(skill: Skill): string {
@@ -324,6 +326,7 @@ function onBatchDeleted() {
   selectedIds.value.clear()
   batchMode.value = false
   refreshMySkills()
+  refreshCounts()
 }
 
 function batchSyncToPlatform() {
