@@ -12,6 +12,7 @@ const emit = defineEmits<{
 
 const props = defineProps<{
   currentRoute?: string
+  currentSkills?: Skill[]
 }>()
 
 const { queue, addTranslation, removeTranslation, isTranslating: isTranslatingInQueue } = useTranslationQueue()
@@ -53,8 +54,8 @@ const filteredSkills = computed(() => {
   if (translateScope.value === 'all') {
     return skills.value
   }
-  // For 'current' scope, return all skills (could be filtered by page context in future)
-  return skills.value
+  // For 'current' scope, return current page skills if provided
+  return props.currentSkills || skills.value
 })
 
 async function translateSkill(skill: Skill) {
@@ -142,7 +143,7 @@ function getTranslationStatus(skill: Skill): 'pending' | 'translating' | 'done' 
         <div class="panel-scope">
           <label class="scope-option">
             <input type="radio" v-model="translateScope" value="all" />
-            <span>所有已下载技能</span>
+            <span>所有技能</span>
           </label>
           <label class="scope-option">
             <input type="radio" v-model="translateScope" value="current" />
@@ -217,7 +218,7 @@ function getTranslationStatus(skill: Skill): 'pending' | 'translating' | 'done' 
   background: hsl(var(--card));
   border: 1px solid hsl(var(--border));
   border-radius: 16px;
-  width: 420px;
+  width: 560px;
   max-width: 90vw;
   max-height: calc(100vh - 40px);
   display: flex;
