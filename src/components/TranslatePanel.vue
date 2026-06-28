@@ -20,6 +20,7 @@ const skills = ref<Skill[]>([])
 const translationProgress = ref<Record<string, { desc: boolean; content: boolean }>>({})
 const downloadVersion = ref(0)
 const translateScope = ref<'current' | 'all'>('all')
+const translateType = ref<'desc' | 'content' | 'both'>('both')
 
 function loadSkills() {
   const downloadedIds = storage.getDownloadedIds()
@@ -65,28 +66,34 @@ async function translateSkill(skill: Skill) {
   if (isSkillTranslating(skill.id)) return
 
   try {
-    const desc = skill.description
-    if (desc && !isChineseContent(desc)) {
-      addTranslation(skill.id, skill.name, 'desc')
-      const translatedDesc = await translateDescription(desc, translationModel.value)
-      storage.saveTranslationDesc(skill.id, translatedDesc)
-      removeTranslation(skill.id, 'desc')
+    // 翻译描述
+    if (translateType.value === 'desc' || translateType.value === 'both') {
+      const desc = skill.description
+      if (desc && !isChineseContent(desc)) {
+        addTranslation(skill.id, skill.name, 'desc')
+        const translatedDesc = await translateDescription(desc, translationModel.value)
+        storage.saveTranslationDesc(skill.id, translatedDesc)
+        removeTranslation(skill.id, 'desc')
+      }
     }
 
-    const skillFile = ['SKILL.md', 'skill.md'].find(f =>
-      window.services.pathExists(window.services.pathJoin(skill.path || '', f))
-    )
-    if (skillFile) {
-      const content = window.services.readFile(window.services.pathJoin(skill.path || '', skillFile))
-      if (content && !isChineseContent(content)) {
-        addTranslation(skill.id, skill.name, 'content')
-        const translatedContent = await translateContent(content, translationModel.value, 'immersive')
-        storage.saveTranslation(skill.id, {
-          sourceContent: content,
-          translatedContent,
-          mode: 'immersive'
-        })
-        removeTranslation(skill.id, 'content')
+    // 翻译内容
+    if (translateType.value === 'content' || translateType.value === 'both') {
+      const skillFile = ['SKILL.md', 'skill.md'].find(f =>
+        window.services.pathExists(window.services.pathJoin(skill.path || '', f))
+      )
+      if (skillFile) {
+        const content = window.services.readFile(window.services.pathJoin(skill.path || '', skillFile))
+        if (content && !isChineseContent(content)) {
+          addTranslation(skill.id, skill.name, 'content')
+          const translatedContent = await translateContent(content, translationModel.value, 'immersive')
+          storage.saveTranslation(skill.id, {
+            sourceContent: content,
+            translatedContent,
+            mode: 'immersive'
+          })
+          removeTranslation(skill.id, 'content')
+        }
       }
     }
   } catch (error) {
@@ -143,6 +150,21 @@ function getTranslationStatus(skill: Skill): 'pending' | 'translating' | 'done' 
           </label>
         </div>
 
+        <div class="panel-type">
+          <label class="type-option">
+            <input type="radio" v-model="translateType" value="desc" />
+            <span>描述</span>
+          </label>
+          <label class="type-option">
+            <input type="radio" v-model="translateType" value="content" />
+            <span>内容</span>
+          </label>
+          <label class="type-option">
+            <input type="radio" v-model="translateType" value="both" />
+            <span>描述和内容</span>
+          </label>
+        </div>
+
         <div class="panel-actions">
           <button class="translate-all-btn" @click="translateAll" :disabled="queue.length > 0 || !translationModel">
             {{ queue.length > 0 ? '翻译中...' : '翻译所有' }}
@@ -154,7 +176,7 @@ function getTranslationStatus(skill: Skill): 'pending' | 'translating' | 'done' 
           暂无已下载的技能
         </div>
 
-        <div v-else class="skills-list">
+        <div v-else class="skills-grid">
           <div v-for="skill in filteredSkills" :key="skill.id" class="skill-item">
             <div class="skill-info">
               <div class="skill-name">{{ skill.name }}</div>
@@ -264,6 +286,27 @@ function getTranslationStatus(skill: Skill): 'pending' | 'translating' | 'done' 
   margin: 0;
 }
 
+.panel-type {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.type-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: hsl(var(--foreground));
+  cursor: pointer;
+}
+
+.type-option input[type="radio"] {
+  margin: 0;
+}
+
 .panel-actions {
   margin-bottom: 16px;
 }
@@ -307,6 +350,12 @@ function getTranslationStatus(skill: Skill): 'pending' | 'translating' | 'done' 
 .skills-list {
   display: flex;
   flex-direction: column;
+  gap: 8px;
+}
+
+.skills-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
   gap: 8px;
 }
 
