@@ -2112,10 +2112,10 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
         </div>
       </template>
 
-      <!-- ===== DEFAULT MODEL ===== -->
+      <!-- ===== TRANSLATION SETTINGS ===== -->
       <template v-if="activeSection === 'default-model'">
         <div class="settings-scroll">
-          <h1 class="settings-page-title">默认模型</h1>
+          <h1 class="settings-page-title">翻译设置</h1>
           <p class="settings-page-desc">配置用于翻译等功能的默认 AI 模型。</p>
 
           <div class="setting-section">
