@@ -125,6 +125,7 @@ export interface AppSettings {
   backgroundBlur: number
   aiModels: ModelConfig[]
   translationModelId: string
+  autoTranslate: boolean
 }
 
 export interface SkillManifest {

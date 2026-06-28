@@ -186,6 +186,7 @@ export const storage = {
       backgroundBlur: 14,
       aiModels: [],
       translationModelId: '',
+      autoTranslate: false,
     }
     let saved: Partial<AppSettings> | null = null
     try {
