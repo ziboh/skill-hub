@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { storage } from '../utils/storage'
 import { useTranslationQueue } from '../composables/useTranslationQueue'
 import { translateContent, translateDescription, isChineseContent } from '../utils/translate'
@@ -9,17 +9,25 @@ const emit = defineEmits<{
   close: []
 }>()
 
-const { queue, addTranslation, removeTranslation, isTranslating } = useTranslationQueue()
+const { queue, addTranslation, removeTranslation, isTranslating: isTranslatingInQueue } = useTranslationQueue()
 
 const skills = ref<Skill[]>([])
-const translatingSkills = ref<Set<string>>(new Set())
 const translationProgress = ref<Record<string, { desc: boolean; content: boolean }>>({})
+const downloadVersion = ref(0)
 
-onMounted(() => {
+function loadSkills() {
   const downloadedIds = storage.getDownloadedIds()
   const cachedSkills = storage.getCachedSkills()
   skills.value = cachedSkills.filter(s => downloadedIds.includes(s.id))
-})
+}
+
+onMounted(() => loadSkills())
+
+watch(downloadVersion, () => loadSkills())
+
+function isSkillTranslating(skillId: string) {
+  return isTranslatingInQueue(skillId, 'desc') || isTranslatingInQueue(skillId, 'content')
+}
 
 const translationModel = computed(() => {
   const settings = storage.getSettings()
@@ -34,8 +42,7 @@ async function translateSkill(skill: Skill) {
     return
   }
 
-  if (translatingSkills.value.has(skill.id)) return
-  translatingSkills.value.add(skill.id)
+  if (isSkillTranslating(skill.id)) return
 
   try {
     const desc = skill.description
@@ -64,21 +71,27 @@ async function translateSkill(skill: Skill) {
     }
   } catch (error) {
     console.error('Translation failed:', error)
-  } finally {
-    translatingSkills.value.delete(skill.id)
   }
 }
 
 async function translateAll() {
-  for (const skill of skills.value) {
-    if (!translatingSkills.value.has(skill.id)) {
-      await translateSkill(skill)
-    }
+  const pending = skills.value.filter(s => !isSkillTranslating(s.id))
+  const concurrency = 2
+  let index = 0
+
+  async function runNext(): Promise<void> {
+    if (index >= pending.length) return
+    const skill = pending[index++]
+    await translateSkill(skill)
+    await runNext()
   }
+
+  const workers = Array.from({ length: Math.min(concurrency, pending.length) }, () => runNext())
+  await Promise.all(workers)
 }
 
 function getTranslationStatus(skill: Skill): 'pending' | 'translating' | 'done' {
-  if (translatingSkills.value.has(skill.id)) return 'translating'
+  if (isSkillTranslating(skill.id)) return 'translating'
 
   const descTranslated = storage.getTranslationDesc(skill.id)
   const contentTranslated = storage.getTranslation(skill.id)
@@ -100,8 +113,8 @@ function getTranslationStatus(skill: Skill): 'pending' | 'translating' | 'done' 
 
       <div class="panel-content">
         <div class="panel-actions">
-          <button class="translate-all-btn" @click="translateAll" :disabled="translatingSkills.size > 0 || !translationModel">
-            {{ translatingSkills.size > 0 ? '翻译中...' : '翻译所有' }}
+          <button class="translate-all-btn" @click="translateAll" :disabled="queue.length > 0 || !translationModel">
+            {{ queue.length > 0 ? '翻译中...' : '翻译所有' }}
           </button>
           <p v-if="!translationModel" class="no-model-hint">请先在设置中配置翻译模型</p>
         </div>
@@ -123,9 +136,9 @@ function getTranslationStatus(skill: Skill): 'pending' | 'translating' | 'done' 
             <button
               class="translate-btn"
               @click="translateSkill(skill)"
-              :disabled="translatingSkills.has(skill.id) || !translationModel"
+              :disabled="isSkillTranslating(skill.id) || !translationModel"
             >
-              {{ translatingSkills.has(skill.id) ? '翻译中' : '翻译' }}
+              {{ isSkillTranslating(skill.id) ? '翻译中' : '翻译' }}
             </button>
           </div>
         </div>

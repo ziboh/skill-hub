@@ -622,7 +622,7 @@ async function downloadSkill(skill: Skill) {
       }
     }
     storage.addDownloadedId(skill.id); storage.addSessionDownload(skill.id, skill.name, activePresetId.value || 'unknown'); downloadedIds.value = storage.getDownloadedIds(); refreshCounts?.()
-    autoTranslateSkill(skill)
+    autoTranslateSkill(skill, targetDir).catch(() => {})
     updateItem(queueItem.id, { status: 'success' })
     showToast(`已导入 ${skill.name}`, 'success')
   } catch (err: any) {
@@ -632,7 +632,7 @@ async function downloadSkill(skill: Skill) {
   downloading.value.delete(skill.id)
 }
 
-async function autoTranslateSkill(skill: Skill) {
+async function autoTranslateSkill(skill: Skill, targetDir: string) {
   const settings = storage.getSettings()
   if (!settings.autoTranslate) return
 
@@ -651,10 +651,10 @@ async function autoTranslateSkill(skill: Skill) {
     }
 
     const skillFile = ['SKILL.md', 'skill.md'].find(f =>
-      window.services.pathExists(window.services.pathJoin(skill.path || '', f))
+      window.services.pathExists(window.services.pathJoin(targetDir, f))
     )
     if (skillFile) {
-      const content = window.services.readFile(window.services.pathJoin(skill.path || '', skillFile))
+      const content = window.services.readFile(window.services.pathJoin(targetDir, skillFile))
       if (content && !isChineseContent(content)) {
         const translatedContent = await translateContent(content, translationModel, 'immersive')
         storage.saveTranslation(skill.id, {
