@@ -24,9 +24,8 @@ const translateScope = ref<'current' | 'all'>('all')
 const translateType = ref<'desc' | 'content' | 'both'>('both')
 
 function loadSkills() {
-  const downloadedIds = storage.getDownloadedIds()
   const cachedSkills = storage.getCachedSkills()
-  skills.value = cachedSkills.filter(s => downloadedIds.includes(s.id))
+  skills.value = cachedSkills
 }
 
 onMounted(() => loadSkills())
