@@ -20,6 +20,7 @@ import AgentSkillDetail from './views/AgentSkills/Detail.vue'
 import Sources from './views/Sources/index.vue'
 import Settings from './views/Settings/index.vue'
 import Records from './views/Records/index.vue'
+import TranslatePanel from './components/TranslatePanel.vue'
 import AddProjectModal from './components/AddProjectModal.vue'
 import NewSkillModal from './components/NewSkillModal.vue'
 import AppToast from './components/AppToast.vue'
@@ -32,6 +33,7 @@ import type { Skill, AppSettings, PlatformInfo } from './types'
 
 const { settings, updateSettings } = useSettings()
 
+const showTranslatePanel = ref(false)
 const appToast = ref<InstanceType<typeof AppToast> | null>(null)
 function showToast(message: string, type?: 'success' | 'error' | 'info' | 'warning') { appToast.value?.showToast(message, type) }
 provide(KeyShowToast, showToast)
@@ -275,6 +277,25 @@ const { isDarkMode, toggleTheme } = useTheme()
         </main>
       </div>
     </div>
+
+    <!-- 浮动翻译按钮 -->
+    <button
+      class="floating-translate-btn"
+      @click="showTranslatePanel = !showTranslatePanel"
+      title="批量翻译"
+    >
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="m5 8 6 6" />
+        <path d="m4 14 6-6 2-3" />
+        <path d="M2 5h12" />
+        <path d="M7 2h1" />
+        <path d="m22 22-5-10-5 10" />
+        <path d="M14 18h6" />
+      </svg>
+    </button>
+
+    <!-- 翻译面板 -->
+    <TranslatePanel v-if="showTranslatePanel" @close="showTranslatePanel = false" />
   </div>
 </template>
 
@@ -720,5 +741,35 @@ body {
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 0;
+}
+
+/* ===== FLOATING TRANSLATE BUTTON ===== */
+.floating-translate-btn {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: hsl(var(--primary));
+  color: white;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+  transition: all 0.3s;
+  z-index: 999;
+}
+
+.floating-translate-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3);
+}
+
+.floating-translate-btn svg {
+  width: 24px;
+  height: 24px;
 }
 </style>
