@@ -235,6 +235,17 @@ const allAvailableSkills = computed(() => {
   return allSkills
 })
 
+const currentPageSkills = computed(() => {
+  if (route.value === 'my') {
+    return storage.getCachedSkills().filter(s => storage.getDownloadedIds().includes(s.id))
+  } else if (route.value === 'project-skills') {
+    return selectedProject.value?.skills || []
+  } else if (route.value === 'agent-skills') {
+    return Object.values(platformSkills.value).flat()
+  }
+  return []
+})
+
 
 </script>
 
@@ -320,7 +331,7 @@ const allAvailableSkills = computed(() => {
     <TranslatePanel 
       v-if="showTranslatePanel" 
       @close="showTranslatePanel = false"
-      :current-skills="allAvailableSkills"
+      :current-skills="currentPageSkills"
     />
   </div>
 </template>
