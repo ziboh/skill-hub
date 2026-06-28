@@ -23,6 +23,7 @@ import { useSettings } from '../../composables/useSettings'
 import { useTheme } from '../../composables/useTheme'
 import { useDownloadQueue } from '../../composables/useDownloadQueue'
 import { loadRegistry, registerSkillFromStore, removeFromRegistry } from '../../utils/skill-registry'
+import { translateContent, translateDescription, isChineseContent } from '../../utils/translate'
 
 const props = defineProps<{ storeId: string }>()
 const emit = defineEmits(['navigate'])
@@ -621,6 +622,7 @@ async function downloadSkill(skill: Skill) {
       }
     }
     storage.addDownloadedId(skill.id); storage.addSessionDownload(skill.id, skill.name, activePresetId.value || 'unknown'); downloadedIds.value = storage.getDownloadedIds(); refreshCounts?.()
+    autoTranslateSkill(skill)
     updateItem(queueItem.id, { status: 'success' })
     showToast(`已导入 ${skill.name}`, 'success')
   } catch (err: any) {
@@ -628,6 +630,46 @@ async function downloadSkill(skill: Skill) {
     updateItem(queueItem.id, { status: 'error', error: err.message || '未知错误' })
   }
   downloading.value.delete(skill.id)
+}
+
+async function autoTranslateSkill(skill: Skill) {
+  const settings = storage.getSettings()
+  if (!settings.autoTranslate) return
+
+  const translationModelId = settings.translationModelId
+  if (!translationModelId) return
+
+  const models = settings.aiModels || []
+  const translationModel = models.find(m => m.id === translationModelId)
+  if (!translationModel) return
+
+  try {
+    const desc = skill.description
+    if (desc && !isChineseContent(desc)) {
+      const translatedDesc = await translateDescription(desc, translationModel)
+      storage.saveTranslationDesc(skill.id, translatedDesc)
+    }
+
+    const skillFile = ['SKILL.md', 'skill.md'].find(f =>
+      window.services.pathExists(window.services.pathJoin(skill.path || '', f))
+    )
+    if (skillFile) {
+      const content = window.services.readFile(window.services.pathJoin(skill.path || '', skillFile))
+      if (content && !isChineseContent(content)) {
+        const translatedContent = await translateContent(content, translationModel, 'immersive')
+        storage.saveTranslation(skill.id, {
+          sourceContent: content,
+          translatedContent,
+          mode: 'immersive'
+        })
+      }
+    }
+
+    showToast(`${skill.name} 自动翻译完成`, 'success')
+  } catch (error) {
+    console.error('Auto translation failed:', error)
+    showToast(`${skill.name} 自动翻译失败`, 'error')
+  }
 }
 
 function confirmDelete(skill: Skill) {
