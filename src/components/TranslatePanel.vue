@@ -37,9 +37,14 @@ function isSkillTranslating(skillId: string) {
 
 const translationModel = computed(() => {
   const settings = storage.getSettings()
+  console.log('Translation settings:', settings)
+  console.log('Translation model ID:', settings.translationModelId)
   if (!settings.translationModelId) return null
   const models = settings.aiModels || []
-  return models.find(m => m.id === settings.translationModelId) || null
+  console.log('Available models:', models)
+  const model = models.find(m => m.id === settings.translationModelId)
+  console.log('Found model:', model)
+  return model || null
 })
 
 const filteredSkills = computed(() => {
