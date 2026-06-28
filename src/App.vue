@@ -278,8 +278,9 @@ const { isDarkMode, toggleTheme } = useTheme()
       </div>
     </div>
 
-    <!-- 浮动翻译按钮 -->
+    <!-- 浮动翻译按钮 - 只在"我的Skill"和"项目Skill"页面显示 -->
     <button
+      v-if="route === 'my' || route === 'project-skills'"
       class="floating-translate-btn"
       @click="showTranslatePanel = !showTranslatePanel"
       title="批量翻译"
