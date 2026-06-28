@@ -45,6 +45,7 @@ const downloadedCount = ref(0)
 const agentCount = ref(0)
 const detectedPlatforms = ref<PlatformInfo[]>([])
 const platformSkillCounts = ref<Record<string, number>>({})
+const platformSkills = ref<Record<string, any[]>>({})
 
 const {
   route, subRoute, selectedSkill, detailContext,
@@ -213,6 +214,27 @@ provide(KeyTriggerRefresh, () => { refreshKey.value++ })
 
 const { isDarkMode, toggleTheme } = useTheme()
 
+const allAvailableSkills = computed(() => {
+  const cachedSkills = storage.getCachedSkills()
+  const projectSkills = selectedProject.value?.skills || []
+  const agentSkillsList = Object.values(platformSkills.value).flat()
+  
+  // Combine all skills, removing duplicates by id
+  const allSkills = [...cachedSkills]
+  for (const skill of projectSkills) {
+    if (!allSkills.some(s => s.id === skill.id)) {
+      allSkills.push(skill)
+    }
+  }
+  for (const skill of agentSkillsList) {
+    if (!allSkills.some(s => s.id === skill.id)) {
+      allSkills.push(skill)
+    }
+  }
+  
+  return allSkills
+})
+
 
 </script>
 
@@ -295,7 +317,11 @@ const { isDarkMode, toggleTheme } = useTheme()
     </button>
 
     <!-- 翻译面板 -->
-    <TranslatePanel v-if="showTranslatePanel" @close="showTranslatePanel = false" />
+    <TranslatePanel 
+      v-if="showTranslatePanel" 
+      @close="showTranslatePanel = false"
+      :current-skills="allAvailableSkills"
+    />
   </div>
 </template>
 
