@@ -157,6 +157,7 @@ function getTranslationStatus(skill: Skill): 'pending' | 'translating' | 'done' 
   justify-content: center;
   z-index: 1000;
   backdrop-filter: blur(4px);
+  padding: 20px;
 }
 
 .translate-panel {
@@ -165,7 +166,7 @@ function getTranslationStatus(skill: Skill): 'pending' | 'translating' | 'done' 
   border-radius: 16px;
   width: 420px;
   max-width: 90vw;
-  max-height: 600px;
+  max-height: calc(100vh - 40px);
   display: flex;
   flex-direction: column;
   box-shadow: 0 24px 64px hsl(0 0% 0% / 0.2);
