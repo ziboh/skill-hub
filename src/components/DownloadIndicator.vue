@@ -4,6 +4,8 @@ import { useDownloadQueue } from '../composables/useDownloadQueue'
 
 const { queue, isExpanded, activeCount, hasItems, clearCompleted } = useDownloadQueue()
 
+const downloadQueue = computed(() => queue.value.filter(item => item.type === 'download'))
+
 function formatTime(ms: number) {
   const s = Math.floor((Date.now() - ms) / 1000)
   if (s < 60) return `${s}s`
@@ -36,7 +38,7 @@ function getStatusColor(status: string) {
             <line x1="12" y1="15" x2="12" y2="3" />
           </svg>
           <span v-if="activeCount > 0" class="di-count">{{ activeCount }}</span>
-          <span class="di-label">{{ activeCount > 0 ? '安装中' : '已完成' }}</span>
+          <span class="di-label">{{ activeCount > 0 ? '分发中' : '已完成' }}</span>
         </div>
         <svg class="di-chevron" :class="{ rotated: isExpanded }" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="18 15 12 9 6 15" />
@@ -44,7 +46,7 @@ function getStatusColor(status: string) {
       </button>
 
       <div v-if="isExpanded" class="di-list">
-        <div v-for="item in queue" :key="item.id" class="di-item" :class="item.status">
+        <div v-for="item in downloadQueue" :key="item.id" class="di-item" :class="item.status">
           <div class="di-item-icon">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" :stroke="getStatusColor(item.status)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" :class="{ spinning: item.status === 'running' }">
               <path :d="getStatusIcon(item.status)" />

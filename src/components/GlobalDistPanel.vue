@@ -185,7 +185,7 @@ async function install() {
       window.services.mkdir(targetDir)
       if (props.installMode === 'symlink') { window.services.createSymlink(sourceDir, targetDir); addLog(pid, 'ok', `Symlink: ${targetDir}`) }
       else { window.services.copyFile(sourceDir, targetDir); addLog(pid, 'ok', `Copied: ${targetDir}`) }
-      storage.saveInstallRecord({ skillId: props.skill.id, platformId: pid, mode: props.installMode, scope: 'global', targetPath: targetDir, sourceDir: props.skill.repo || '', installedAt: new Date().toISOString() })
+      storage.saveInstallRecord({ skillId: props.skill.id, platformId: pid, mode: props.installMode, scope: 'global', targetPath: targetDir, sourceDir, installedAt: new Date().toISOString() })
       installedNames.push(platform.name)
     } catch (err: any) { addLog(pid, 'error', err.message) }
   }
@@ -231,7 +231,7 @@ loadInstallStatus()
         </button>
         <button class="install-all-btn" :disabled="installing || !selectedPlatforms.length" @click="install">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-          {{ installing ? (installProgressText || '安装中...') : '安装所选平台' }}
+          {{ installing ? (installProgressText || '分发中...') : '分发所选平台' }}
         </button>
       </div>
       <div class="install-toolbar-stats">

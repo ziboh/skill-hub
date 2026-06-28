@@ -49,7 +49,35 @@ const KEYS = {
   TRANSLATIONS: 'translations',
 }
 
+interface SessionDownload {
+  skillId: string
+  skillName: string
+  source: string
+  downloadedAt: string
+}
+
+const _sessionDownloads: SessionDownload[] = []
+let _onSessionDownload: ((download: SessionDownload) => void) | null = null
+
 export const storage = {
+  // === Session Downloads (temporary, cleared on app restart) ===
+  getSessionDownloads(): SessionDownload[] {
+    return _sessionDownloads
+  },
+  addSessionDownload(skillId: string, skillName: string, source: string): void {
+    const download: SessionDownload = {
+      skillId,
+      skillName,
+      source,
+      downloadedAt: new Date().toISOString(),
+    }
+    _sessionDownloads.unshift(download)
+    _onSessionDownload?.(download)
+  },
+  onSessionDownload(callback: (download: SessionDownload) => void): void {
+    _onSessionDownload = callback
+  },
+
   // === Install Records ===
   getInstallRecords(): InstallRecord[] {
     return dbGet<InstallRecord[]>(KEYS.INSTALLED_SKILLS) || []

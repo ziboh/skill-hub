@@ -22,16 +22,18 @@ function isMacOS() {
   return process.platform === 'darwin'
 }
 
-function _downloadFileInternal(url, redirectCount) {
+function _downloadFileInternal(url, token, redirectCount) {
   return new Promise((resolve, reject) => {
     if (redirectCount > 5) {
       return reject(new Error('Too many redirects'))
     }
+    const headers = { 'User-Agent': 'skill-hub' }
+    if (token) headers['Authorization'] = `Bearer ${token}`
     const client = url.startsWith('https') ? https : http
     const chunks = []
-    client.get(url, { headers: { 'User-Agent': 'skill-hub' } }, (res) => {
+    client.get(url, { headers }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        return resolve(_downloadFileInternal(res.headers.location, redirectCount + 1))
+        return resolve(_downloadFileInternal(res.headers.location, token, redirectCount + 1))
       }
       if (res.statusCode !== 200) {
         return reject(new Error(`Download failed: ${res.statusCode}`))
@@ -191,8 +193,8 @@ window.services = {
     return fullLink
   },
   // === 下载 ===
-  downloadFile(url) {
-    return _downloadFileInternal(url, 0)
+  downloadFile(url, token) {
+    return _downloadFileInternal(url, token, 0)
   },
   fetchGitHubText(url, token) {
     return _fetchGitHubTextInternal(url, token, 0)
@@ -307,7 +309,7 @@ window.services = {
       if (tried.has(b)) continue
       tried.add(b)
       try {
-        buffer = await this.downloadFile(`https://api.github.com/repos/${repo}/zipball/${b}`)
+        buffer = await this.downloadFile(`https://api.github.com/repos/${repo}/zipball/${b}`, token)
         break
       } catch (err) {
         if (b === branches[branches.length - 1]) throw err

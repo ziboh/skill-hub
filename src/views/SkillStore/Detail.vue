@@ -129,6 +129,7 @@ async function projectImportSkill() {
       storage.saveCachedSkills(cached)
     }
     storage.addDownloadedId(id)
+    storage.addSessionDownload(id, props.skill.name, 'local')
     showToast(`已将 ${props.skill.name} 导入到我的 Skill`, 'success')
   } catch (err: any) { showToast(err.message, 'error') }
   projectImporting.value = false

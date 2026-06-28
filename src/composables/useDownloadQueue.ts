@@ -5,6 +5,7 @@ export interface QueueItem {
   skillId: string
   skillName: string
   type: 'download' | 'install'
+  source?: string
   platformNames?: string[]
   status: 'pending' | 'running' | 'success' | 'error'
   progress?: string
@@ -16,12 +17,13 @@ const queue = ref<QueueItem[]>([])
 const isExpanded = ref(false)
 
 export function useDownloadQueue() {
-  function addDownload(skillId: string, skillName: string) {
+  function addDownload(skillId: string, skillName: string, source?: string) {
     const item: QueueItem = {
       id: `dl-${skillId}-${Date.now()}`,
       skillId,
       skillName,
       type: 'download',
+      source,
       status: 'running',
       startedAt: Date.now(),
     }
@@ -58,7 +60,7 @@ export function useDownloadQueue() {
     queue.value = queue.value.filter((item) => item.status === 'running' || item.status === 'pending')
   }
 
-  const activeCount = computed(() => queue.value.filter((item) => item.status === 'running' || item.status === 'pending').length)
+  const activeCount = computed(() => queue.value.filter((item) => item.type === 'download' && (item.status === 'running' || item.status === 'pending')).length)
   const hasItems = computed(() => queue.value.length > 0)
 
   return {

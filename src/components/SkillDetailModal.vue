@@ -310,7 +310,7 @@ async function handleImport() {
   importing.value = true
   try {
     const gh = props.skill.repo.split('/')
-    const buffer = await window.services.downloadFile(`https://api.github.com/repos/${gh[0]}/${gh[1]}/zipball/${props.skill.branch || 'main'}`)
+    const buffer = await window.services.downloadFile(`https://api.github.com/repos/${gh[0]}/${gh[1]}/zipball/${props.skill.branch || 'main'}`, storage.getSettings().githubToken || undefined)
     const tempDir = window.services.pathJoin(window.services.homeDir(), '.cache/skill-hub/')
     window.services.mkdir(tempDir)
     const extractDir = window.services.pathJoin(tempDir, `extract-${props.skill.id.replace(/\//g, '-')}`)
@@ -343,6 +343,7 @@ async function handleImport() {
       }
     }
     storage.addDownloadedId(props.skill.id)
+    storage.addSessionDownload(props.skill.id, props.skill.name, 'marketplace')
     refreshCounts?.()
     emit('imported')
     showToast(`已导入 ${props.skill.name}`, 'success')

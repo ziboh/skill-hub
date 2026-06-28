@@ -271,6 +271,7 @@ async function importToMySkills() {
     }
     storage.saveCachedSkills(cached)
     storage.addDownloadedId(importId)
+    storage.addSessionDownload(importId, skill.value.name, 'agent')
     isInMySkills.value = true
     isSourceFile.value = true
     showToast(`已将 ${skill.value.name} 导入到我的 Skill`, 'success')

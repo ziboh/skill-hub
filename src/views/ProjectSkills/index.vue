@@ -239,6 +239,7 @@ async function importSkill(skill: SkillScanResult) {
       }
     } catch {}
     storage.addDownloadedId(id)
+    storage.addSessionDownload(id, skill.manifest?.name || skill.name, 'project')
     const registry = loadRegistry()
     registerSkillFromProject(registry, skill, selectedProject.value?.id || '')
     refreshDownloaded()
@@ -359,6 +360,7 @@ async function batchImportToMySkills() {
         storage.saveCachedSkills(cached)
       }
       storage.addDownloadedId(id)
+      storage.addSessionDownload(id, skill.manifest?.name || id, 'project')
       successCount++
     } catch { failCount++ }
   }
@@ -970,7 +972,7 @@ async function confirmImportFromMy() {
       @deployed="onDeployed"
     />
 
-    <ConfirmModal v-if="confirmUninstallSkillDir" title="卸载 Skill" :message="`确定要卸载 <strong>${confirmUninstallSkillName}</strong> 吗？将删除项目目录中的文件及安装记录。`" confirm-text="卸载" @confirm="uninstallSkillFromProject({ dir: confirmUninstallSkillDir!, manifest: { name: confirmUninstallSkillName } } as any)" @cancel="confirmUninstallSkillDir = null" />
+    <ConfirmModal v-if="confirmUninstallSkillDir" title="卸载 Skill" :message="`确定要卸载 <strong>${confirmUninstallSkillName}</strong> 吗？将删除项目目录中的文件及分发记录。`" confirm-text="卸载" @confirm="uninstallSkillFromProject({ dir: confirmUninstallSkillDir!, manifest: { name: confirmUninstallSkillName } } as any)" @cancel="confirmUninstallSkillDir = null" />
     <ConfirmModal v-if="confirmDeleteProjectId" title="删除项目" :message="`确定要删除项目 <strong>${confirmDeleteProjectName}</strong> 吗？此操作不可撤销。`" confirm-text="删除项目" @confirm="doDeleteProject" @cancel="confirmDeleteProjectId = null" />
   </div>
 </template>

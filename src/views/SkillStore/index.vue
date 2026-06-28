@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, watch, inject, onUnmounted, nextTick } from 'vue'
 import { KeyRefreshCounts, KeyShowToast } from '../../inject-keys'
 import { storage } from '../../utils/storage'
-import { parseGitHubUrl, fetchGitHubRepoTree, fetchGitHubFile, detectSkillDirectories } from '../../utils/github'
+import { parseGitHubUrl, fetchGitHubRepoTree, fetchGitHubFile, detectSkillDirectories, getRateLimitState } from '../../utils/github'
 import { parseFrontmatter } from '../../utils/frontmatter'
 import * as skillsSh from '../../utils/skills-sh'
 import type { Skill, SkillFormat, StoreSource } from '../../types'
@@ -280,12 +280,14 @@ async function fetchGitHubSkills(url: string, directory?: string, branch?: strin
     totalCount.value = skillDirs.length
     loading.value = false; stopLoadingDots(); loadingMore.value = true
     nextTick(reobserveScroll)
-    const BATCH_SIZE = 8
-    for (let i = 0; i < skillDirs.length; i += BATCH_SIZE) {
+    for (let i = 0; i < skillDirs.length; ) {
       if (activePresetId.value !== presetId) { loadingMore.value = false; return }
-      const batch = skillDirs.slice(i, i + BATCH_SIZE)
+      const { remaining } = getRateLimitState()
+      const batchSize = remaining > 100 ? 8 : remaining > 30 ? 4 : remaining > 10 ? 2 : 1
+      const batch = skillDirs.slice(i, i + batchSize)
       const results = await Promise.allSettled(batch.map(async (sd) => {
-        const content = await fetchWithTimeout(fetchGitHubFile(info.owner, info.repo, sd.manifestFile, effectiveBranch), 10000)
+        const token = storage.getSettings().githubToken || undefined
+        const content = await fetchWithTimeout(fetchGitHubFile(info.owner, info.repo, sd.manifestFile, effectiveBranch, token), 10000)
         const fm = parseFrontmatter(content)
         const dirName = sd.dir === '.' ? info.repo : sd.dir.split('/').pop() || sd.dir
         const tags = fm.tags ? fm.tags.split(',').map((t) => t.trim()).filter(Boolean) : []
@@ -301,6 +303,7 @@ async function fetchGitHubSkills(url: string, directory?: string, branch?: strin
       }
       sourceSkills.value = allEntries.value.slice(0, Math.max(sourceSkills.value.length, PAGE_SIZE))
       nextTick(reobserveScroll)
+      i += batchSize
     }
     if (activePresetId.value !== presetId) { loadingMore.value = false; return }
     loadingMore.value = false
@@ -551,7 +554,7 @@ function handlePickCancel() {
 async function downloadSkill(skill: Skill) {
   if (!skill.repo || downloadedIds.value.includes(skill.id) || isDownloading(skill.id)) return
   downloading.value.add(skill.id)
-  const queueItem = addDownload(skill.id, skill.name)
+  const queueItem = addDownload(skill.id, skill.name, activePresetId.value || 'unknown')
   try {
     const gh = skillsSh.getGitHubRepo(skill)
     if (!gh) {
@@ -562,7 +565,7 @@ async function downloadSkill(skill: Skill) {
     }
     const { owner, repo } = gh
     const skillPath = skill.path || skill.id
-    const buffer = await window.services.downloadFile(`https://api.github.com/repos/${owner}/${repo}/zipball/${skill.branch || 'main'}`)
+    const buffer = await window.services.downloadFile(`https://api.github.com/repos/${owner}/${repo}/zipball/${skill.branch || 'main'}`, storage.getSettings().githubToken || undefined)
     const tempDir = window.services.pathJoin(window.services.homeDir(), '.cache/skill-hub/')
     window.services.mkdir(tempDir)
     const extractDir = window.services.pathJoin(tempDir, `extract-${skill.id.replace(/\//g, '-')}`)
@@ -617,7 +620,7 @@ async function downloadSkill(skill: Skill) {
         }, activePresetId.value === 'skills-sh' ? 'skills-sh' : 'github', skill.repo || '')
       }
     }
-    storage.addDownloadedId(skill.id); downloadedIds.value = storage.getDownloadedIds(); refreshCounts?.()
+    storage.addDownloadedId(skill.id); storage.addSessionDownload(skill.id, skill.name, activePresetId.value || 'unknown'); downloadedIds.value = storage.getDownloadedIds(); refreshCounts?.()
     updateItem(queueItem.id, { status: 'success' })
     showToast(`已导入 ${skill.name}`, 'success')
   } catch (err: any) {

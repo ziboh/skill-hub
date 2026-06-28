@@ -36,7 +36,7 @@ async function scanGit() {
     const skills: Skill[] = []
     for (const sd of skillDirs) {
       try {
-        const content = await fetchGitHubFile(info.owner, info.repo, sd.manifestFile, info.defaultBranch)
+        const content = await fetchGitHubFile(info.owner, info.repo, sd.manifestFile, info.defaultBranch, storage.getSettings().githubToken || undefined)
         const fm = parseFrontmatter(content)
         const dirName = sd.dir === '.' ? info.repo : sd.dir.split('/').pop() || sd.dir
         const tags = fm.tags ? fm.tags.split(',').map((t) => t.trim()).filter(Boolean) : []
@@ -104,7 +104,7 @@ async function importSelected() {
     if (selectedIds.value.has(skill.id) && !downloadedIds.includes(skill.id) && skill.repo) {
       try {
         const [owner, repo] = skill.repo.split('/')
-        const buffer = await window.services.downloadFile(`https://api.github.com/repos/${owner}/${repo}/zipball/main`)
+        const buffer = await window.services.downloadFile(`https://api.github.com/repos/${owner}/${repo}/zipball/main`, storage.getSettings().githubToken || undefined)
         const tempDir = window.services.pathJoin(window.services.homeDir(), '.cache/skill-hub/')
         window.services.mkdir(tempDir)
         const extractDir = window.services.pathJoin(tempDir, `extract-${skill.id.replace(/\//g, '-')}`)
@@ -138,7 +138,7 @@ async function importSelected() {
           }
         }
         storage.saveCachedSkills([skill])
-        storage.addDownloadedId(skill.id); refreshCounts?.()
+        storage.addDownloadedId(skill.id); storage.addSessionDownload(skill.id, skill.name, 'import'); refreshCounts?.()
       } catch {}
     }
   }
@@ -201,7 +201,7 @@ async function importSelected() {
       <div v-if="step === 'git-scan'" class="modal-footer">
         <div class="scan-actions">
           <button class="back-link" @click="step = 'git-input'">← 返回</button>
-          <button class="import-btn" :disabled="!selectedIds.size || importing" @click="importSelected">{{ importing ? '安装中...' : `安装 (${selectedIds.size})` }}</button>
+          <button class="import-btn" :disabled="!selectedIds.size || importing" @click="importSelected">{{ importing ? '分发中...' : `分发 (${selectedIds.size})` }}</button>
         </div>
       </div>
     </div>

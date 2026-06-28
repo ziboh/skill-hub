@@ -19,10 +19,10 @@ import AgentSkills from './views/AgentSkills/index.vue'
 import AgentSkillDetail from './views/AgentSkills/Detail.vue'
 import Sources from './views/Sources/index.vue'
 import Settings from './views/Settings/index.vue'
+import Records from './views/Records/index.vue'
 import AddProjectModal from './components/AddProjectModal.vue'
 import NewSkillModal from './components/NewSkillModal.vue'
 import AppToast from './components/AppToast.vue'
-import DownloadIndicator from './components/DownloadIndicator.vue'
 import { storage } from './utils/storage'
 import { applyTheme } from './utils/theme'
 import { useSettings } from './composables/useSettings'
@@ -123,6 +123,7 @@ const navItems = computed(() => [
   { code: 'project-skills', label: '项目 Skill', icon: 'M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z', count: registeredProjects.value.length },
   { code: 'agent-skills', label: 'Agent Skill', icon: 'M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714a2.25 2.25 0 00.659 1.591L19 14.5m-4.25-11.396c.251.023.501.05.75.082M12 21a8.966 8.966 0 005.982-2.275M12 21a8.966 8.966 0 01-5.982-2.275M15.75 3.186a24.284 24.284 0 011.957.967M15.75 3.186c-.376.056-.75.118-1.12.185m1.12-.185a24.284 24.284 0 00-1.957.967M6.258 5.526a24.284 24.284 0 011.957-.967m0 0A24.234 24.234 0 0112 3.493', count: agentCount.value },
   { code: 'store', label: 'Skill 商店', icon: 'M13.5 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0012 9.75c-2.551 0-5.056.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75z', count: 0 },
+  { code: 'records', label: '记录', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', count: 0 },
 ])
 
 let mqCleanup: (() => void) | null = null
@@ -216,7 +217,6 @@ const { isDarkMode, toggleTheme } = useTheme()
     <AddProjectModal v-if="showEditProjectModal" :project="editingProject" @close="showEditProjectModal = false; editingProject = null" @submit="handleProjectSubmit" />
     <NewSkillModal v-if="showImportModal" @close="showImportModal = false" @imported="refreshCounts" @navigate="(route) => { showImportModal = false; navigate(route) }" />
     <AppToast ref="appToast" />
-    <DownloadIndicator />
     <div class="app-content">
       <aside class="rail-sidebar">
         <div class="rail-logo" title="技能管理器" @click="navigate('my')" style="cursor:pointer">
@@ -258,13 +258,14 @@ const { isDarkMode, toggleTheme } = useTheme()
 
       <div class="main-area">
         <!-- ===== ALL VIEWS — SINGLE COLUMN ===== -->
-        <main class="main-content" :class="{ 'full-height': isFullHeight, 'no-padding': isMySkills || ['store', 'project-skills', 'agent-skills', 'sources'].includes(route) }">
+        <main class="main-content" :class="{ 'full-height': isFullHeight, 'no-padding': true }">
           <MySkills v-if="route === 'my'" @navigate="navigate" />
           <SkillDetail v-else-if="route === 'detail'" :skill="selectedSkill" :context="detailContext" @navigate="navigate" />
           <AgentSkillDetail v-else-if="route === 'agent-skill-detail'" :skill="selectedAgentSkill" :platform-id="selectedAgentPlatformId" :duplicate-skills="selectedDuplicateSkills" @navigate="navigate" />
           <Sources v-else-if="route === 'sources'" @navigate="navigate" />
           <Settings v-else-if="route === 'settings'" :anchor="settingsAnchor" />
           <SkillStore v-else-if="route === 'store'" :store-id="storeSubId" @navigate="navigate" />
+          <Records v-else-if="route === 'records'" @navigate="navigate" />
           <ProjectSkills ref="projectSkillsRef" v-else-if="route === 'project-skills'" @navigate="navigate" @edit-project="editProject" @delete-project="removeProject" />
           <AgentSkills ref="agentSkillsRef" v-else-if="route === 'agent-skills'" :initial-platform-id="selectedAgentPlatformId" @navigate="navigate" />
         </main>

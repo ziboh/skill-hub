@@ -298,7 +298,7 @@ async function install() {
             mode: props.installMode,
             scope: 'project',
             targetPath: targetDir,
-            sourceDir: props.skill.repo || '',
+            sourceDir,
             installedAt: new Date().toISOString(),
           })
           installedNames.push(`${project.name}/${agentPath}`)
@@ -388,7 +388,7 @@ loadInstallStatus()
         </button>
         <button class="install-all-btn" :disabled="installing || !selectedAgentDirs.length || !selectedProjects.length" @click="install">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-          {{ installing ? (installProgressText || '安装中...') : (selectedProjects.length > 1 ? `安装到 ${selectedProjects.length} 个项目` : '安装所选位置') }}
+          {{ installing ? (installProgressText || '分发中...') : (selectedProjects.length > 1 ? `分发到 ${selectedProjects.length} 个项目` : '分发所选位置') }}
         </button>
       </div>
       <div class="install-toolbar-stats">
