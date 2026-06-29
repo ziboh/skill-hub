@@ -3,7 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { storage } from '../utils/storage'
 import { useTranslationQueue } from '../composables/useTranslationQueue'
 import { translateContent, translateDescription, isChineseContent } from '../utils/translate'
-import type { Skill } from '../types'
+import type { ModelConfig, Skill } from '../types'
 
 const emit = defineEmits<{
   close: []
@@ -36,14 +36,14 @@ function isSkillTranslating(skillId: string) {
   return isTranslatingInQueue(skillId, 'desc') || isTranslatingInQueue(skillId, 'content')
 }
 
-const translationModel = computed(() => {
+const translationModel = computed((): ModelConfig | null => {
   const settings = storage.getSettings()
   if (!settings.translationModelId) return null
   const providers = settings.aiModels || []
   for (const provider of providers) {
     if (provider.models) {
       const model = provider.models.find(m => m.id === settings.translationModelId)
-      if (model) return model
+      if (model) return { ...provider, model: model.id } as ModelConfig
     }
   }
   return null
@@ -71,9 +71,12 @@ async function translateSkill(skill: Skill) {
       const desc = skill.description
       if (desc && !isChineseContent(desc)) {
         addTranslation(skill.id, skill.name, 'desc')
-        const translatedDesc = await translateDescription(desc, translationModel.value)
-        storage.saveTranslationDesc(skill.id, translatedDesc)
-        removeTranslation(skill.id, 'desc')
+        try {
+          const translatedDesc = await translateDescription(desc, translationModel.value)
+          storage.saveTranslationDesc(skill.id, translatedDesc)
+        } finally {
+          removeTranslation(skill.id, 'desc')
+        }
       }
     }
 
@@ -86,13 +89,16 @@ async function translateSkill(skill: Skill) {
         const content = window.services.readFile(window.services.pathJoin(skill.path || '', skillFile))
         if (content && !isChineseContent(content)) {
           addTranslation(skill.id, skill.name, 'content')
-          const translatedContent = await translateContent(content, translationModel.value, 'immersive')
-          storage.saveTranslation(skill.id, {
-            sourceContent: content,
-            translatedContent,
-            mode: 'immersive'
-          })
-          removeTranslation(skill.id, 'content')
+          try {
+            const translatedContent = await translateContent(content, translationModel.value, 'immersive')
+            storage.saveTranslation(skill.id, {
+              sourceContent: content,
+              translatedContent,
+              mode: 'immersive'
+            })
+          } finally {
+            removeTranslation(skill.id, 'content')
+          }
         }
       }
     }

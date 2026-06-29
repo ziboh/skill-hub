@@ -1,6 +1,6 @@
 import type { SkillIdentity, SkillSourceLocation, SkillScanResult } from '../types'
 
-function isChineseContent(text: string): boolean {
+export function isChineseContent(text: string): boolean {
   if (!text) return false
   const chineseChars = text.match(/[\u4e00-\u9fff]/g)
   if (!chineseChars) return false
@@ -8,7 +8,7 @@ function isChineseContent(text: string): boolean {
   return chineseRatio > 0.1
 }
 
-function addChineseTag(tags: string[], content?: string): string[] {
+export function addChineseTag(tags: string[], content?: string): string[] {
   const result = [...tags]
   if (content && isChineseContent(content) && !result.includes('中文')) {
     result.push('中文')

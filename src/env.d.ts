@@ -29,6 +29,7 @@ interface SkillScanResult {
   dir: string
   skillFile: string
   content: string
+  isSymlink?: boolean
   manifest: {
     name: string
     description: string
@@ -40,10 +41,7 @@ interface SkillScanResult {
 }
 
 interface Services {
-  readFile: (file: string) => string
-  writeTextFile: (text: string) => string
-  writeImageFile: (base64Url: string) => string | undefined
-
+  readFile: (file: string) => string | null
   expandPath: (p: string) => string
   homeDir: () => string
   isWindows: () => boolean
@@ -53,24 +51,18 @@ interface Services {
   mkdir: (dir: string) => void
   openFolder: (dir: string) => void
   readDir: (dir: string) => DirEntry[]
-  readFileText: (filePath: string) => string
+  readFileText: (filePath: string) => string | null
   writeFile: (filePath: string, content: string) => void
   removeFile: (filePath: string) => void
   copyFile: (src: string, dest: string) => void
   stat: (p: string) => StatResult
 
   createSymlink: (target: string, linkPath: string) => string
-  readSymlink: (linkPath: string) => string | null
 
   downloadFile: (url: string, token?: string) => Promise<Buffer>
-  downloadFileTo: (url: string, destPath: string) => Promise<string>
-
-  fetchGitHubAPI: (url: string, token?: string) => Promise<any>
   fetchGitHubText: (url: string, token?: string) => Promise<string>
 
-  extractZip: (zipPath: string, dest: string) => string
   extractBufferZip: (buffer: ArrayBuffer, dest: string) => string
-  extractTarGz: (tarPath: string, dest: string) => Promise<string>
 
   scanForSkills: (rootDir: string) => SkillScanResult[]
   scanForSkillFiles: (dirs: string[]) => SkillScanResult[]
@@ -80,8 +72,6 @@ interface Services {
   updateSkillFromGitHub: (repo: string, skillPath: string, targetDir: string, token?: string, branch?: string) => Promise<boolean>
 
   getStateDir: () => string
-
-  createPluginZip: (sourceDir: string) => { outputPath: string; fileName: string }
 }
 
 declare global {

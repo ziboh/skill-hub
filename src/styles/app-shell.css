@@ -1,0 +1,297 @@
+/* ===== COMPACT MODE ===== */
+[data-compact] { --compact-scale: 0.85; }
+[data-compact] .app-main,
+[data-compact] .main-content { padding: 10px 14px; }
+[data-compact] .rail-sidebar { width: 56px; }
+[data-compact] .rail-btn-label { display: none; }
+
+/* ===== BASE ===== */
+body {
+  font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: 'kern' 1;
+  line-height: 1.5;
+  overflow: hidden;
+}
+
+/* ===== SCROLLBAR ===== */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: hsl(var(--muted-foreground) / 0.2); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.35); }
+
+/* ===== APP SHELL ===== */
+.app-shell {
+  height: 100vh;
+  overflow: hidden;
+  position: relative;
+  zoom: var(--app-zoom, 1);
+}
+
+.app-background {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background-size: cover;
+  background-position: center;
+  pointer-events: none;
+  display: none;
+}
+
+.app-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ===== BACKGROUND IMAGE MODE ===== */
+:root[data-has-bg] .app-content { background: transparent; }
+:root[data-has-bg] .main-content { background: transparent; }
+:root[data-has-bg] .rail-sidebar {
+  background: hsl(var(--sidebar) / 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+:root[data-has-bg] .settings-sidebar {
+  background: hsl(var(--app-ui-panel-bg) / 0.7);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+:root[data-has-bg] .settings-content { background: transparent; }
+
+/* ===== BACKGROUND IMAGE — SURFACE OVERRIDES ===== */
+:root[data-has-bg] .skill-card,
+:root[data-has-bg] .stat-card,
+:root[data-has-bg] .action-card,
+:root[data-has-bg] .desc-card,
+:root[data-has-bg] .content-card,
+:root[data-has-bg] .sidebar-section,
+:root[data-has-bg] .add-form,
+:root[data-has-bg] .source-card,
+:root[data-has-bg] .header-btn,
+:root[data-has-bg] .back-btn,
+:root[data-has-bg] .desc-text,
+:root[data-has-bg] .icon-btn,
+:root[data-has-bg] .skill-action,
+:root[data-has-bg] .heading-btn,
+:root[data-has-bg] .modal,
+:root[data-has-bg] .confirm-dialog,
+:root[data-has-bg] .confirm-cancel,
+:root[data-has-bg] .action-btn {
+  background: hsl(var(--card) / 0.3);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+:root[data-has-bg] .filter-tabs button,
+:root[data-has-bg] .form-input,
+:root[data-has-bg] .examples-box,
+:root[data-has-bg] .toggle-switch,
+:root[data-has-bg] .source-code,
+:root[data-has-bg] .install-log,
+:root[data-has-bg] .stat-icon,
+:root[data-has-bg] .action-icon {
+  background: hsl(var(--muted) / 0.25);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+:root[data-has-bg] .setting-card {
+  background: hsl(var(--app-settings-card-bg) / 0.3);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+:root[data-has-bg] .segmented-control {
+  background: hsl(var(--app-settings-subtle-bg) / 0.25);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+:root[data-has-bg] .rail-btn.active,
+:root[data-has-bg] .filter-tabs button.active,
+:root[data-has-bg] .download-btn,
+:root[data-has-bg] .add-btn,
+:root[data-has-bg] .import-btn,
+:root[data-has-bg] .scan-btn,
+:root[data-has-bg] .install-my-skill-btn {
+  background: hsl(var(--primary) / 0.5);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+/* ===== RAIL SIDEBAR ===== */
+.rail-sidebar {
+  width: 72px;
+  background: hsl(var(--sidebar));
+  border-right: 1px solid hsl(var(--sidebar-border));
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  transition: width var(--duration-base) var(--ease-standard);
+  overflow: hidden;
+}
+
+.rail-logo {
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-bottom: 1px solid hsl(var(--sidebar-border));
+  flex-shrink: 0;
+}
+
+.rail-logo-img {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius);
+  object-fit: cover;
+}
+
+.rail-nav {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 0;
+  overflow-y: auto;
+}
+
+.rail-btn {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 56px;
+  padding: 8px 0;
+  border: none;
+  background: none;
+  color: hsl(var(--sidebar-foreground) / 0.55);
+  cursor: pointer;
+  border-radius: var(--radius);
+  transition: all var(--duration-base) var(--ease-standard);
+  text-decoration: none;
+  outline: none;
+}
+
+.rail-btn:hover {
+  background: hsl(var(--sidebar-accent));
+  color: hsl(var(--sidebar-foreground));
+}
+
+.rail-btn.active {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  box-shadow: 0 2px 10px hsl(var(--primary) / 0.25);
+}
+
+.rail-btn.active::before {
+  content: '';
+  position: absolute;
+  top: 1px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 20px;
+  height: 3px;
+  border-radius: 0 0 3px 3px;
+  background: hsl(38 90% 55%);
+  opacity: 0.85;
+}
+
+.rail-btn-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 28px;
+}
+
+.rail-btn.active .rail-btn-icon { border-radius: 10px; }
+
+.rail-btn-label {
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rail-footer {
+  padding: 8px 0;
+  border-top: 1px solid hsl(var(--sidebar-border));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* ===== MAIN AREA ===== */
+.main-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* ===== MAIN CONTENT ===== */
+.main-content {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 20px 24px;
+  background: hsl(var(--background));
+}
+
+.main-content.full-height {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.main-content.no-padding {
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0;
+}
+
+/* ===== FLOATING TRANSLATE BUTTON ===== */
+.floating-translate-btn {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: hsl(var(--primary));
+  color: white;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+  transition: all 0.3s;
+  z-index: 999;
+}
+
+.floating-translate-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3);
+}
+
+.floating-translate-btn svg {
+  width: 24px;
+  height: 24px;
+}

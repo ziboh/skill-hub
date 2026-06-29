@@ -473,7 +473,7 @@ function openDeploy(skill: SkillScanResult) {
 function onDeployed() {
   showDeployModal.value = false
   deploySkill.value = null
-  scanProject(selectedProject.value)
+  if (selectedProject.value) scanProject(selectedProject.value)
 }
 
 // === Import from My Skills modal ===

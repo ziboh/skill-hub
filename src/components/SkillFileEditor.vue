@@ -188,7 +188,7 @@ async function loadFileContent(relativePath: string) {
     const content = window.services.readFile(fullPath)
     loadedFiles.value[relativePath] = {
       path: relativePath,
-      content,
+      content: content || '',
       isDirectory: false,
     }
   } catch (err: any) {

@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, inject, watch } from 'vue'
 import { storage } from '../../utils/storage'
-import type { InstallRecord } from '../../types'
+import type { InstallRecord, ModelConfig } from '../../types'
 import { defaultPlatforms } from '../../data/platforms'
 import { KeyCurrentRoute } from '../../inject-keys'
 import { useDownloadQueue } from '../../composables/useDownloadQueue'
 import { useTranslationQueue } from '../../composables/useTranslationQueue'
 import { getSourceInfo as getSourceInfoUtil } from '../../utils/source-info'
+import { translateContent, translateDescription, isChineseContent } from '../../utils/translate'
 import type { Skill } from '../../types'
 import PlatformIcon from '../../components/PlatformIcon.vue'
 
@@ -16,7 +17,7 @@ const currentRoute = inject(KeyCurrentRoute, ref('my'))
 const activeTab = ref<'downloads' | 'dist' | 'translations'>('downloads')
 
 const { queue, activeCount, clearCompleted } = useDownloadQueue()
-const { queue: translationQueue, cacheVersion } = useTranslationQueue()
+const { queue: translationQueue, cacheVersion, removeTranslation, clearAll } = useTranslationQueue()
 
 const sessionDownloads = computed(() => storage.getSessionDownloads())
 const installRecords = ref<InstallRecord[]>([])
@@ -146,6 +147,73 @@ function loadData() {
   const descRaw = storage._readDescTranslationCache()
   descTranslations.value = descRaw
 }
+
+function getTranslationModel(): ModelConfig | null {
+  const settings = storage.getSettings()
+  if (!settings.translationModelId) return null
+  const providers = settings.aiModels || []
+  for (const provider of providers) {
+    if (provider.models) {
+      const model = provider.models.find(m => m.id === settings.translationModelId)
+      if (model) return { ...provider, model: model.id } as ModelConfig
+    }
+  }
+  return null
+}
+
+async function resumeTranslation(item: { skillId: string; type: 'content' | 'desc' }) {
+  const model = getTranslationModel()
+  if (!model) return
+
+  const cachedSkills = storage.getCachedSkills()
+  const skill = cachedSkills.find(s => s.id === item.skillId)
+  if (!skill) {
+    removeTranslation(item.skillId, item.type)
+    return
+  }
+
+  try {
+    if (item.type === 'desc') {
+      if (skill.description && !isChineseContent(skill.description)) {
+        const translatedDesc = await translateDescription(skill.description, model)
+        storage.saveTranslationDesc(skill.id, translatedDesc)
+      }
+      removeTranslation(skill.id, 'desc')
+    } else if (item.type === 'content') {
+      const skillFile = ['SKILL.md', 'skill.md'].find(f =>
+        window.services.pathExists(window.services.pathJoin(skill.path || '', f))
+      )
+      if (skillFile) {
+        const content = window.services.readFile(window.services.pathJoin(skill.path || '', skillFile))
+        if (content && !isChineseContent(content)) {
+          const translatedContent = await translateContent(content, model, 'immersive')
+          storage.saveTranslation(skill.id, {
+            sourceContent: content,
+            translatedContent,
+            mode: 'immersive',
+          })
+        }
+      }
+      removeTranslation(skill.id, 'content')
+    }
+  } catch (error) {
+    console.error('继续翻译失败:', error)
+    removeTranslation(item.skillId, item.type)
+  }
+}
+
+function clearStuckItem(item: { skillId: string; type: 'content' | 'desc' }) {
+  removeTranslation(item.skillId, item.type)
+}
+
+async function resumeAllStuck() {
+  const items = [...translationQueue.value]
+  for (const item of items) {
+    await resumeTranslation(item)
+  }
+}
+
+const hasStuckItems = computed(() => translationQueue.value.length > 0)
 
 function getSkillName(skillId: string): string {
   const cached = storage.getCachedSkills()
@@ -515,6 +583,11 @@ watch(activeTab, () => {
       </div>
 
       <div v-else-if="activeTab === 'translations'" class="records-list">
+        <div v-if="hasStuckItems" class="stuck-bar">
+          <span class="stuck-bar-text">{{ translationQueue.length }} 项翻译卡在「翻译中...」状态</span>
+          <button class="resume-all-btn" @click="resumeAllStuck">继续全部</button>
+          <button class="clear-all-stuck-btn" @click="clearAll">清除全部</button>
+        </div>
         <div v-if="translationsTotal === 0" class="empty">
           <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color: hsl(var(--muted-foreground) / 0.4)">
             <circle cx="12" cy="12" r="10"/>
@@ -567,6 +640,14 @@ watch(activeTab, () => {
                 <button v-if="!item.inProgress" class="delete-btn" @click.stop="confirmDeleteTranslation(item)" title="删除">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
                 </button>
+                <template v-else>
+                  <button class="stuck-resume-btn" @click.stop="resumeTranslation(item)" title="继续翻译">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  </button>
+                  <button class="stuck-clear-btn" @click.stop="clearStuckItem(item)" title="清除">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                  </button>
+                </template>
               </div>
             </div>
           </div>
@@ -925,4 +1006,35 @@ watch(activeTab, () => {
 }
 .page-size-option:hover { background: hsl(var(--accent)); }
 .page-size-option.active { background: hsl(var(--primary) / 0.1); color: hsl(var(--primary)); font-weight: 600; }
+
+.stuck-bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px; margin-top: 16px;
+  background: hsl(38 90% 50% / 0.08); border: 1px solid hsl(38 90% 50% / 0.2);
+  border-radius: 10px; font-size: 13px;
+}
+.stuck-bar-text { flex: 1; color: hsl(38 90% 40%); font-weight: 500; }
+.resume-all-btn {
+  padding: 5px 12px; font-size: 12px; font-weight: 600;
+  border: none; border-radius: 6px;
+  background: hsl(var(--primary)); color: hsl(var(--primary-foreground));
+  cursor: pointer; transition: opacity var(--duration-base) var(--ease-standard);
+}
+.resume-all-btn:hover { opacity: 0.9; }
+.clear-all-stuck-btn {
+  padding: 5px 12px; font-size: 12px; font-weight: 500;
+  border: 1px solid hsl(var(--border)); border-radius: 6px;
+  background: transparent; color: hsl(var(--muted-foreground));
+  cursor: pointer; transition: all var(--duration-base) var(--ease-standard);
+}
+.clear-all-stuck-btn:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
+
+.stuck-resume-btn, .stuck-clear-btn {
+  width: 28px; height: 28px; border: none; background: transparent;
+  color: hsl(var(--muted-foreground)); cursor: pointer; border-radius: 6px;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: all var(--duration-base) var(--ease-standard);
+}
+.stuck-resume-btn:hover { background: hsl(var(--primary) / 0.1); color: hsl(var(--primary)); }
+.stuck-clear-btn:hover { background: hsl(var(--destructive) / 0.1); color: hsl(var(--destructive)); }
 </style>

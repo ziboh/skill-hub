@@ -58,6 +58,12 @@ export function useTranslationQueue() {
     cacheVersion.value++
   }
 
+  function clearAll() {
+    queue.value = []
+    saveQueue(queue.value)
+    cacheVersion.value++
+  }
+
   return {
     queue,
     cacheVersion,
@@ -65,5 +71,6 @@ export function useTranslationQueue() {
     removeTranslation,
     isTranslating,
     notifyCacheChanged,
+    clearAll,
   }
 }

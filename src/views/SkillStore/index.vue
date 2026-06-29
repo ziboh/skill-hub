@@ -181,11 +181,11 @@ function getActivePreset() {
     || storage.getStoreSources().find(s => s.id === activePresetId.value)
 }
 
-function getSkillUrl(skill: Skill): string | null {
+function getSkillUrl(skill: Skill): string | undefined {
   if (skill.sourceUrl) return skill.sourceUrl
   if (skill.repo) return `https://github.com/${skill.repo}`
   if (skill.homepage) return skill.homepage
-  return null
+  return undefined
 }
 
 async function fetchSkillsSh() {
@@ -367,7 +367,8 @@ async function fetchLocalDirSkills(source: StoreSource) {
           if (activePresetId.value !== presetId) { loadingMore.value = false; return }
           const fm = r.manifest || parseFrontmatter(r.content)
           const dirName = r.name
-          const tags = fm.tags ? (Array.isArray(fm.tags) ? fm.tags : fm.tags.split(',').map((t: string) => t.trim()).filter(Boolean)) : []
+          const fmTags = fm.tags as string | string[] | undefined
+          const tags = fmTags ? (Array.isArray(fmTags) ? fmTags : fmTags.split(',').map((t: string) => t.trim()).filter(Boolean)) : []
           const category = inferCategory(dirName, fm.description || '')
           const skill: Skill = {
             id: `local/${dirName}`, name: fm.name || dirName, description: fm.description || '',
@@ -507,7 +508,7 @@ function readSkillDirMeta(dirPath: string): { name: string; description: string 
     .find((f) => window.services.pathExists(f))
   if (skillFile) {
     const content = window.services.readFile(skillFile)
-    const fm = parseFrontmatter(content)
+    const fm = parseFrontmatter(content || '')
     return { name: fm.name || '', description: fm.description || '' }
   }
   return { name: '', description: '' }
@@ -580,7 +581,7 @@ async function downloadSkill(skill: Skill) {
       `skills/${skillPath}`,
       `agent-skills/${skillPath}`,
     ]
-    let skillSourceDir = ''
+    let skillSourceDir: string | null = ''
     for (const p of pathCandidates) {
       const candidate = window.services.pathJoin(sourceRoot, p)
       if (window.services.pathExists(candidate)) { skillSourceDir = candidate; break }
@@ -593,7 +594,7 @@ async function downloadSkill(skill: Skill) {
         downloading.value.delete(skill.id)
         return
       }
-      skillSourceDir = matchSkillDir(allSkillDirs, skill.name) || await pickSkillDir(allSkillDirs)
+      skillSourceDir = matchSkillDir(allSkillDirs, skill.name) || (await pickSkillDir(allSkillDirs))
     }
     if (!skillSourceDir) {
       showToast('未找到技能文件', 'error')

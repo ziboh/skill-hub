@@ -1,5 +1,6 @@
 export function normalizePath(p: string): string {
-  return (p || '')
+  if (!p) return ''
+  return p
     .replace(/\\/g, '/')
     .replace(/\/+/g, '/')
     .replace(/\/+$/, '')

@@ -69,7 +69,7 @@ async function checkForUpdate() {
     const skillMd = files.find((f: any) => f.name === 'SKILL.md' || f.name === 'skill.md')
     let localContent = ''
     if (skillMd) {
-      localContent = window.services.readFile(skillMd.path)
+      localContent = window.services.readFile(skillMd.path) || ''
     }
     if (remoteContent && remoteContent !== localContent) {
       updateAvailable.value = true
@@ -140,7 +140,7 @@ function projectOpenFolder() {
   if (skill?.skillDir) window.services.openFolder(skill.skillDir)
 }
 
-const isFavorited = computed(() => props.skill && favorites.value.includes(props.skill.id))
+const isFavorited = computed(() => props.skill ? favorites.value.includes(props.skill.id) : false)
 
 onMounted(() => { loadFavorites(); loadSkillContent() })
 watch(() => props.skill?.id, () => {
@@ -182,7 +182,7 @@ async function loadSkillContent() {
       const files = window.services.readDir(skill.skillDir)
       const skillMd = files.find((f: any) => f.name === 'SKILL.md' || f.name === 'skill.md')
       if (skillMd) {
-        const raw = window.services.readFile(skillMd.path)
+        const raw = window.services.readFile(skillMd.path) || ''
         const fm = parseFrontmatter(raw)
         const normalized = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
         const bodyMatch = normalized.match(/^---\n[\s\S]*?\n---\n?([\s\S]*)$/)
@@ -202,7 +202,7 @@ async function loadSkillContent() {
       const files = window.services.readDir(dir)
       const skillMd = files.find((f: any) => f.name === 'SKILL.md')
       if (skillMd) {
-        const raw = window.services.readFile(skillMd.path)
+        const raw = window.services.readFile(skillMd.path) || ''
         const fm = parseFrontmatter(raw)
         const normalized = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
         const bodyMatch = normalized.match(/^---\n[\s\S]*?\n---\n?([\s\S]*)$/)

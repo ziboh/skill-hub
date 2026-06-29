@@ -25,7 +25,7 @@ function init() {
     let name = folderName
     try {
       const content = window.services.readFileText(skillFilePath)
-      const match = content.match(/^name:\s*(.+)/m)
+      const match = content?.match(/^name:\s*(.+)/m)
       if (match) name = match[1].trim()
     } catch {}
     result.push({ path: dir, name })

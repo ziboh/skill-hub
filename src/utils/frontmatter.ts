@@ -1,3 +1,86 @@
+function collectBlockLines(lines: string[], startI: number): { blockLines: string[]; nextI: number } {
+  const blockLines: string[] = []
+  let i = startI
+  while (i < lines.length) {
+    const next = lines[i]
+    if (next === '' || next.startsWith(' ') || next.startsWith('\t')) {
+      blockLines.push(next.trimEnd())
+      i++
+    } else {
+      break
+    }
+  }
+  return { blockLines, nextI: i }
+}
+
+function processFoldedBlock(blockLines: string[], chomp: string): string {
+  const paragraphs: string[] = []
+  let current: string[] = []
+  for (const bl of blockLines) {
+    if (bl === '') {
+      if (current.length) { paragraphs.push(current.join(' ')); current = [] }
+    } else {
+      current.push(bl)
+    }
+  }
+  if (current.length) paragraphs.push(current.join(' '))
+  let val = paragraphs.join('\n\n')
+  if (chomp === '+' && blockLines.length > 0) {
+    const trailing = blockLines.reduce((n, l) => l === '' ? n + 1 : 0, 0)
+    for (let t = 0; t < trailing; t++) val += '\n'
+  }
+  return val
+}
+
+function processLiteralBlock(blockLines: string[]): string {
+  return blockLines.join('\n').trimEnd()
+}
+
+function collectIndentedLines(lines: string[], startI: number): { blockLines: string[]; nextI: number } {
+  const blockLines: string[] = []
+  let i = startI
+  while (i < lines.length) {
+    const curr = lines[i]
+    if (curr.startsWith(' ') || curr.startsWith('\t')) {
+      blockLines.push(curr.trimEnd())
+      i++
+    } else {
+      break
+    }
+  }
+  return { blockLines, nextI: i }
+}
+
+function parseKeyValue(line: string): { key: string; val: string } | null {
+  const sep = line.indexOf(':')
+  if (sep <= 0) return null
+  const key = line.slice(0, sep).trim()
+  const val = line.slice(sep + 1).trim()
+  return { key, val }
+}
+
+function stripBrackets(val: string): string {
+  if (val.startsWith('[') && val.endsWith(']')) {
+    return val.slice(1, -1).trim()
+  }
+  return val
+}
+
+function tryParseQuotedValue(val: string): string | null {
+  if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+    return val.slice(1, -1)
+  }
+  return null
+}
+
+function extractBodyDescription(normalized: string, match: RegExpMatchArray | null): string | undefined {
+  const bodyStart = match ? match[0].length : 0
+  const body = normalized.slice(bodyStart).trim()
+  const firstLine = body.split('\n').find((l) => l.trim() && !l.startsWith('#') && l.trim() !== '---')
+  if (firstLine) return firstLine.trim().slice(0, 200)
+  return undefined
+}
+
 export function parseFrontmatter(text: string): Record<string, string> {
   const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
   const match = normalized.match(/^---\n([\s\S]*?)\n---/)
@@ -7,80 +90,43 @@ export function parseFrontmatter(text: string): Record<string, string> {
     let i = 0
     while (i < lines.length) {
       const line = lines[i]
-      const sep = line.indexOf(':')
-      if (sep <= 0) { i++; continue }
-      const key = line.slice(0, sep).trim()
-      let val = line.slice(sep + 1).trim()
-      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-        fm[key] = val.slice(1, -1)
+      const parsed = parseKeyValue(line)
+      if (!parsed) { i++; continue }
+      const { key, val: rawVal } = parsed
+
+      const quoted = tryParseQuotedValue(rawVal)
+      if (quoted !== null) {
+        fm[key] = quoted
         i++
         continue
       }
+
+      let val = rawVal
       const blockMatch = val.match(/^([>|])([+-]?)$/)
       if (blockMatch) {
         const style = blockMatch[1]
         const chomp = blockMatch[2]
-        const blockLines: string[] = []
-        i++
-        while (i < lines.length) {
-          const next = lines[i]
-          if (next === '' || next.startsWith(' ') || next.startsWith('\t')) {
-            blockLines.push(next.trimEnd())
-            i++
-          } else {
-            break
-          }
-        }
-        i--
-        if (style === '>') {
-          const paragraphs: string[] = []
-          let current: string[] = []
-          for (const bl of blockLines) {
-            if (bl === '') {
-              if (current.length) { paragraphs.push(current.join(' ')); current = [] }
-            } else {
-              current.push(bl)
-            }
-          }
-          if (current.length) paragraphs.push(current.join(' '))
-          val = paragraphs.join('\n\n')
-          if (chomp === '+' && blockLines.length > 0) {
-            const trailing = blockLines.reduce((n, l) => l === '' ? n + 1 : 0, 0)
-            for (let t = 0; t < trailing; t++) val += '\n'
-          }
-        } else {
-          val = blockLines.join('\n').trimEnd()
-        }
+        const { blockLines, nextI } = collectBlockLines(lines, i + 1)
+        i = nextI - 1
+        val = style === '>'
+          ? processFoldedBlock(blockLines, chomp)
+          : processLiteralBlock(blockLines)
       } else if (val === '' || val === '""' || val === "''") {
-        const nextIdx = i + 1
-        if (nextIdx < lines.length && (lines[nextIdx].startsWith(' ') || lines[nextIdx].startsWith('\t'))) {
-          const blockLines: string[] = []
-          i++
-          while (i < lines.length) {
-            const curr = lines[i]
-            if (curr.startsWith(' ') || curr.startsWith('\t')) {
-              blockLines.push(curr.trimEnd())
-              i++
-            } else {
-              break
-            }
-          }
-          i--
+        if (i + 1 < lines.length && (lines[i + 1].startsWith(' ') || lines[i + 1].startsWith('\t'))) {
+          const { blockLines, nextI } = collectIndentedLines(lines, i + 1)
+          i = nextI - 1
           val = blockLines.join(' ').replace(/\s+/g, ' ').trim()
         }
       }
-      if (val.startsWith('[') && val.endsWith(']')) {
-        val = val.slice(1, -1).trim()
-      }
+
+      val = stripBrackets(val)
       fm[key] = val
       i++
     }
   }
   if (!fm.description) {
-    const bodyStart = match ? match[0].length : 0
-    const body = normalized.slice(bodyStart).trim()
-    const firstLine = body.split('\n').find((l) => l.trim() && !l.startsWith('#'))
-    if (firstLine) fm.description = firstLine.trim().slice(0, 200)
+    const desc = extractBodyDescription(normalized, match)
+    if (desc) fm.description = desc
   }
   return fm
 }

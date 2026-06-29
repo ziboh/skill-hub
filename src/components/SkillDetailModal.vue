@@ -288,7 +288,7 @@ function readSkillDirMeta(dirPath: string): { name: string; description: string 
     .find((f) => window.services.pathExists(f))
   if (skillFile) {
     const content = window.services.readFile(skillFile)
-    const fm = parseFrontmatter(content)
+    const fm = parseFrontmatter(content || '')
     return { name: fm.name || '', description: fm.description || '' }
   }
   return { name: '', description: '' }
@@ -347,8 +347,8 @@ async function handleImport() {
     const extractedItems = window.services.readDir(extractDir)
     const rootDir = extractedItems.find((d: any) => d.isDirectory)
     const sourceRoot = rootDir ? rootDir.path : extractDir
-    const candidates = [props.skill.path, `skills/${props.skill.path}`, `agent-skills/${props.skill.path}`]
-    let sourceDir = ''
+    const candidates = [props.skill.path, `skills/${props.skill.path}`, `agent-skills/${props.skill.path}`].filter(Boolean) as string[]
+    let sourceDir: string | null = ''
     for (const p of candidates) {
       const candidate = window.services.pathJoin(sourceRoot, p)
       if (window.services.pathExists(candidate)) { sourceDir = candidate; break }
@@ -356,7 +356,7 @@ async function handleImport() {
     if (!sourceDir) {
       const allSkillDirs = collectAllSkillDirs(sourceRoot)
       if (allSkillDirs.length === 0) { showToast('未找到技能文件', 'error'); importing.value = false; return }
-      sourceDir = matchSkillDir(allSkillDirs, props.skill.name) || await pickSkillDir(allSkillDirs)
+      sourceDir = matchSkillDir(allSkillDirs, props.skill.name) || (await pickSkillDir(allSkillDirs))
     }
     if (!sourceDir) { showToast('未找到技能文件', 'error'); importing.value = false; return }
     const targetDir = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', props.skill.id)
