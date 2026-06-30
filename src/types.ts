@@ -128,6 +128,7 @@ export interface AppSettings {
   translationModelId: string
   autoTranslate: boolean
   translationTimeout: number
+  resumeTranslation: boolean
 }
 
 export interface SkillManifest {

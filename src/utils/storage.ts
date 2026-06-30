@@ -189,6 +189,7 @@ export const storage = {
       translationModelId: '',
       autoTranslate: false,
       translationTimeout: 60,
+      resumeTranslation: true,
     }
     let saved: Partial<AppSettings> | null = null
     try {

@@ -4,7 +4,7 @@ import { KeyShowToast } from '../inject-keys'
 import type { Skill } from '../types'
 import { useSettings } from '../composables/useSettings'
 import SkillFileEditor from './SkillFileEditor.vue'
-import { translateContent, translateDescription, stripFrontmatter, renderImmersiveSegments, isChineseContent } from '../utils/translate'
+import { stripFrontmatter, renderImmersiveSegments, isChineseContent, computeContentHash } from '../utils/translate'
 import type { TranslationMode } from '../utils/translate'
 import { storage } from '../utils/storage'
 import { getAvatarColor } from '../utils/color'
@@ -38,7 +38,7 @@ const activeTab = defineModel<'preview' | 'source' | 'files'>('activeTab', { def
 const sidePanelCollapsed = ref(false)
 
 const sourceInfo = computed(() => getSourceInfo(props.skill))
-const { addTranslation, removeTranslation, isTranslating: isTranslatingInQueue, findInQueueByHash, queue: translationQueue, cacheVersion: translationCacheVersion, notifyCacheChanged, waitForTurn } = useTranslationQueue()
+const { addTranslation, isTranslating: isTranslatingInQueue, findInQueueByHash, cacheVersion: translationCacheVersion } = useTranslationQueue()
 
 const debugFields = computed(() => {
   const s = props.skill as any
@@ -111,7 +111,7 @@ const showTranslation = ref(false)
 const translatedContent = ref('')
 const translationMode = ref<TranslationMode>('immersive')
 const isContentChinese = ref(false)
-const contentHash = computed(() => props.skillContent ? window.services.hashContent(props.skillContent) : '')
+const contentHash = computed(() => props.skillContent ? computeContentHash(props.skillContent) : '')
 const descHash = computed(() => {
   const desc = props.skillDesc || props.skill.description || ''
   return desc ? window.services.hashContent(desc) : ''
@@ -182,25 +182,6 @@ function loadTranslationCache() {
   }
 }
 
-function saveTranslationCache() {
-  if (translatedContent.value && contentHash.value) {
-    storage.saveTranslationByHash(contentHash.value, {
-      sourceContent: props.skillContent,
-      translatedContent: translatedContent.value,
-      mode: translationMode.value,
-      skillName: props.skillName,
-    })
-    notifyCacheChanged()
-  }
-}
-
-function saveDescTranslationCache() {
-  if (translatedDesc.value && descHash.value) {
-    storage.saveDescTranslationByHash(descHash.value, translatedDesc.value, props.skillName)
-    notifyCacheChanged()
-  }
-}
-
 // === User Tags (Category) ===
 const userTags = ref<string[]>([])
 const editingTags = ref(false)
@@ -260,29 +241,21 @@ function restoreTranslatingState() {
   isPendingDescInQueue.value = false
 
   if (ch && isTranslatingInQueue(ch, 'content')) {
-    if (translatedContent.value) {
-      removeTranslation(ch, 'content')
+    const items = findInQueueByHash(ch)
+    const contentItem = items.find(i => i.type === 'content')
+    if (contentItem?.status === 'pending') {
+      isPendingInQueue.value = true
     } else {
-      const items = findInQueueByHash(ch)
-      const contentItem = items.find(i => i.type === 'content')
-      if (contentItem?.status === 'pending') {
-        isPendingInQueue.value = true
-      } else {
-        isTranslating.value = true
-      }
+      isTranslating.value = true
     }
   }
   if (dh && isTranslatingInQueue(dh, 'desc')) {
-    if (descTranslationDone.value) {
-      removeTranslation(dh, 'desc')
+    const items = findInQueueByHash(dh)
+    const descItem = items.find(i => i.type === 'desc')
+    if (descItem?.status === 'pending') {
+      isPendingDescInQueue.value = true
     } else {
-      const items = findInQueueByHash(dh)
-      const descItem = items.find(i => i.type === 'desc')
-      if (descItem?.status === 'pending') {
-        isPendingDescInQueue.value = true
-      } else {
-        isTranslatingDesc.value = true
-      }
+      isTranslatingDesc.value = true
     }
   }
 }
@@ -297,7 +270,7 @@ function getVisibleContent(): string {
   return props.skillContent
 }
 
-async function handleTranslate() {
+function handleTranslate() {
   if (!props.skillContent.trim()) return
 
   isContentChinese.value = isChineseContent(props.skillContent)
@@ -305,7 +278,6 @@ async function handleTranslate() {
   if (isContentChinese.value) {
     translatedContent.value = props.skillContent
     showTranslation.value = true
-    saveTranslationCache()
     return
   }
 
@@ -319,35 +291,41 @@ async function handleTranslate() {
   }
   const ch = contentHash.value
   if (!ch) return
-  const contentItem = addTranslation(ch, 'content', props.skill.name || props.skillName)
-  if (contentItem?.status === 'pending') {
-    isPendingInQueue.value = true
-    await waitForTurn(ch, 'content')
-    isPendingInQueue.value = false
-  }
-  isTranslating.value = true
-  try {
-    const result = await translateContent(
-      props.skillContent,
-      translationModel.value,
-      translationMode.value,
-    )
-    translatedContent.value = result
+
+  const cached = storage.getTranslationByHash(ch)
+  if (cached) {
+    translatedContent.value = cached.translatedContent
     showTranslation.value = true
-    saveTranslationCache()
     showToast(`${props.skillName || props.skill.name} 内容翻译完成`, 'success')
-  } catch (err: any) {
-    const msg = err.message === 'AI_NOT_CONFIGURED' ? 'AI 模型未配置' :
-                err.message === 'AI_AUTH_ERROR' ? 'API 认证失败，请检查 API Key' :
-                err.message || '翻译失败'
-    showToast(msg, 'error')
-  } finally {
-    isTranslating.value = false
-    removeTranslation(ch, 'content')
+    return
   }
+
+  const item = addTranslation(ch, 'content', props.skill.name || props.skillName, props.skillContent)
+  if (item?.status === 'pending') {
+    isPendingInQueue.value = true
+  } else {
+    isTranslating.value = true
+  }
+
+  const unwatch = watch(translationCacheVersion, () => {
+    const cached = storage.getTranslationByHash(ch)
+    if (cached) {
+      translatedContent.value = cached.translatedContent
+      showTranslation.value = true
+      isTranslating.value = false
+      isPendingInQueue.value = false
+      showToast(`${props.skillName || props.skill.name} 内容翻译完成`, 'success')
+      unwatch()
+    } else if (!isTranslatingInQueue(ch, 'content')) {
+      isTranslating.value = false
+      isPendingInQueue.value = false
+      showToast('内容翻译失败', 'error')
+      unwatch()
+    }
+  })
 }
 
-async function handleTranslateDesc() {
+function handleTranslateDesc() {
   const desc = props.skillDesc || props.skill.description
   if (!desc) return
 
@@ -357,7 +335,6 @@ async function handleTranslateDesc() {
     translatedDesc.value = desc
     descTranslationDone.value = true
     showDescTranslation.value = true
-    saveDescTranslationCache()
     return
   }
 
@@ -373,32 +350,43 @@ async function handleTranslateDesc() {
 
   const dh = descHash.value
   if (!dh) return
-  const descItem = addTranslation(dh, 'desc', props.skill.name || props.skillName)
-  if (descItem?.status === 'pending') {
-    isPendingDescInQueue.value = true
-    await waitForTurn(dh, 'desc')
-    isPendingDescInQueue.value = false
-  }
-  isTranslatingDesc.value = true
-  try {
-    const result = await translateDescription(desc, translationModel.value)
-    translatedDesc.value = result
+
+  const cached = storage.getDescTranslationByHash(dh)
+  if (cached) {
+    translatedDesc.value = cached
     descTranslationDone.value = true
     showDescTranslation.value = true
-    saveDescTranslationCache()
     showToast(`${props.skillName || props.skill.name} 描述翻译完成`, 'success')
-  } catch (err: any) {
-    const msg = err.message === 'AI_NOT_CONFIGURED' ? 'AI 模型未配置' :
-                err.message === 'AI_AUTH_ERROR' ? 'API 认证失败，请检查 API Key' :
-                err.message || '描述翻译失败'
-    showToast(msg, 'error')
-  } finally {
-    isTranslatingDesc.value = false
-    removeTranslation(dh, 'desc')
+    return
   }
+
+  const item = addTranslation(dh, 'desc', props.skill.name || props.skillName, props.skillDesc || props.skill.description)
+  if (item?.status === 'pending') {
+    isPendingDescInQueue.value = true
+  } else {
+    isTranslatingDesc.value = true
+  }
+
+  const unwatch = watch(translationCacheVersion, () => {
+    const cached = storage.getDescTranslationByHash(dh)
+    if (cached) {
+      translatedDesc.value = cached
+      descTranslationDone.value = true
+      showDescTranslation.value = true
+      isTranslatingDesc.value = false
+      isPendingDescInQueue.value = false
+      showToast(`${props.skillName || props.skill.name} 描述翻译完成`, 'success')
+      unwatch()
+    } else if (!isTranslatingInQueue(dh, 'desc')) {
+      isTranslatingDesc.value = false
+      isPendingDescInQueue.value = false
+      showToast('描述翻译失败', 'error')
+      unwatch()
+    }
+  })
 }
 
-async function handleReTranslateDesc() {
+function handleReTranslateDesc() {
   const desc = props.skillDesc || props.skill.description
   if (!desc) return
 
@@ -408,7 +396,6 @@ async function handleReTranslateDesc() {
     translatedDesc.value = desc
     descTranslationDone.value = true
     showDescTranslation.value = true
-    saveDescTranslationCache()
     return
   }
 
@@ -419,29 +406,35 @@ async function handleReTranslateDesc() {
 
   const dh = descHash.value
   if (!dh) return
-  const descItem = addTranslation(dh, 'desc', props.skill.name || props.skillName)
-  if (descItem?.status === 'pending') {
+
+  storage.removeDescTranslationByHash(dh)
+  translatedDesc.value = ''
+  descTranslationDone.value = false
+
+  const item = addTranslation(dh, 'desc', props.skill.name || props.skillName, props.skillDesc || props.skill.description)
+  if (item?.status === 'pending') {
     isPendingDescInQueue.value = true
-    await waitForTurn(dh, 'desc')
-    isPendingDescInQueue.value = false
+  } else {
+    isTranslatingDesc.value = true
   }
-  isTranslatingDesc.value = true
-  try {
-    const result = await translateDescription(desc, translationModel.value)
-    translatedDesc.value = result
-    descTranslationDone.value = true
-    showDescTranslation.value = true
-    saveDescTranslationCache()
-    showToast(`${props.skillName || props.skill.name} 描述翻译完成`, 'success')
-  } catch (err: any) {
-    const msg = err.message === 'AI_NOT_CONFIGURED' ? 'AI 模型未配置' :
-                err.message === 'AI_AUTH_ERROR' ? 'API 认证失败，请检查 API Key' :
-                err.message || '描述翻译失败'
-    showToast(msg, 'error')
-  } finally {
-    isTranslatingDesc.value = false
-    removeTranslation(dh, 'desc')
-  }
+
+  const unwatch = watch(translationCacheVersion, () => {
+    const cached = storage.getDescTranslationByHash(dh)
+    if (cached) {
+      translatedDesc.value = cached
+      descTranslationDone.value = true
+      showDescTranslation.value = true
+      isTranslatingDesc.value = false
+      isPendingDescInQueue.value = false
+      showToast(`${props.skillName || props.skill.name} 描述翻译完成`, 'success')
+      unwatch()
+    } else if (!isTranslatingInQueue(dh, 'desc')) {
+      isTranslatingDesc.value = false
+      isPendingDescInQueue.value = false
+      showToast('描述翻译失败', 'error')
+      unwatch()
+    }
+  })
 }
 </script>
 

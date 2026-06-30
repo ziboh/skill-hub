@@ -3,11 +3,11 @@ import { ref, onMounted, onUnmounted, watch, inject, computed } from 'vue'
 import { KeyShowToast, KeyRefreshCounts } from '../inject-keys'
 import { fetchSkillDetailFromSkill } from '../utils/skills-sh'
 import { storage } from '../utils/storage'
-import { parseFrontmatter } from '../utils/frontmatter'
+import { parseFrontmatter, extractChineseSummary } from '../utils/frontmatter'
 import type { Skill } from '../types'
 import SkillPickModal from './SkillPickModal.vue'
 import { useSettings } from '../composables/useSettings'
-import { translateContent, translateDescription, isChineseContent } from '../utils/translate'
+import { isChineseContent, computeContentHash } from '../utils/translate'
 import type { TranslationMode } from '../utils/translate'
 import { getAvatarColor } from '../utils/color'
 import { SKILL_CATEGORIES, inferCategory, CATEGORY_ICONS } from '../data/skill-categories'
@@ -20,7 +20,7 @@ const showToast = inject(KeyShowToast, () => {})
 const refreshCounts = inject(KeyRefreshCounts)
 
 const { settings } = useSettings()
-const { addTranslation, removeTranslation, isTranslating: isTranslatingInQueue, waitForTurn } = useTranslationQueue()
+const { addTranslation, isTranslating: isTranslatingInQueue, findInQueueByHash, cacheVersion: translationCacheVersion } = useTranslationQueue()
 
 const loading = ref(true)
 const skillName = ref('')
@@ -35,12 +35,14 @@ const pickSkills = ref<{ name: string; description: string; dir: string }[]>([])
 let pickSkillResolve: ((dir: string | null) => void) | null = null
 
 const isTranslating = ref(false)
+const isPendingInQueue = ref(false)
 const showTranslation = ref(false)
 const translatedContent = ref('')
 const translationMode = ref<TranslationMode>('immersive')
 const isContentChinese = ref(false)
 
 const isTranslatingDesc = ref(false)
+const isPendingDescInQueue = ref(false)
 const descTranslationDone = ref(false)
 const showDescTranslation = ref(false)
 const translatedDesc = ref('')
@@ -84,7 +86,7 @@ async function fetchContent() {
       const normalized = props.skill.readme.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
       const bodyMatch = normalized.match(/^---\n[\s\S]*?\n---\n?([\s\S]*)$/)
       skillName.value = props.skill.name
-      skillDesc.value = fm.description || props.skill.description || ''
+      skillDesc.value = fm.description || extractChineseSummary(props.skill.readme) || ''
       skillContent.value = bodyMatch ? bodyMatch[1].trim() : props.skill.readme
       loading.value = false
       initChineseDetection()
@@ -124,19 +126,27 @@ onMounted(() => { fetchContent(); loadFavorites(); restoreTranslatingState() })
 watch(() => props.skill?.id, () => { fetchContent(); loadFavorites(); restoreTranslatingState() })
 
 function restoreTranslatingState() {
-  const ch = skillContent.value ? window.services.hashContent(skillContent.value) : ''
+  const ch = skillContent.value ? computeContentHash(skillContent.value) : ''
   const dh = skillDesc.value || props.skill.description ? window.services.hashContent(skillDesc.value || props.skill.description) : ''
+  isTranslating.value = false
+  isPendingInQueue.value = false
+  isTranslatingDesc.value = false
+  isPendingDescInQueue.value = false
+
   if (ch && isTranslatingInQueue(ch, 'content')) {
-    const cached = ch ? storage.getTranslationByHash(ch) : null
-    if (cached) {
-      removeTranslation(ch, 'content')
+    const items = findInQueueByHash(ch)
+    const contentItem = items.find(i => i.type === 'content')
+    if (contentItem?.status === 'pending') {
+      isPendingInQueue.value = true
     } else {
       isTranslating.value = true
     }
   }
   if (dh && isTranslatingInQueue(dh, 'desc')) {
-    if (dh && storage.getDescTranslationByHash(dh)) {
-      removeTranslation(dh, 'desc')
+    const items = findInQueueByHash(dh)
+    const descItem = items.find(i => i.type === 'desc')
+    if (descItem?.status === 'pending') {
+      isPendingDescInQueue.value = true
     } else {
       isTranslatingDesc.value = true
     }
@@ -185,7 +195,7 @@ const translationModel = computed(() => {
   return null
 })
 
-async function handleTranslate() {
+function handleTranslate() {
   if (!skillContent.value.trim()) return
 
   isContentChinese.value = isChineseContent(skillContent.value)
@@ -198,32 +208,43 @@ async function handleTranslate() {
 
   if (translatedContent.value) { showTranslation.value = !showTranslation.value; return }
   if (!translationModel.value) { showToast('AI 模型未配置', 'error'); return }
-  isTranslating.value = true
-  const ch = window.services.hashContent(skillContent.value)
-  const contentItem = addTranslation(ch, 'content', props.skill.name)
-  if (contentItem?.status === 'pending') { await waitForTurn(ch, 'content') }
-  try {
-    translatedContent.value = await translateContent(skillContent.value, translationModel.value, translationMode.value)
+  const ch = computeContentHash(skillContent.value)
+  if (!ch) return
+
+  const cached = storage.getTranslationByHash(ch)
+  if (cached) {
+    translatedContent.value = cached.translatedContent
     showTranslation.value = true
-    storage.saveTranslationByHash(ch, {
-      sourceContent: skillContent.value,
-      translatedContent: translatedContent.value,
-      mode: translationMode.value,
-      skillName: props.skill.name,
-    })
     showToast(`${props.skill.name} 内容翻译完成`, 'success')
-  } catch (err: any) {
-    const msg = err.message === 'AI_NOT_CONFIGURED' ? 'AI 模型未配置' :
-                err.message === 'AI_AUTH_ERROR' ? 'API 认证失败，请检查 API Key' :
-                err.message || '翻译失败'
-    showToast(msg, 'error')
-  } finally {
-    isTranslating.value = false
-    removeTranslation(ch, 'content')
+    return
   }
+
+  const item = addTranslation(ch, 'content', props.skill.name, skillContent.value)
+  if (item?.status === 'pending') {
+    isPendingInQueue.value = true
+  } else {
+    isTranslating.value = true
+  }
+
+  const unwatch = watch(translationCacheVersion, () => {
+    const cached = storage.getTranslationByHash(ch)
+    if (cached) {
+      translatedContent.value = cached.translatedContent
+      showTranslation.value = true
+      isTranslating.value = false
+      isPendingInQueue.value = false
+      showToast(`${props.skill.name} 内容翻译完成`, 'success')
+      unwatch()
+    } else if (!isTranslatingInQueue(ch, 'content')) {
+      isTranslating.value = false
+      isPendingInQueue.value = false
+      showToast('内容翻译失败', 'error')
+      unwatch()
+    }
+  })
 }
 
-async function handleTranslateDesc() {
+function handleTranslateDesc() {
   const desc = skillDesc.value || props.skill.description
   if (!desc) return
 
@@ -238,28 +259,45 @@ async function handleTranslateDesc() {
 
   if (descTranslationDone.value) { showDescTranslation.value = !showDescTranslation.value; return }
   if (!translationModel.value) { showToast('AI 模型未配置', 'error'); return }
-  isTranslatingDesc.value = true
   const dh = window.services.hashContent(desc)
-  const descItem = addTranslation(dh, 'desc', props.skill.name)
-  if (descItem?.status === 'pending') { await waitForTurn(dh, 'desc') }
-  try {
-    translatedDesc.value = await translateDescription(desc, translationModel.value)
-    storage.saveDescTranslationByHash(dh, translatedDesc.value, props.skill.name)
+  if (!dh) return
+
+  const cached = storage.getDescTranslationByHash(dh)
+  if (cached) {
+    translatedDesc.value = cached
     descTranslationDone.value = true
     showDescTranslation.value = true
     showToast(`${props.skill.name} 描述翻译完成`, 'success')
-  } catch (err: any) {
-    const msg = err.message === 'AI_NOT_CONFIGURED' ? 'AI 模型未配置' :
-                err.message === 'AI_AUTH_ERROR' ? 'API 认证失败，请检查 API Key' :
-                err.message || '翻译失败'
-    showToast(msg, 'error')
-  } finally {
-    isTranslatingDesc.value = false
-    removeTranslation(dh, 'desc')
+    return
   }
+
+  const item = addTranslation(dh, 'desc', props.skill.name, desc)
+  if (item?.status === 'pending') {
+    isPendingDescInQueue.value = true
+  } else {
+    isTranslatingDesc.value = true
+  }
+
+  const unwatch = watch(translationCacheVersion, () => {
+    const cached = storage.getDescTranslationByHash(dh)
+    if (cached) {
+      translatedDesc.value = cached
+      descTranslationDone.value = true
+      showDescTranslation.value = true
+      isTranslatingDesc.value = false
+      isPendingDescInQueue.value = false
+      showToast(`${props.skill.name} 描述翻译完成`, 'success')
+      unwatch()
+    } else if (!isTranslatingInQueue(dh, 'desc')) {
+      isTranslatingDesc.value = false
+      isPendingDescInQueue.value = false
+      showToast('描述翻译失败', 'error')
+      unwatch()
+    }
+  })
 }
 
-async function handleReTranslateDesc() {
+function handleReTranslateDesc() {
   const desc = skillDesc.value || props.skill.description
   if (!desc) return
 
@@ -273,25 +311,37 @@ async function handleReTranslateDesc() {
   }
 
   if (!translationModel.value) { showToast('AI 模型未配置', 'error'); return }
-  isTranslatingDesc.value = true
   const dh = window.services.hashContent(desc)
-  const descItem = addTranslation(dh, 'desc', props.skill.name)
-  if (descItem?.status === 'pending') { await waitForTurn(dh, 'desc') }
-  try {
-    translatedDesc.value = await translateDescription(desc, translationModel.value)
-    storage.saveDescTranslationByHash(dh, translatedDesc.value, props.skill.name)
-    descTranslationDone.value = true
-    showDescTranslation.value = true
-    showToast(`${props.skill.name} 描述翻译完成`, 'success')
-  } catch (err: any) {
-    const msg = err.message === 'AI_NOT_CONFIGURED' ? 'AI 模型未配置' :
-                err.message === 'AI_AUTH_ERROR' ? 'API 认证失败，请检查 API Key' :
-                err.message || '翻译失败'
-    showToast(msg, 'error')
-  } finally {
-    isTranslatingDesc.value = false
-    removeTranslation(dh, 'desc')
+  if (!dh) return
+
+  storage.removeDescTranslationByHash(dh)
+  translatedDesc.value = ''
+  descTranslationDone.value = false
+
+  const item = addTranslation(dh, 'desc', props.skill.name, desc)
+  if (item?.status === 'pending') {
+    isPendingDescInQueue.value = true
+  } else {
+    isTranslatingDesc.value = true
   }
+
+  const unwatch = watch(translationCacheVersion, () => {
+    const cached = storage.getDescTranslationByHash(dh)
+    if (cached) {
+      translatedDesc.value = cached
+      descTranslationDone.value = true
+      showDescTranslation.value = true
+      isTranslatingDesc.value = false
+      isPendingDescInQueue.value = false
+      showToast(`${props.skill.name} 描述翻译完成`, 'success')
+      unwatch()
+    } else if (!isTranslatingInQueue(dh, 'desc')) {
+      isTranslatingDesc.value = false
+      isPendingDescInQueue.value = false
+      showToast('描述翻译失败', 'error')
+      unwatch()
+    }
+  })
 }
 
 function collectAllSkillDirs(root: string): string[] {
@@ -476,14 +526,14 @@ async function handleImport() {
                   <template v-else>
                     <div class="desc-actions">
                       <span v-if="descTranslationDone && !isDescChinese" class="translation-success-badge">翻译成功</span>
-                      <button v-if="descTranslationDone" class="heading-btn" @click="handleReTranslateDesc" :disabled="isTranslatingDesc">
+                      <button v-if="descTranslationDone" class="heading-btn" @click="handleReTranslateDesc" :disabled="isTranslatingDesc || isPendingDescInQueue">
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/><path d="M21 3v9h-9"/></svg>
                         重新翻译
                       </button>
-                      <button class="heading-btn" :class="{ active: descTranslationDone && showDescTranslation }" @click="handleTranslateDesc" :disabled="isTranslatingDesc">
-                        <svg v-if="isTranslatingDesc" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                      <button class="heading-btn" :class="{ active: descTranslationDone && showDescTranslation }" @click="handleTranslateDesc" :disabled="isTranslatingDesc || isPendingDescInQueue">
+                        <svg v-if="isTranslatingDesc || isPendingDescInQueue" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
                         <svg v-else width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>
-                        {{ isTranslatingDesc ? '翻译中...' : descTranslationDone ? (showDescTranslation ? '显示原文' : '显示译文') : '翻译描述' }}
+                        {{ isPendingDescInQueue ? '排队中...' : isTranslatingDesc ? '翻译中...' : descTranslationDone ? (showDescTranslation ? '显示原文' : '显示译文') : '翻译描述' }}
                       </button>
                     </div>
                   </template>
@@ -504,10 +554,10 @@ async function handleImport() {
                   </template>
                   <template v-else>
                     <span v-if="translatedContent && !isContentChinese" class="translation-success-badge">翻译成功</span>
-                    <button class="heading-btn" :class="{ active: showTranslation && translatedContent }" @click="handleTranslate" :disabled="isTranslating">
-                      <svg v-if="isTranslating" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                    <button class="heading-btn" :class="{ active: showTranslation && translatedContent }" @click="handleTranslate" :disabled="isTranslating || isPendingInQueue">
+                      <svg v-if="isTranslating || isPendingInQueue" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
                       <svg v-else width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>
-                      {{ isTranslating ? '翻译中...' : showTranslation && translatedContent ? '显示原文' : translatedContent ? '显示译文' : '翻译内容' }}
+                      {{ isPendingInQueue ? '排队中...' : isTranslating ? '翻译中...' : showTranslation && translatedContent ? '显示原文' : translatedContent ? '显示译文' : '翻译内容' }}
                     </button>
                   </template>
                   <button class="heading-btn" @click="handleCopy(skillContent, 'instr')">

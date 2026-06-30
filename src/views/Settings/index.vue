@@ -2191,6 +2191,22 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
             <div class="setting-card" style="margin-top: 16px;">
               <div class="setting-row">
                 <div class="setting-row-info">
+                  <div class="setting-row-label">继续上次未完成的翻译</div>
+                  <div class="setting-row-desc">启动插件时自动继续上次未完成的翻译</div>
+                </div>
+                <button
+                  class="toggle-switch"
+                  :class="{ on: settings.resumeTranslation }"
+                  @click="updateSettings({ resumeTranslation: !settings.resumeTranslation })"
+                >
+                  <span class="toggle-thumb"></span>
+                </button>
+              </div>
+            </div>
+
+            <div class="setting-card" style="margin-top: 16px;">
+              <div class="setting-row">
+                <div class="setting-row-info">
                   <div class="setting-row-label">翻译超时</div>
                   <div class="setting-row-desc">单次翻译请求的最大等待时间（秒），超过将视为失败</div>
                 </div>

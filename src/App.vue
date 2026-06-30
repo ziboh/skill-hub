@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, computed, provide } from 'vue'
+import { onMounted, onUnmounted, ref, computed, provide, defineAsyncComponent } from 'vue'
 import { useRouter } from './composables/useRouter'
 import { useProjectManager } from './composables/useProjectManager'
 import type { RouteName } from './composables/useRouter'
@@ -12,26 +12,27 @@ import {
   KeyAgentSkills, KeyUpdateAgentPlatformSkills,
 } from './inject-keys'
 
-import SkillStore from './views/SkillStore/index.vue'
-import SkillDetail from './views/SkillStore/Detail.vue'
-import MySkills from './views/MySkills/index.vue'
-import ProjectSkills from './views/ProjectSkills/index.vue'
-import AgentSkills from './views/AgentSkills/index.vue'
-import AgentSkillDetail from './views/AgentSkills/Detail.vue'
-import Sources from './views/Sources/index.vue'
-import Settings from './views/Settings/index.vue'
-import Records from './views/Records/index.vue'
-import TranslatePanel from './components/TranslatePanel.vue'
-import AddProjectModal from './components/AddProjectModal.vue'
-import NewSkillModal from './components/NewSkillModal.vue'
-import AppToast from './components/AppToast.vue'
+const SkillStore = defineAsyncComponent(() => import('./views/SkillStore/index.vue'))
+const SkillDetail = defineAsyncComponent(() => import('./views/SkillStore/Detail.vue'))
+const MySkills = defineAsyncComponent(() => import('./views/MySkills/index.vue'))
+const ProjectSkills = defineAsyncComponent(() => import('./views/ProjectSkills/index.vue'))
+const AgentSkills = defineAsyncComponent(() => import('./views/AgentSkills/index.vue'))
+const AgentSkillDetail = defineAsyncComponent(() => import('./views/AgentSkills/Detail.vue'))
+const Sources = defineAsyncComponent(() => import('./views/Sources/index.vue'))
+const Settings = defineAsyncComponent(() => import('./views/Settings/index.vue'))
+const Records = defineAsyncComponent(() => import('./views/Records/index.vue'))
+const TranslatePanel = defineAsyncComponent(() => import('./components/TranslatePanel.vue'))
+const AddProjectModal = defineAsyncComponent(() => import('./components/AddProjectModal.vue'))
+const NewSkillModal = defineAsyncComponent(() => import('./components/NewSkillModal.vue'))
+const AppToast = defineAsyncComponent(() => import('./components/AppToast.vue'))
 import { storage } from './utils/storage'
 import { applyTheme } from './utils/theme'
 import { useSettings } from './composables/useSettings'
 import { useTheme } from './composables/useTheme'
 import { useSkillInventory, normalizeSkillScanResult } from './composables/useSkillInventory'
+import { useTranslationQueue } from './composables/useTranslationQueue'
 import { detectPlatforms, getPlatformPath, defaultPlatforms } from './data/platforms'
-import type { Skill, AppSettings, PlatformInfo } from './types'
+import type { Skill, AppSettings, PlatformInfo, ModelConfig } from './types'
 
 const { settings, updateSettings } = useSettings()
 
@@ -142,11 +143,37 @@ let mqCleanup: (() => void) | null = null
 onMounted(() => {
   storage.cleanStaleCachedSkills()
   storage.updateChineseTags()
-  window.ztools.dbStorage.removeItem('sm_translation_queue')
   refreshCounts()
   refreshMySkills()
   ensureAgentSkills()
   applyTheme(settings)
+  ;(async () => {
+    const s = storage.getSettings()
+    if (s.resumeTranslation && s.translationModelId) {
+      const { queue: transQueue, resumeAll } = useTranslationQueue()
+      if (transQueue.value.length > 0) {
+        const providers = s.aiModels || []
+        const sepIdx = s.translationModelId.lastIndexOf('::')
+        let model: ModelConfig | undefined
+        if (sepIdx >= 0) {
+          const providerId = s.translationModelId.substring(0, sepIdx)
+          const modelId = s.translationModelId.substring(sepIdx + 2)
+          const provider = providers.find(m => m.id === providerId)
+          if (provider && provider.models?.some(m => m.id === modelId)) {
+            model = { ...provider, model: modelId } as ModelConfig
+          }
+        } else {
+          for (const provider of providers) {
+            if (provider.models) {
+              const m = provider.models.find(m => m.id === s.translationModelId)
+              if (m) { model = { ...provider, model: m.id } as ModelConfig; break }
+            }
+          }
+        }
+        if (model) resumeAll(model).catch(() => {})
+      }
+    }
+  })()
   const mq = window.matchMedia('(prefers-color-scheme: dark)')
   const onColorSchemeChange = () => {
     if (settings.themeMode === 'auto') applyTheme(settings)

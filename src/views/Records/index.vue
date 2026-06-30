@@ -7,8 +7,7 @@ import { KeyCurrentRoute } from '../../inject-keys'
 import { useDownloadQueue } from '../../composables/useDownloadQueue'
 import { useTranslationQueue } from '../../composables/useTranslationQueue'
 import { getSourceInfo as getSourceInfoUtil } from '../../utils/source-info'
-import { translateContent, translateDescription, translateTags, isChineseContent, isChineseText } from '../../utils/translate'
-import { AIError } from '../../utils/ai'
+
 import type { Skill } from '../../types'
 import PlatformIcon from '../../components/PlatformIcon.vue'
 
@@ -18,7 +17,7 @@ const currentRoute = inject(KeyCurrentRoute, ref('my'))
 const activeTab = ref<'downloads' | 'dist' | 'translations' | 'failures'>('downloads')
 
 const { queue, activeCount, clearCompleted } = useDownloadQueue()
-const { queue: translationQueue, cacheVersion, removeTranslation, clearAll, waitForTurn } = useTranslationQueue()
+const { queue: translationQueue, cacheVersion, addTranslation, removeTranslation, clearAll } = useTranslationQueue()
 
 const failureRecords = ref<FailureRecord[]>([])
 const failureTypeFilter = ref<FailureType | 'all'>('all')
@@ -242,78 +241,14 @@ function getTranslationModel(): ModelConfig | null {
   return null
 }
 
-async function resumeTranslation(item: { skillId: string; type: 'content' | 'desc' }) {
+function resumeTranslation(item: { skillId: string; type: 'content' | 'desc' }) {
   const hash = item.skillId
-  // Wait for turn if pending
-  await waitForTurn(hash, item.type)
-
-  const model = getTranslationModel()
-  if (!model) return
-
-  const cachedSkills = storage.getCachedSkills()
-  const skill = cachedSkills.find(s => {
-    if (item.type === 'content') return s.contentHash === hash
-    return s.description && window.services.hashContent(s.description) === hash
-  })
-  if (!skill) {
-    removeTranslation(hash, item.type)
-    return
+  if (item.type === 'desc') {
+    storage.removeDescTranslationByHash(hash)
+  } else {
+    storage.removeTranslationByHash(hash)
   }
-
-  try {
-    if (item.type === 'desc') {
-      if (skill.description && !isChineseContent(skill.description)) {
-        const translatedDesc = await translateDescription(skill.description, model)
-        storage.saveDescTranslationByHash(hash, translatedDesc, skill.name)
-      }
-      const tags = skill.tags || []
-      if (tags.length > 0 && !tags.every(t => isChineseText(t))) {
-        const translatedTags = await translateTags(tags, model)
-        const ch = skill.contentHash
-        if (ch) storage.saveTranslationTagsByHash(ch, translatedTags)
-      }
-      removeTranslation(hash, 'desc')
-    } else if (item.type === 'content') {
-      const skillDir = storage.getDownloadedIds().includes(skill.id)
-        ? window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', skill.id)
-        : skill.path || ''
-      const skillFile = ['SKILL.md', 'skill.md'].find(f =>
-        window.services.pathExists(window.services.pathJoin(skillDir, f))
-      )
-      if (skillFile) {
-        const content = window.services.readFile(window.services.pathJoin(skillDir, skillFile))
-        if (content && !isChineseContent(content)) {
-          const translatedContent = await translateContent(content, model, 'immersive')
-          storage.saveTranslationByHash(hash, {
-            sourceContent: content,
-            translatedContent,
-            mode: 'immersive',
-            skillName: skill.name,
-          })
-        }
-      }
-      removeTranslation(hash, 'content')
-    }
-  } catch (error) {
-    console.error('继续翻译失败:', error)
-    const errorDetails = error instanceof AIError ? error.details : null
-    storage.addFailureRecord({
-      type: 'translation',
-      skillId: item.skillId,
-      skillName: getSkillName(item.skillId),
-      error: errorDetails?.message || (error instanceof Error ? error.message : '未知错误'),
-      details: `翻译${item.type === 'content' ? '内容' : '描述'}失败`,
-      errorCategory: errorDetails?.category || 'unknown',
-      model: errorDetails?.model,
-      provider: errorDetails?.provider,
-      endpoint: errorDetails?.endpoint,
-      statusCode: errorDetails?.statusCode,
-      requestId: errorDetails?.requestId,
-      duration: errorDetails?.duration,
-      metadata: errorDetails?.rawResponse ? { rawResponse: errorDetails.rawResponse } : undefined,
-    })
-    removeTranslation(hash, item.type)
-  }
+  addTranslation(hash, item.type)
 }
 
 function clearStuckItem(item: { skillId: string; type: 'content' | 'desc' }) {

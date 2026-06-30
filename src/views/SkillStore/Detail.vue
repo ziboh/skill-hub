@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, watch, inject } from 'vue'
 import { KeyShowToast, KeySelectedProject } from '../../inject-keys'
 import { storage } from '../../utils/storage'
-import { parseFrontmatter } from '../../utils/frontmatter'
+import { parseFrontmatter, extractChineseSummary } from '../../utils/frontmatter'
 import { fetchSkillDetailFromSkill } from '../../utils/skills-sh'
 import type { Skill, InstallMode } from '../../types'
 import SkillDetailBase from '../../components/SkillDetailBase.vue'
@@ -171,7 +171,7 @@ async function loadSkillContent() {
     const normalized = skill.readme.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
     const bodyMatch = normalized.match(/^---\n[\s\S]*?\n---\n?([\s\S]*)$/)
     skillName.value = fm.name || ''
-    skillDesc.value = fm.description || skill.description || ''
+    skillDesc.value = fm.description || extractChineseSummary(skill.readme) || ''
     skillContent.value = bodyMatch ? bodyMatch[1].trim() : skill.readme
     editedInstructions.value = skillContent.value
     return
@@ -187,7 +187,7 @@ async function loadSkillContent() {
         const normalized = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
         const bodyMatch = normalized.match(/^---\n[\s\S]*?\n---\n?([\s\S]*)$/)
         skillName.value = fm.name || ''
-        skillDesc.value = fm.description || skill.description || ''
+        skillDesc.value = fm.description || extractChineseSummary(raw) || ''
         skillContent.value = bodyMatch ? bodyMatch[1].trim() : raw
         editedInstructions.value = skillContent.value
         return
@@ -207,7 +207,7 @@ async function loadSkillContent() {
         const normalized = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
         const bodyMatch = normalized.match(/^---\n[\s\S]*?\n---\n?([\s\S]*)$/)
         skillName.value = fm.name || ''
-        skillDesc.value = fm.description || skill.description || ''
+        skillDesc.value = fm.description || extractChineseSummary(raw) || ''
         skillContent.value = bodyMatch ? bodyMatch[1].trim() : raw
         editedInstructions.value = skillContent.value
         return

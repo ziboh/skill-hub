@@ -5,7 +5,7 @@ import { storage } from '../../utils/storage'
 import { parseGitHubUrl, fetchGitHubRepoTree, fetchGitHubFile, detectSkillDirectories, getRateLimitState } from '../../utils/github'
 import { parseFrontmatter } from '../../utils/frontmatter'
 import * as skillsSh from '../../utils/skills-sh'
-import type { ModelConfig, Skill, SkillFormat, StoreSource } from '../../types'
+import type { Skill, SkillFormat, StoreSource } from '../../types'
 
 import { SKILL_CATEGORIES, ALL_CATEGORIES, inferCategory, CATEGORY_ICONS } from '../../data/skill-categories'
 import type { SkillCategory } from '../../data/skill-categories'
@@ -24,7 +24,7 @@ import { useTheme } from '../../composables/useTheme'
 import { useDownloadQueue } from '../../composables/useDownloadQueue'
 import { useTranslationQueue } from '../../composables/useTranslationQueue'
 import { loadRegistry, registerSkillFromStore, removeFromRegistry } from '../../utils/skill-registry'
-import { translateContent, translateDescription, isChineseContent } from '../../utils/translate'
+import { isChineseContent, computeContentHash } from '../../utils/translate'
 
 const props = defineProps<{ storeId: string }>()
 const emit = defineEmits(['navigate'])
@@ -32,7 +32,7 @@ const refreshCounts = inject(KeyRefreshCounts)
 const showToast = inject(KeyShowToast, () => {})
 
 const { addDownload, updateItem } = useDownloadQueue()
-const { queue: transQueue, addTranslation, removeTranslation, waitForTurn } = useTranslationQueue()
+const { queue: transQueue, addTranslation } = useTranslationQueue()
 const { settings, updateSettings } = useSettings()
 const { isDarkMode, toggleTheme } = useTheme()
 const viewMode = ref<'grid' | 'list'>('grid')
@@ -616,7 +616,7 @@ async function downloadSkill(skill: Skill) {
       if (parsed?.manifest) {
         if (parsed.manifest.name) skill.name = parsed.manifest.name
         if (parsed.manifest.description) skill.description = parsed.manifest.description
-        const contentHash = window.services.hashContent(parsed.content)
+        const contentHash = computeContentHash(parsed.content)
         storage.saveCachedSkills([{ ...skill, storeSourceId: activePresetId.value, contentHash }])
         const registry = loadRegistry()
         registerSkillFromStore(registry, skill.id, {
@@ -629,7 +629,7 @@ async function downloadSkill(skill: Skill) {
       }
     }
     storage.addDownloadedId(skill.id); storage.addSessionDownload(skill.id, skill.name, activePresetId.value || 'unknown'); downloadedIds.value = storage.getDownloadedIds(); refreshCounts?.()
-    autoTranslateSkill(skill, targetDir).catch(() => {})
+    autoTranslateSkill(skill, targetDir)
     updateItem(queueItem.id, { status: 'success' })
     showToast(`已导入 ${skill.name}`, 'success')
   } catch (err: any) {
@@ -640,69 +640,26 @@ async function downloadSkill(skill: Skill) {
   downloading.value.delete(skill.id)
 }
 
-async function autoTranslateSkill(skill: Skill, targetDir: string) {
+function autoTranslateSkill(skill: Skill, targetDir: string) {
   const settings = storage.getSettings()
   if (!settings.autoTranslate) return
+  if (!settings.translationModelId) return
 
-  const translationModelId = settings.translationModelId
-  if (!translationModelId) return
-
-  const models = settings.aiModels || []
-  let translationModel: ModelConfig | undefined
-  const sepIdx = translationModelId.lastIndexOf('::')
-  if (sepIdx >= 0) {
-    const providerId = translationModelId.substring(0, sepIdx)
-    const modelId = translationModelId.substring(sepIdx + 2)
-    const provider = models.find(m => m.id === providerId)
-    if (provider && provider.models?.some(m => m.id === modelId)) {
-      translationModel = { ...provider, model: modelId }
-    }
-  } else {
-    translationModel = models.find(m => m.id === translationModelId)
+  const desc = skill.description
+  if (desc && !isChineseContent(desc)) {
+    const dh = window.services.hashContent(desc)
+    addTranslation(dh, 'desc', skill.name)
   }
-  if (!translationModel) return
 
-  try {
-    const desc = skill.description
-    if (desc && !isChineseContent(desc)) {
-      const dh = window.services.hashContent(desc)
-      const descItem = addTranslation(dh, 'desc', skill.name)
-      if (descItem?.status === 'pending') await waitForTurn(dh, 'desc')
-      try {
-        const translatedDesc = await translateDescription(desc, translationModel)
-        storage.saveDescTranslationByHash(dh, translatedDesc, skill.name)
-      } finally {
-        removeTranslation(dh, 'desc')
-      }
+  const skillFile = ['SKILL.md', 'skill.md'].find(f =>
+    window.services.pathExists(window.services.pathJoin(targetDir, f))
+  )
+  if (skillFile) {
+    const content = window.services.readFile(window.services.pathJoin(targetDir, skillFile))
+    if (content && !isChineseContent(content)) {
+      const ch = computeContentHash(content)
+      addTranslation(ch, 'content', skill.name)
     }
-
-    const skillFile = ['SKILL.md', 'skill.md'].find(f =>
-      window.services.pathExists(window.services.pathJoin(targetDir, f))
-    )
-    if (skillFile) {
-      const content = window.services.readFile(window.services.pathJoin(targetDir, skillFile))
-      if (content && !isChineseContent(content)) {
-        const ch = window.services.hashContent(content)
-        const contentItem = addTranslation(ch, 'content', skill.name)
-        if (contentItem?.status === 'pending') await waitForTurn(ch, 'content')
-        try {
-          const translatedContent = await translateContent(content, translationModel, 'immersive')
-          storage.saveTranslationByHash(ch, {
-            sourceContent: content,
-            translatedContent,
-            mode: 'immersive',
-            skillName: skill.name,
-          })
-        } finally {
-          removeTranslation(ch, 'content')
-        }
-      }
-    }
-
-    showToast(`${skill.name} 自动翻译完成`, 'success')
-  } catch (error) {
-    console.error('Auto translation failed:', error)
-    showToast(`${skill.name} 自动翻译失败`, 'error')
   }
 }
 

@@ -96,6 +96,12 @@ export function stripFrontmatter(content: string): string {
   return trimmed.slice(endIdx + 3).trim()
 }
 
+export function computeContentHash(content: string): string {
+  const normalized = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+  const stripped = stripFrontmatter(normalized)
+  return window.services.hashContent(stripped)
+}
+
 export function renderImmersiveSegments(content: string): ImmersiveSegment[] {
   const segments: ImmersiveSegment[] = []
   const regex = /<t>([\s\S]*?)<\/t>/g

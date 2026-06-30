@@ -6,6 +6,21 @@ import vue from '@vitejs/plugin-vue'
 export default defineConfig({
   plugins: [vue()],
   base: './',
+  build: {
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('vue')) return 'vendor-vue'
+            if (id.includes('@codemirror') || id.includes('codemirror') || id.includes('@lezer')) return 'vendor-codemirror'
+            if (id.includes('highlight.js') || id.includes('prismjs')) return 'vendor-highlight'
+            return 'vendor'
+          }
+        }
+      }
+    }
+  },
   test: {
     environment: 'happy-dom',
     include: ['src/**/*.{test,spec}.{ts,js}'],

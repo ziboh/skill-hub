@@ -81,6 +81,23 @@ function extractBodyDescription(normalized: string, match: RegExpMatchArray | nu
   return undefined
 }
 
+export function extractChineseSummary(content: string): string {
+  const normalized = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+  const match = normalized.match(/^---\n[\s\S]*?\n---\n?/)
+  const bodyStart = match ? match[0].length : 0
+  const body = normalized.slice(bodyStart).trim()
+  const lines = body.split('\n')
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('---')) continue
+    const chineseChars = trimmed.match(/[\u4e00-\u9fff]/g)
+    if (chineseChars && chineseChars.length / trimmed.length > 0.1) {
+      return trimmed.slice(0, 200)
+    }
+  }
+  return ''
+}
+
 export function parseFrontmatter(text: string): Record<string, string> {
   const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
   const match = normalized.match(/^---\n([\s\S]*?)\n---/)

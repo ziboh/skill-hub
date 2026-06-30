@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { storage } from '../utils/storage'
 import { useTranslationQueue } from '../composables/useTranslationQueue'
-import { translateContent, translateDescription, translateTags, isChineseContent, isChineseText } from '../utils/translate'
-import { AIError } from '../utils/ai'
-import type { ModelConfig, Skill, ErrorCategory } from '../types'
+import { isChineseContent, stripFrontmatter } from '../utils/translate'
+import type { ModelConfig, Skill } from '../types'
 import QuickSwitcher, { type QuickSwitcherItem } from './QuickSwitcher.vue'
 
 const emit = defineEmits<{
@@ -18,7 +17,7 @@ const props = defineProps<{
   allSkills?: Skill[]
 }>()
 
-const { queue, addTranslation, removeTranslation, isTranslating: isInQueue, waitForTurn } = useTranslationQueue()
+const { queue, addTranslation, isTranslating: isInQueue } = useTranslationQueue()
 
 const translateScope = ref<'current' | 'all'>('all')
 const translateType = ref<'desc' | 'content' | 'both'>('both')
@@ -49,16 +48,57 @@ function onModelChange(modelId: string) {
   storage.saveSettings({ translationModelId: modelId })
 }
 
+const hashCache = new Map<string, { contentHash: string | null; descHash: string | null }>()
+const contentCache = new Map<string, string | null>()
+
+function getSkillDir(skill: Skill): string {
+  const downloadedIds = storage.getDownloadedIds()
+  if (downloadedIds.includes(skill.id)) {
+    return window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', skill.id)
+  }
+  return skill.path || ''
+}
+
+function getSkillContent(skill: Skill): string | null {
+  const dir = getSkillDir(skill)
+  if (contentCache.has(dir)) return contentCache.get(dir)!
+  const skillFile = ['SKILL.md', 'skill.md'].find(f =>
+    window.services.pathExists(window.services.pathJoin(dir, f))
+  )
+  const content = skillFile
+    ? window.services.readFile(window.services.pathJoin(dir, skillFile))
+    : (skill.readme || null)
+  // Normalize line endings and strip frontmatter to match detail page handling
+  const processed = content
+    ? stripFrontmatter(content.replace(/\r\n/g, '\n').replace(/\r/g, '\n'))
+    : null
+  contentCache.set(dir, processed)
+  return processed
+}
+
+function getCachedHashes(skill: Skill) {
+  const id = skill.id || skill.name
+  let entry = hashCache.get(id)
+  if (!entry) {
+    entry = {
+      contentHash: skill.contentHash || null,
+      descHash: skill.description ? window.services.hashContent(skill.description) : null
+    }
+    hashCache.set(id, entry)
+  }
+  if (!entry.contentHash) {
+    const content = getSkillContent(skill)
+    if (content) entry.contentHash = window.services.hashContent(content)
+  }
+  return entry
+}
+
 function getContentHash(skill: Skill): string | null {
-  if (skill.contentHash) return skill.contentHash
-  const content = getSkillContent(skill)
-  if (!content) return null
-  return window.services.hashContent(content)
+  return getCachedHashes(skill).contentHash
 }
 
 function getDescHash(skill: Skill): string | null {
-  if (!skill.description) return null
-  return window.services.hashContent(skill.description)
+  return getCachedHashes(skill).descHash
 }
 
 function getSkillKey(skill: Skill): string {
@@ -121,82 +161,33 @@ const filteredSkills = computed(() => {
 })
 
 
+let debounceTimer: ReturnType<typeof setTimeout> | null = null
+const statusCountsReady = ref(true)
+
+watch([translateScope, translateType], () => {
+  statusCountsReady.value = false
+  hashCache.clear()
+  contentCache.clear()
+  if (debounceTimer) clearTimeout(debounceTimer)
+  debounceTimer = setTimeout(() => {
+    statusCountsReady.value = true
+  }, 30)
+})
+
 const statusCounts = computed(() => {
+  if (!statusCountsReady.value) return { pending: 0, translating: 0, queued: 0, done: 0, chinese: 0 }
   const counts = { pending: 0, translating: 0, queued: 0, done: 0, chinese: 0 }
+  const translationCache = storage._readTranslationCache()
+  const descTranslationCache = storage._readDescTranslationCache()
   for (const skill of filteredSkills.value) {
-    counts[getTranslationStatus(skill)]++
+    counts[getTranslationStatusWithCache(skill, translationCache, descTranslationCache)]++
   }
   return counts
 })
 
 const pendingCount = computed(() => statusCounts.value.pending)
 
-function getSkillDir(skill: Skill): string {
-  const downloadedIds = storage.getDownloadedIds()
-  if (downloadedIds.includes(skill.id)) {
-    return window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', skill.id)
-  }
-  return skill.path || ''
-}
-
-function getSkillContent(skill: Skill): string | null {
-  const dir = getSkillDir(skill)
-  const skillFile = ['SKILL.md', 'skill.md'].find(f =>
-    window.services.pathExists(window.services.pathJoin(dir, f))
-  )
-  if (skillFile) {
-    return window.services.readFile(window.services.pathJoin(dir, skillFile))
-  }
-  if (skill.readme) return skill.readme
-  return null
-}
-
-async function processTranslationItem(item: { hash: string; type: 'content' | 'desc' }) {
-  const skill = filteredSkills.value.find(s => {
-    if (item.type === 'content') {
-      if (s.contentHash === item.hash) return true
-      const ch = getContentHash(s)
-      if (ch === item.hash) return true
-    }
-    if (s.description && window.services.hashContent(s.description) === item.hash) return true
-    return false
-  })
-  if (!skill) {
-    removeTranslation(item.hash, item.type)
-    return
-  }
-  const model = translationModel.value
-  if (!model) return
-
-  if (item.type === 'desc') {
-    if (storage.getDescTranslationByHash(item.hash)) return
-    const desc = skill.description
-    if (desc && !isChineseContent(desc)) {
-      const translatedDesc = await translateDescription(desc, model)
-      storage.saveDescTranslationByHash(item.hash, translatedDesc, skill.name)
-    }
-    const tags = skill.tags || []
-    if (tags.length > 0 && !tags.every(t => isChineseText(t))) {
-      const translatedTags = await translateTags(tags, model)
-      const ch = getContentHash(skill)
-      if (ch) storage.saveTranslationTagsByHash(ch, translatedTags)
-    }
-  } else {
-    if (storage.getTranslationByHash(item.hash)) return
-    const content = getSkillContent(skill)
-    if (content && !isChineseContent(content)) {
-      const translatedContent = await translateContent(content, model, 'immersive')
-        storage.saveTranslationByHash(item.hash, {
-          sourceContent: content,
-          translatedContent,
-          mode: 'immersive',
-          skillName: skill.name,
-        })
-    }
-  }
-}
-
-async function translateSkill(skill: Skill) {
+function translateSkill(skill: Skill) {
   if (!translationModel.value) return
 
   const types: ('desc' | 'content')[] = []
@@ -210,33 +201,8 @@ async function translateSkill(skill: Skill) {
     if (type === 'desc' && storage.getDescTranslationByHash(hash)) continue
     if (type === 'content' && storage.getTranslationByHash(hash)) continue
 
-    const item = addTranslation(hash, type, skill.name)
-    if (!item) continue
-    if (item.status === 'pending') {
-      await waitForTurn(hash, type)
-    }
-    try {
-      await processTranslationItem({ hash, type })
-    } catch (e) {
-      const errorDetails = e instanceof AIError ? e.details : null
-      storage.addFailureRecord({
-        type: 'translation',
-        skillId: skill.id,
-        skillName: skill.name,
-        error: errorDetails?.message || (e instanceof Error ? e.message : '未知错误'),
-        details: `翻译${type === 'content' ? '内容' : '描述'}失败`,
-        errorCategory: errorDetails?.category || 'unknown',
-        model: errorDetails?.model,
-        provider: errorDetails?.provider,
-        endpoint: errorDetails?.endpoint,
-        statusCode: errorDetails?.statusCode,
-        requestId: errorDetails?.requestId,
-        duration: errorDetails?.duration,
-        metadata: errorDetails?.rawResponse ? { rawResponse: errorDetails.rawResponse } : undefined,
-      })
-    } finally {
-      removeTranslation(hash, type)
-    }
+    const text = type === 'content' ? (getSkillContent(skill) ?? undefined) : skill.description
+    addTranslation(hash, type, skill.name, text)
   }
 }
 
@@ -247,14 +213,14 @@ function translateAll() {
 
     if (translateType.value === 'desc' || translateType.value === 'both') {
       if (dh && !isChineseContent(skill.description) && !storage.getDescTranslationByHash(dh) && !isInQueue(dh, 'desc')) {
-        addTranslation(dh, 'desc', skill.name)
+        addTranslation(dh, 'desc', skill.name, skill.description)
       }
     }
     if (translateType.value === 'content' || translateType.value === 'both') {
       if (ch && !isInQueue(ch, 'content')) {
         const cached = storage.getTranslationByHash(ch)
         if (!cached && !isChineseContent(getSkillContent(skill) || '')) {
-          addTranslation(ch, 'content', skill.name)
+          addTranslation(ch, 'content', skill.name, getSkillContent(skill) ?? undefined)
         }
       }
     }
@@ -293,6 +259,32 @@ function getTranslationStatus(skill: Skill): 'pending' | 'translating' | 'queued
 
   const contentValid = ch ? storage.getTranslationByHash(ch) : null
   const descTranslated = dh ? storage.getDescTranslationByHash(dh) : null
+
+  const needDesc = translateType.value === 'desc' || translateType.value === 'both'
+  const needContent = translateType.value === 'content' || translateType.value === 'both'
+
+  const descDone = !needDesc || !!descTranslated
+  const contentDone = !needContent || !!contentValid
+  if (descDone && contentDone) return 'done'
+
+  if (isSkillChinese(skill)) return 'chinese'
+
+  return 'pending'
+}
+
+function getTranslationStatusWithCache(
+  skill: Skill,
+  translationCache: Record<string, any>,
+  descTranslationCache: Record<string, any>
+): 'pending' | 'translating' | 'queued' | 'done' | 'chinese' {
+  const ch = getContentHash(skill)
+  const dh = getDescHash(skill)
+
+  if ((ch && hasTranslatingItem(ch)) || (dh && hasTranslatingItem(dh))) return 'translating'
+  if ((ch && isInQueue(ch, 'content')) || (dh && isInQueue(dh, 'desc')) || (ch && isInQueue(ch, 'desc')) || (dh && isInQueue(dh, 'content'))) return 'queued'
+
+  const contentValid = ch ? translationCache[ch] : null
+  const descTranslated = dh ? descTranslationCache[dh]?.translatedDesc : null
 
   const needDesc = translateType.value === 'desc' || translateType.value === 'both'
   const needContent = translateType.value === 'content' || translateType.value === 'both'
