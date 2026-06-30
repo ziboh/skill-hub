@@ -1,4 +1,4 @@
-import type { InstallRecord, StoreSource, AppSettings, PlatformInfo, Skill, RegisteredProject, ModelConfig } from '../types'
+import type { InstallRecord, StoreSource, AppSettings, PlatformInfo, Skill, RegisteredProject, ModelConfig, FailureRecord, FailureType } from '../types'
 import { BUILTIN_PROVIDERS } from '../data/ai-providers'
 
 const PREFIX = 'sm_'
@@ -47,6 +47,7 @@ const KEYS = {
   DOWNLOADED_IDS: 'downloaded_ids',
   REGISTERED_PROJECTS: 'registered_projects',
   TRANSLATIONS: 'translations',
+  FAILURE_RECORDS: 'failure_records',
 }
 
 interface SessionDownload {
@@ -187,6 +188,7 @@ export const storage = {
       aiModels: [],
       translationModelId: '',
       autoTranslate: false,
+      translationTimeout: 60,
     }
     let saved: Partial<AppSettings> | null = null
     try {
@@ -213,17 +215,6 @@ export const storage = {
       for (const bp of builtinProviders) {
         if (!existingIds.has(bp.id)) {
           merged.aiModels.push(bp)
-        }
-      }
-      // Update existing built-in providers with latest presets
-      for (const m of merged.aiModels) {
-        if (m.isBuiltin) {
-          const preset = BUILTIN_PROVIDERS.find(p => p.id === m.provider)
-          if (preset) {
-            m.name = preset.name
-            m.baseUrl = preset.defaultBaseUrl
-            m.apiPath = preset.defaultApiPath
-          }
         }
       }
     }
@@ -383,7 +374,7 @@ export const storage = {
     return all?.[pageId] ?? null
   },
 
-  // === Translation Cache ===
+  // === Translation Cache (keyed by contentHash / descHash) ===
   _readTranslationCache(): Record<string, { sourceContent: string; translatedContent: string; mode: string; updatedAt: number }> {
     let cache: Record<string, any> = {}
     try { cache = dbGet<Record<string, any>>(KEYS.TRANSLATIONS) || {} } catch {
@@ -394,26 +385,26 @@ export const storage = {
   _writeTranslationCache(cache: Record<string, any>): void {
     dbSet(KEYS.TRANSLATIONS, cache)
   },
-  getTranslation(skillId: string): { sourceContent: string; translatedContent: string; mode: string; updatedAt: number } | null {
+  getTranslationByHash(hash: string): { sourceContent: string; translatedContent: string; mode: string; updatedAt: number; skillName?: string } | null {
     const cache = this._readTranslationCache()
-    return cache[skillId] || null
+    return cache[hash] || null
   },
-  saveTranslation(skillId: string, data: { sourceContent: string; translatedContent: string; mode: string }): void {
+  saveTranslationByHash(hash: string, data: { sourceContent: string; translatedContent: string; mode: string; skillName?: string }): void {
     const cache = this._readTranslationCache()
-    cache[skillId] = { ...data, updatedAt: Date.now() }
+    cache[hash] = { ...data, updatedAt: Date.now() }
     this._writeTranslationCache(cache)
   },
-  removeTranslation(skillId: string): void {
+  removeTranslationByHash(hash: string): void {
     const cache = this._readTranslationCache()
-    delete cache[skillId]
+    delete cache[hash]
     this._writeTranslationCache(cache)
   },
   clearTranslations(): void {
     this._writeTranslationCache({})
   },
 
-  // === Description Translation Cache ===
-  _readDescTranslationCache(): Record<string, { translatedDesc: string; updatedAt: number }> {
+  // === Description Translation Cache (keyed by descHash) ===
+  _readDescTranslationCache(): Record<string, { translatedDesc: string; updatedAt: number; skillName?: string }> {
     let cache: Record<string, any> = {}
     try { cache = dbGet<Record<string, any>>(KEYS.TRANSLATIONS + '_desc') || {} } catch { /* ignore */ }
     return cache
@@ -421,19 +412,43 @@ export const storage = {
   _writeDescTranslationCache(cache: Record<string, any>): void {
     dbSet(KEYS.TRANSLATIONS + '_desc', cache)
   },
-  getTranslationDesc(skillId: string): string | null {
+  getDescTranslationByHash(hash: string): string | null {
     const cache = this._readDescTranslationCache()
-    return cache[skillId]?.translatedDesc || null
+    return cache[hash]?.translatedDesc || null
   },
-  saveTranslationDesc(skillId: string, translatedDesc: string): void {
+  saveDescTranslationByHash(hash: string, translatedDesc: string, skillName?: string): void {
     const cache = this._readDescTranslationCache()
-    cache[skillId] = { translatedDesc, updatedAt: Date.now() }
+    cache[hash] = { translatedDesc, updatedAt: Date.now(), skillName }
     this._writeDescTranslationCache(cache)
   },
-  removeTranslationDesc(skillId: string): void {
+  removeDescTranslationByHash(hash: string): void {
     const cache = this._readDescTranslationCache()
-    delete cache[skillId]
+    delete cache[hash]
     this._writeDescTranslationCache(cache)
+  },
+
+  // === Tags Translation Cache (keyed by contentHash) ===
+  _readTagsTranslationCache(): Record<string, { translatedTags: string[]; updatedAt: number }> {
+    let cache: Record<string, any> = {}
+    try { cache = dbGet<Record<string, any>>(KEYS.TRANSLATIONS + '_tags') || {} } catch { /* ignore */ }
+    return cache
+  },
+  _writeTagsTranslationCache(cache: Record<string, any>): void {
+    dbSet(KEYS.TRANSLATIONS + '_tags', cache)
+  },
+  getTranslationTagsByHash(hash: string): string[] | null {
+    const cache = this._readTagsTranslationCache()
+    return cache[hash]?.translatedTags || null
+  },
+  saveTranslationTagsByHash(hash: string, translatedTags: string[]): void {
+    const cache = this._readTagsTranslationCache()
+    cache[hash] = { translatedTags, updatedAt: Date.now() }
+    this._writeTagsTranslationCache(cache)
+  },
+  removeTranslationTagsByHash(hash: string): void {
+    const cache = this._readTagsTranslationCache()
+    delete cache[hash]
+    this._writeTagsTranslationCache(cache)
   },
 
   // === Remove Skill from All Caches ===
@@ -445,8 +460,37 @@ export const storage = {
     const favorites = this.getFavoriteIds()
     const favFiltered = favorites.filter((id) => id !== skillId)
     dbSet(KEYS.FAVORITE_IDS, favFiltered)
+  },
 
-    this.removeTranslation(skillId)
-    this.removeTranslationDesc(skillId)
+  // === Failure Records ===
+  getFailureRecords(): FailureRecord[] {
+    return dbGet<FailureRecord[]>(KEYS.FAILURE_RECORDS) || []
+  },
+  addFailureRecord(record: Omit<FailureRecord, 'id' | 'timestamp'>): FailureRecord {
+    const records = this.getFailureRecords()
+    const newRecord: FailureRecord = {
+      ...record,
+      id: `failure-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      timestamp: Date.now(),
+    }
+    records.unshift(newRecord)
+    // 只保留最近1000条失败记录
+    if (records.length > 1000) {
+      records.splice(1000)
+    }
+    dbSet(KEYS.FAILURE_RECORDS, records)
+    return newRecord
+  },
+  removeFailureRecord(id: string): void {
+    const records = this.getFailureRecords().filter((r) => r.id !== id)
+    dbSet(KEYS.FAILURE_RECORDS, records)
+  },
+  clearFailureRecords(type?: FailureType): void {
+    if (type) {
+      const records = this.getFailureRecords().filter((r) => r.type !== type)
+      dbSet(KEYS.FAILURE_RECORDS, records)
+    } else {
+      dbSet(KEYS.FAILURE_RECORDS, [])
+    }
   },
 }

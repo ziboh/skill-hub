@@ -2,6 +2,10 @@ import type { ModelConfig, Skill } from '../types'
 import { chatCompletion } from './ai'
 import { storage } from './storage'
 
+function getTranslationTimeout(): number {
+  return storage.getSettings().translationTimeout || 60
+}
+
 export type TranslationMode = 'immersive' | 'full'
 
 function getTargetLang(): string {
@@ -18,6 +22,12 @@ export function isChineseContent(text: string): boolean {
   if (!chineseChars) return false
   const chineseRatio = chineseChars.length / text.length
   return chineseRatio > 0.1
+}
+
+export function isChineseText(text: string): boolean {
+  if (!text) return false
+  if (!/[a-zA-Z]/.test(text)) return true
+  return isChineseContent(text)
 }
 
 const IMMERSIVE_SYSTEM_PROMPT = `You are a professional translator working on complete SKILL.md documents.
@@ -131,7 +141,7 @@ export async function translateContent(
       { role: 'system', content: systemPrompt },
       { role: 'user', content },
     ],
-    { temperature: 0.3, maxTokens: 8192 },
+    { temperature: 0.3, maxTokens: 8192, timeout: getTranslationTimeout() },
   )
 
   return result.content
@@ -156,10 +166,55 @@ export async function translateDescription(
       { role: 'system', content: systemPrompt },
       { role: 'user', content: description },
     ],
-    { temperature: 0.3, maxTokens: 1024 },
+    { temperature: 0.3, maxTokens: 1024, timeout: getTranslationTimeout() },
   )
 
   return result.content
+}
+
+const TAGS_SYSTEM_PROMPT = `You are a professional translator for skill tags.
+
+Your task: Translate each tag to {targetLang}, BUT only if it's written in a foreign language.
+
+Rules:
+1. If a tag is already in {targetLang}, return it as-is.
+2. Only translate pure foreign language tags (e.g., English tags when target is Chinese).
+3. Keep technical terms, code-like values, and identifiers unchanged.
+4. Return ONLY the translated tags as a JSON array, no explanations.
+5. If unsure whether to translate a tag, return it as-is.
+6. Example: ["code review", "git", "testing"] → ["代码审查", "git", "测试"]`
+
+export async function translateTags(
+  tags: string[],
+  model: ModelConfig,
+  targetLang?: string,
+): Promise<string[]> {
+  const lang = targetLang || getTargetLang()
+
+  const allChinese = tags.every(t => isChineseText(t))
+  if (allChinese || tags.length === 0) {
+    return tags
+  }
+
+  const systemPrompt = TAGS_SYSTEM_PROMPT.replace(/{targetLang}/g, lang)
+
+  const result = await chatCompletion(
+    model,
+    [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: JSON.stringify(tags) },
+    ],
+    { temperature: 0.3, maxTokens: 512, timeout: getTranslationTimeout() },
+  )
+
+  try {
+    const parsed = JSON.parse(result.content)
+    if (Array.isArray(parsed) && parsed.length === tags.length) {
+      return parsed
+    }
+  } catch { /* ignore */ }
+
+  return tags
 }
 
 export function resolveTranslationKey(skill: Skill, skillDir?: string): string {

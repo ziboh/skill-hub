@@ -59,6 +59,7 @@ async function deploy() {
     const sourceDir = window.services.pathExists(repoDir) ? repoDir : ((skill as any).path && window.services.pathExists((skill as any).path) ? (skill as any).path : null)
     if (!sourceDir) {
       deployResults.value.push({ skill: skill.name, platform: '', status: 'error', msg: '源文件不存在' })
+      storage.addFailureRecord({ type: 'distribution', skillId: skill.id, skillName: skill.name, error: '源文件不存在' })
       done += pids.length
       continue
     }
@@ -97,6 +98,7 @@ async function deploy() {
         deployResults.value.push({ skill: skill.name, platform: platform.name, status: 'ok', msg: installMode.value === 'symlink' ? '已链接' : '已复制' })
       } catch (err: any) {
         deployResults.value.push({ skill: skill.name, platform: platform.name, status: 'error', msg: err.message })
+        storage.addFailureRecord({ type: 'distribution', skillId: skill.id, skillName: skill.name, error: err.message, details: `分发到 ${platform.name} 失败` })
       }
       done++
     }

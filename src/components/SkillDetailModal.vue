@@ -20,7 +20,7 @@ const showToast = inject(KeyShowToast, () => {})
 const refreshCounts = inject(KeyRefreshCounts)
 
 const { settings } = useSettings()
-const { addTranslation, removeTranslation, isTranslating: isTranslatingInQueue } = useTranslationQueue()
+const { addTranslation, removeTranslation, isTranslating: isTranslatingInQueue, waitForTurn } = useTranslationQueue()
 
 const loading = ref(true)
 const skillName = ref('')
@@ -124,16 +124,19 @@ onMounted(() => { fetchContent(); loadFavorites(); restoreTranslatingState() })
 watch(() => props.skill?.id, () => { fetchContent(); loadFavorites(); restoreTranslatingState() })
 
 function restoreTranslatingState() {
-  if (isTranslatingInQueue(props.skill.id, 'content')) {
-    if (storage.getTranslation(props.skill.id)) {
-      removeTranslation(props.skill.id, 'content')
+  const ch = skillContent.value ? window.services.hashContent(skillContent.value) : ''
+  const dh = skillDesc.value || props.skill.description ? window.services.hashContent(skillDesc.value || props.skill.description) : ''
+  if (ch && isTranslatingInQueue(ch, 'content')) {
+    const cached = ch ? storage.getTranslationByHash(ch) : null
+    if (cached) {
+      removeTranslation(ch, 'content')
     } else {
       isTranslating.value = true
     }
   }
-  if (isTranslatingInQueue(props.skill.id, 'desc')) {
-    if (storage.getTranslationDesc(props.skill.id)) {
-      removeTranslation(props.skill.id, 'desc')
+  if (dh && isTranslatingInQueue(dh, 'desc')) {
+    if (dh && storage.getDescTranslationByHash(dh)) {
+      removeTranslation(dh, 'desc')
     } else {
       isTranslatingDesc.value = true
     }
@@ -159,14 +162,24 @@ const translationModel = computed(() => {
   if (!settings.translationModelId) {
     return settings.aiModels.find((m) => m.isDefault && m.enabled) || null
   }
-  const byProvider = settings.aiModels.find((m) => m.id === settings.translationModelId)
-  if (byProvider) return byProvider
-  for (const provider of settings.aiModels) {
-    const matchedModel = provider.models?.find(
-      (m) => m.id === settings.translationModelId && m.enabled,
-    )
-    if (matchedModel) {
-      return { ...provider, model: matchedModel.id }
+  const sepIdx = settings.translationModelId.lastIndexOf('::')
+  if (sepIdx >= 0) {
+    const providerId = settings.translationModelId.substring(0, sepIdx)
+    const modelId = settings.translationModelId.substring(sepIdx + 2)
+    const provider = settings.aiModels.find(m => m.id === providerId)
+    if (provider && provider.models?.some(m => m.id === modelId && m.enabled)) {
+      return { ...provider, model: modelId }
+    }
+  } else {
+    const byProvider = settings.aiModels.find((m) => m.id === settings.translationModelId)
+    if (byProvider) return byProvider
+    for (const provider of settings.aiModels) {
+      const matchedModel = provider.models?.find(
+        (m) => m.id === settings.translationModelId && m.enabled,
+      )
+      if (matchedModel) {
+        return { ...provider, model: matchedModel.id }
+      }
     }
   }
   return null
@@ -186,10 +199,18 @@ async function handleTranslate() {
   if (translatedContent.value) { showTranslation.value = !showTranslation.value; return }
   if (!translationModel.value) { showToast('AI 模型未配置', 'error'); return }
   isTranslating.value = true
-  addTranslation(props.skill.id, props.skill.name, 'content')
+  const ch = window.services.hashContent(skillContent.value)
+  const contentItem = addTranslation(ch, 'content', props.skill.name)
+  if (contentItem?.status === 'pending') { await waitForTurn(ch, 'content') }
   try {
     translatedContent.value = await translateContent(skillContent.value, translationModel.value, translationMode.value)
     showTranslation.value = true
+    storage.saveTranslationByHash(ch, {
+      sourceContent: skillContent.value,
+      translatedContent: translatedContent.value,
+      mode: translationMode.value,
+      skillName: props.skill.name,
+    })
     showToast(`${props.skill.name} 内容翻译完成`, 'success')
   } catch (err: any) {
     const msg = err.message === 'AI_NOT_CONFIGURED' ? 'AI 模型未配置' :
@@ -198,7 +219,7 @@ async function handleTranslate() {
     showToast(msg, 'error')
   } finally {
     isTranslating.value = false
-    removeTranslation(props.skill.id, 'content')
+    removeTranslation(ch, 'content')
   }
 }
 
@@ -218,9 +239,12 @@ async function handleTranslateDesc() {
   if (descTranslationDone.value) { showDescTranslation.value = !showDescTranslation.value; return }
   if (!translationModel.value) { showToast('AI 模型未配置', 'error'); return }
   isTranslatingDesc.value = true
-  addTranslation(props.skill.id, props.skill.name, 'desc')
+  const dh = window.services.hashContent(desc)
+  const descItem = addTranslation(dh, 'desc', props.skill.name)
+  if (descItem?.status === 'pending') { await waitForTurn(dh, 'desc') }
   try {
     translatedDesc.value = await translateDescription(desc, translationModel.value)
+    storage.saveDescTranslationByHash(dh, translatedDesc.value, props.skill.name)
     descTranslationDone.value = true
     showDescTranslation.value = true
     showToast(`${props.skill.name} 描述翻译完成`, 'success')
@@ -231,7 +255,7 @@ async function handleTranslateDesc() {
     showToast(msg, 'error')
   } finally {
     isTranslatingDesc.value = false
-    removeTranslation(props.skill.id, 'desc')
+    removeTranslation(dh, 'desc')
   }
 }
 
@@ -250,9 +274,12 @@ async function handleReTranslateDesc() {
 
   if (!translationModel.value) { showToast('AI 模型未配置', 'error'); return }
   isTranslatingDesc.value = true
-  addTranslation(props.skill.id, props.skill.name, 'desc')
+  const dh = window.services.hashContent(desc)
+  const descItem = addTranslation(dh, 'desc', props.skill.name)
+  if (descItem?.status === 'pending') { await waitForTurn(dh, 'desc') }
   try {
     translatedDesc.value = await translateDescription(desc, translationModel.value)
+    storage.saveDescTranslationByHash(dh, translatedDesc.value, props.skill.name)
     descTranslationDone.value = true
     showDescTranslation.value = true
     showToast(`${props.skill.name} 描述翻译完成`, 'success')
@@ -263,7 +290,7 @@ async function handleReTranslateDesc() {
     showToast(msg, 'error')
   } finally {
     isTranslatingDesc.value = false
-    removeTranslation(props.skill.id, 'desc')
+    removeTranslation(dh, 'desc')
   }
 }
 

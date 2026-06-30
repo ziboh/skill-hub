@@ -187,7 +187,10 @@ async function install() {
       else { window.services.copyFile(sourceDir, targetDir); addLog(pid, 'ok', `Copied: ${targetDir}`) }
       storage.saveInstallRecord({ skillId: props.skill.id, platformId: pid, mode: props.installMode, scope: 'global', targetPath: targetDir, sourceDir, installedAt: new Date().toISOString() })
       installedNames.push(platform.name)
-    } catch (err: any) { addLog(pid, 'error', err.message) }
+    } catch (err: any) {
+      addLog(pid, 'error', err.message)
+      storage.addFailureRecord({ type: 'distribution', skillId: props.skill.id, skillName: props.skill.name, error: err.message, details: `分发到 ${platform?.name || pid} 失败` })
+    }
   }
 
   if (installedNames.length) {
@@ -196,6 +199,7 @@ async function install() {
     showToast(`已将 ${props.skill.name} 分发到${detail}`, 'success')
   } else {
     updateItem(queueItem.id, { status: 'error', error: '安装失败' })
+    storage.addFailureRecord({ type: 'distribution', skillId: props.skill.id, skillName: props.skill.name, error: '所有平台分发均失败' })
   }
 
   loadInstallStatus()

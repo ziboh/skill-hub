@@ -4,6 +4,7 @@ const https = require('node:https')
 const http = require('node:http')
 const os = require('node:os')
 const { execFile } = require('node:child_process')
+const crypto = require('node:crypto')
 const AdmZip = require('adm-zip')
 function homeDir() {
   return os.homedir()
@@ -72,6 +73,9 @@ function _fetchGitHubTextInternal(url, token, redirectCount) {
 }
 
 window.services = {
+  hashContent(content) {
+    return crypto.createHash('sha256').update(content, 'utf-8').digest('hex')
+  },
   // === 原始保留服务 ===
   readFile(file) {
     try {

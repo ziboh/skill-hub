@@ -9,6 +9,7 @@ import {
   KeyDetectedPlatforms, KeyPlatformSkillCounts, KeyScanProject, KeyProjectScanning,
   KeyRefreshCounts, KeyCurrentRoute, KeyFilterCategory, KeyFilterSource,
   KeyRefreshMySkills, KeyOpenImportModal, KeyRefreshKey, KeyTriggerRefresh,
+  KeyAgentSkills, KeyUpdateAgentPlatformSkills,
 } from './inject-keys'
 
 import SkillStore from './views/SkillStore/index.vue'
@@ -28,6 +29,7 @@ import { storage } from './utils/storage'
 import { applyTheme } from './utils/theme'
 import { useSettings } from './composables/useSettings'
 import { useTheme } from './composables/useTheme'
+import { useSkillInventory, normalizeSkillScanResult } from './composables/useSkillInventory'
 import { detectPlatforms, getPlatformPath, defaultPlatforms } from './data/platforms'
 import type { Skill, AppSettings, PlatformInfo } from './types'
 
@@ -45,7 +47,12 @@ const downloadedCount = ref(0)
 const agentCount = ref(0)
 const detectedPlatforms = ref<PlatformInfo[]>([])
 const platformSkillCounts = ref<Record<string, number>>({})
-const platformSkills = ref<Record<string, any[]>>({})
+const {
+  agentSkills: inventoryAgentSkills,
+  allSkills: inventoryAllSkills,
+  ensureAgentSkills,
+  updateAgentPlatformSkills,
+} = useSkillInventory()
 
 const {
   route, subRoute, selectedSkill, detailContext,
@@ -85,6 +92,8 @@ provide(KeyOpenAddProjectModal, () => { showAddProjectModal.value = true })
 provide(KeyNavigateToProjectSkills, () => { route.value = 'project-skills'; showAddProjectModal.value = true })
 provide(KeyDetectedPlatforms, detectedPlatforms)
 provide(KeyPlatformSkillCounts, platformSkillCounts)
+provide(KeyAgentSkills, inventoryAgentSkills)
+provide(KeyUpdateAgentPlatformSkills, updateAgentPlatformSkills)
 provide(KeyScanProject, scanProject)
 provide(KeyProjectScanning, projectScanning)
 
@@ -93,13 +102,11 @@ function refreshCounts() {
   try {
     const allPlatforms = detectPlatforms()
     const savedConfigs = storage.getPlatformConfigs()
-    // Filter by installed (detected) and enabled status
     const installedPlatforms = allPlatforms.filter((p) => {
       if (!p.detected) return false
       const savedConfig = savedConfigs.find((c) => c.id === p.id)
       return savedConfig ? savedConfig.enabled : p.enabled
     })
-    // Sort by platform order from storage (use default order if none saved)
     const platformOrder = storage.getPlatformOrder()
     const orderToUse = platformOrder.length ? platformOrder : defaultPlatforms.map(p => p.id)
     const orderMap = new Map(orderToUse.map((id, idx) => [id, idx]))
@@ -108,10 +115,7 @@ function refreshCounts() {
     detectedPlatforms.value = installedPlatforms
     const counts: Record<string, number> = {}
     for (const p of installedPlatforms) {
-      try {
-        const dir = getPlatformPath(p, 'global') || getPlatformPath(p, 'project')
-        if (dir) counts[p.id] = window.services.scanForSkillFiles([dir]).length
-      } catch { counts[p.id] = 0 }
+      counts[p.id] = inventoryAgentSkills.value[p.id]?.length || 0
     }
     platformSkillCounts.value = counts
   } catch {
@@ -138,8 +142,10 @@ let mqCleanup: (() => void) | null = null
 onMounted(() => {
   storage.cleanStaleCachedSkills()
   storage.updateChineseTags()
+  window.ztools.dbStorage.removeItem('sm_translation_queue')
   refreshCounts()
   refreshMySkills()
+  ensureAgentSkills()
   applyTheme(settings)
   const mq = window.matchMedia('(prefers-color-scheme: dark)')
   const onColorSchemeChange = () => {
@@ -214,34 +220,15 @@ provide(KeyTriggerRefresh, () => { refreshKey.value++ })
 
 const { isDarkMode, toggleTheme } = useTheme()
 
-const allAvailableSkills = computed(() => {
-  const cachedSkills = storage.getCachedSkills()
-  const projectSkills = selectedProject.value?.skills || []
-  const agentSkillsList = Object.values(platformSkills.value).flat()
-  
-  // Combine all skills, removing duplicates by id
-  const allSkills: any[] = [...cachedSkills]
-  for (const skill of projectSkills) {
-    if (!allSkills.some(s => s.id === (skill as any).id)) {
-      allSkills.push(skill)
-    }
-  }
-  for (const skill of agentSkillsList) {
-    if (!allSkills.some(s => s.id === (skill as any).id)) {
-      allSkills.push(skill)
-    }
-  }
-  
-  return allSkills
-})
+const allAvailableSkills = computed<Skill[]>(() => inventoryAllSkills.value as Skill[])
 
-const currentPageSkills = computed(() => {
+const currentPageSkills = computed<Skill[]>(() => {
   if (route.value === 'my') {
     return storage.getCachedSkills().filter(s => storage.getDownloadedIds().includes(s.id))
   } else if (route.value === 'project-skills') {
-    return selectedProject.value?.skills || []
+    return ((selectedProject.value?.skills || []) as any[]).map(s => normalizeSkillScanResult(s))
   } else if (route.value === 'agent-skills') {
-    return Object.values(platformSkills.value).flat()
+    return (Object.values(inventoryAgentSkills.value).flat() as any[]).map(s => normalizeSkillScanResult(s))
   }
   return []
 })
@@ -313,6 +300,7 @@ const currentPageSkills = computed(() => {
 
     <!-- 浮动翻译按钮 -->
     <button
+      v-if="route === 'my' || route === 'project-skills' || route === 'agent-skills'"
       class="floating-translate-btn"
       @click="showTranslatePanel = !showTranslatePanel"
       title="批量翻译"
@@ -332,6 +320,7 @@ const currentPageSkills = computed(() => {
       v-if="showTranslatePanel" 
       @close="showTranslatePanel = false"
       :current-skills="currentPageSkills"
+      :all-skills="allAvailableSkills"
     />
   </div>
 </template>

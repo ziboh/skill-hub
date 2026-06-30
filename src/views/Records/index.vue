@@ -1,28 +1,45 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, inject, watch } from 'vue'
 import { storage } from '../../utils/storage'
-import type { InstallRecord, ModelConfig } from '../../types'
+import type { InstallRecord, ModelConfig, FailureRecord, FailureType, ErrorCategory } from '../../types'
 import { defaultPlatforms } from '../../data/platforms'
 import { KeyCurrentRoute } from '../../inject-keys'
 import { useDownloadQueue } from '../../composables/useDownloadQueue'
 import { useTranslationQueue } from '../../composables/useTranslationQueue'
 import { getSourceInfo as getSourceInfoUtil } from '../../utils/source-info'
-import { translateContent, translateDescription, isChineseContent } from '../../utils/translate'
+import { translateContent, translateDescription, translateTags, isChineseContent, isChineseText } from '../../utils/translate'
+import { AIError } from '../../utils/ai'
 import type { Skill } from '../../types'
 import PlatformIcon from '../../components/PlatformIcon.vue'
 
 const emit = defineEmits(['navigate'])
 
 const currentRoute = inject(KeyCurrentRoute, ref('my'))
-const activeTab = ref<'downloads' | 'dist' | 'translations'>('downloads')
+const activeTab = ref<'downloads' | 'dist' | 'translations' | 'failures'>('downloads')
 
 const { queue, activeCount, clearCompleted } = useDownloadQueue()
-const { queue: translationQueue, cacheVersion, removeTranslation, clearAll } = useTranslationQueue()
+const { queue: translationQueue, cacheVersion, removeTranslation, clearAll, waitForTurn } = useTranslationQueue()
+
+const failureRecords = ref<FailureRecord[]>([])
+const failureTypeFilter = ref<FailureType | 'all'>('all')
 
 const sessionDownloads = computed(() => storage.getSessionDownloads())
 const installRecords = ref<InstallRecord[]>([])
 const translations = ref<Record<string, { sourceContent: string; translatedContent: string; mode: string; updatedAt: number }>>({})
-const descTranslations = ref<Record<string, { translatedDesc: string; updatedAt: number }>>({})
+const descTranslations = ref<Record<string, { translatedDesc: string; updatedAt: number; skillName?: string }>>({})
+
+function getSkillNameByHash(hash: string): string {
+  const contentCache = storage.getTranslationByHash(hash)
+  if (contentCache?.skillName) return contentCache.skillName
+  const descCache = storage._readDescTranslationCache()
+  if (descCache[hash]?.skillName) return descCache[hash].skillName
+  const skills = storage.getCachedSkills()
+  for (const s of skills) {
+    if (s.contentHash === hash) return s.name
+    if (s.description && window.services.hashContent(s.description) === hash) return s.name
+  }
+  return hash.slice(0, 8) + '...'
+}
 
 const PAGE_SIZE_OPTIONS = [100, 50, 20, 10, 5]
 const pageState = storage.getPageState('records') || {}
@@ -36,10 +53,17 @@ function toggleSort() {
   currentPage.value = 1
 }
 
+function setFailureTypeFilter(type: FailureType | 'all') {
+  failureTypeFilter.value = type
+  currentPage.value = 1
+}
+
 const showDeleteConfirm = ref(false)
-const deleteTarget = ref<{ type: 'dist' | 'translation'; data: any } | null>(null)
+const deleteTarget = ref<{ type: 'dist' | 'translation' | 'failure'; data: any } | null>(null)
 const selectedItems = ref<Set<string>>(new Set())
 const showBatchDeleteConfirm = ref(false)
+const selectedFailureRecord = ref<FailureRecord | null>(null)
+const showFailureDetail = ref(false)
 
 function toggleSelect(key: string) {
   if (selectedItems.value.has(key)) {
@@ -80,9 +104,11 @@ function executeBatchDelete() {
       const [skillId, platformId, scope] = rest
       storage.removeInstallRecord(skillId, platformId, scope || undefined)
     } else if (type === 'content') {
-      storage.removeTranslation(rest[0])
+      storage.removeTranslationByHash(rest[0])
     } else if (type === 'desc') {
-      storage.removeTranslationDesc(rest[0])
+      storage.removeDescTranslationByHash(rest[0])
+    } else if (type === 'failure') {
+      storage.removeFailureRecord(rest[0])
     }
   }
   clearSelection()
@@ -100,15 +126,59 @@ function confirmDeleteTranslation(item: { skillId: string; type: string }) {
   showDeleteConfirm.value = true
 }
 
+function confirmDeleteFailure(record: FailureRecord) {
+  deleteTarget.value = { type: 'failure', data: record }
+  showDeleteConfirm.value = true
+}
+
+function openFailureDetail(record: FailureRecord) {
+  selectedFailureRecord.value = record
+  showFailureDetail.value = true
+}
+
+function closeFailureDetail() {
+  showFailureDetail.value = false
+  selectedFailureRecord.value = null
+}
+
+function getErrorCategoryLabel(category?: ErrorCategory): string {
+  if (!category) return '未知'
+  const labels: Record<ErrorCategory, string> = {
+    network: '网络错误',
+    auth: '认证错误',
+    api: 'API 错误',
+    response: '响应错误',
+    config: '配置错误',
+    unknown: '未知错误',
+  }
+  return labels[category]
+}
+
+function getErrorCategoryColor(category?: ErrorCategory): string {
+  if (!category) return 'var(--muted-foreground)'
+  const colors: Record<ErrorCategory, string> = {
+    network: 'hsl(38 90% 50%)',
+    auth: 'hsl(0 80% 60%)',
+    api: 'hsl(260 60% 55%)',
+    response: 'hsl(210 80% 50%)',
+    config: 'hsl(150 50% 45%)',
+    unknown: 'var(--muted-foreground)',
+  }
+  return colors[category]
+}
+
 function executeDelete() {
   if (!deleteTarget.value) return
   if (deleteTarget.value.type === 'dist') {
     const r = deleteTarget.value.data
     storage.removeInstallRecord(r.skillId, r.platformId, r.scope)
+  } else if (deleteTarget.value.type === 'failure') {
+    const r = deleteTarget.value.data
+    storage.removeFailureRecord(r.id)
   } else {
     const item = deleteTarget.value.data
-    if (item.type === 'content') storage.removeTranslation(item.skillId)
-    else storage.removeTranslationDesc(item.skillId)
+    if (item.type === 'content') storage.removeTranslationByHash(item.skillId)
+    else storage.removeDescTranslationByHash(item.skillId)
   }
   loadData()
   showDeleteConfirm.value = false
@@ -146,29 +216,47 @@ function loadData() {
   translations.value = cacheRaw
   const descRaw = storage._readDescTranslationCache()
   descTranslations.value = descRaw
+  failureRecords.value = storage.getFailureRecords()
 }
 
 function getTranslationModel(): ModelConfig | null {
   const settings = storage.getSettings()
   if (!settings.translationModelId) return null
   const providers = settings.aiModels || []
-  for (const provider of providers) {
-    if (provider.models) {
-      const model = provider.models.find(m => m.id === settings.translationModelId)
-      if (model) return { ...provider, model: model.id } as ModelConfig
+  const sepIdx = settings.translationModelId.lastIndexOf('::')
+  if (sepIdx >= 0) {
+    const providerId = settings.translationModelId.substring(0, sepIdx)
+    const modelId = settings.translationModelId.substring(sepIdx + 2)
+    const provider = providers.find(m => m.id === providerId)
+    if (provider && provider.models?.some(m => m.id === modelId)) {
+      return { ...provider, model: modelId } as ModelConfig
+    }
+  } else {
+    for (const provider of providers) {
+      if (provider.models) {
+        const model = provider.models.find(m => m.id === settings.translationModelId)
+        if (model) return { ...provider, model: model.id } as ModelConfig
+      }
     }
   }
   return null
 }
 
 async function resumeTranslation(item: { skillId: string; type: 'content' | 'desc' }) {
+  const hash = item.skillId
+  // Wait for turn if pending
+  await waitForTurn(hash, item.type)
+
   const model = getTranslationModel()
   if (!model) return
 
   const cachedSkills = storage.getCachedSkills()
-  const skill = cachedSkills.find(s => s.id === item.skillId)
+  const skill = cachedSkills.find(s => {
+    if (item.type === 'content') return s.contentHash === hash
+    return s.description && window.services.hashContent(s.description) === hash
+  })
   if (!skill) {
-    removeTranslation(item.skillId, item.type)
+    removeTranslation(hash, item.type)
     return
   }
 
@@ -176,29 +264,55 @@ async function resumeTranslation(item: { skillId: string; type: 'content' | 'des
     if (item.type === 'desc') {
       if (skill.description && !isChineseContent(skill.description)) {
         const translatedDesc = await translateDescription(skill.description, model)
-        storage.saveTranslationDesc(skill.id, translatedDesc)
+        storage.saveDescTranslationByHash(hash, translatedDesc, skill.name)
       }
-      removeTranslation(skill.id, 'desc')
+      const tags = skill.tags || []
+      if (tags.length > 0 && !tags.every(t => isChineseText(t))) {
+        const translatedTags = await translateTags(tags, model)
+        const ch = skill.contentHash
+        if (ch) storage.saveTranslationTagsByHash(ch, translatedTags)
+      }
+      removeTranslation(hash, 'desc')
     } else if (item.type === 'content') {
+      const skillDir = storage.getDownloadedIds().includes(skill.id)
+        ? window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', skill.id)
+        : skill.path || ''
       const skillFile = ['SKILL.md', 'skill.md'].find(f =>
-        window.services.pathExists(window.services.pathJoin(skill.path || '', f))
+        window.services.pathExists(window.services.pathJoin(skillDir, f))
       )
       if (skillFile) {
-        const content = window.services.readFile(window.services.pathJoin(skill.path || '', skillFile))
+        const content = window.services.readFile(window.services.pathJoin(skillDir, skillFile))
         if (content && !isChineseContent(content)) {
           const translatedContent = await translateContent(content, model, 'immersive')
-          storage.saveTranslation(skill.id, {
+          storage.saveTranslationByHash(hash, {
             sourceContent: content,
             translatedContent,
             mode: 'immersive',
+            skillName: skill.name,
           })
         }
       }
-      removeTranslation(skill.id, 'content')
+      removeTranslation(hash, 'content')
     }
   } catch (error) {
     console.error('继续翻译失败:', error)
-    removeTranslation(item.skillId, item.type)
+    const errorDetails = error instanceof AIError ? error.details : null
+    storage.addFailureRecord({
+      type: 'translation',
+      skillId: item.skillId,
+      skillName: getSkillName(item.skillId),
+      error: errorDetails?.message || (error instanceof Error ? error.message : '未知错误'),
+      details: `翻译${item.type === 'content' ? '内容' : '描述'}失败`,
+      errorCategory: errorDetails?.category || 'unknown',
+      model: errorDetails?.model,
+      provider: errorDetails?.provider,
+      endpoint: errorDetails?.endpoint,
+      statusCode: errorDetails?.statusCode,
+      requestId: errorDetails?.requestId,
+      duration: errorDetails?.duration,
+      metadata: errorDetails?.rawResponse ? { rawResponse: errorDetails.rawResponse } : undefined,
+    })
+    removeTranslation(hash, item.type)
   }
 }
 
@@ -206,10 +320,15 @@ function clearStuckItem(item: { skillId: string; type: 'content' | 'desc' }) {
   removeTranslation(item.skillId, item.type)
 }
 
+function clearAllFailureRecords() {
+  storage.clearFailureRecords()
+  loadData()
+}
+
 async function resumeAllStuck() {
   const items = [...translationQueue.value]
   for (const item of items) {
-    await resumeTranslation(item)
+    await resumeTranslation({ skillId: item.hash, type: item.type })
   }
 }
 
@@ -360,17 +479,30 @@ const distPaged = computed(() => {
 })
 
 const translationsList = computed(() => {
-  const list: Array<{ skillId: string; skillName: string; type: 'content' | 'desc'; preview: string; inProgress: boolean; updatedAt: number }> = []
+  const list: Array<{ skillId: string; skillName: string; type: 'content' | 'desc'; preview: string; status: 'translating' | 'pending' | 'done'; updatedAt: number }> = []
   for (const item of translationQueue.value) {
-    list.push({ skillId: item.skillId, skillName: item.skillName, type: item.type, preview: '翻译中...', inProgress: true, updatedAt: item.startedAt })
+    const isTranslating = item.status === 'translating'
+    list.push({
+      skillId: item.hash,
+      skillName: item.skillName || getSkillNameByHash(item.hash),
+      type: item.type,
+      preview: isTranslating ? '翻译中...' : '排队中...',
+      status: isTranslating ? 'translating' : 'pending',
+      updatedAt: item.startedAt,
+    })
   }
-  for (const [skillId, data] of Object.entries(translations.value)) {
-    list.push({ skillId, skillName: getSkillName(skillId), type: 'content', preview: data.translatedContent, inProgress: false, updatedAt: data.updatedAt || 0 })
+  for (const [hash, data] of Object.entries(translations.value)) {
+    list.push({ skillId: hash, skillName: getSkillNameByHash(hash), type: 'content', preview: data.translatedContent, status: 'done', updatedAt: data.updatedAt || 0 })
   }
-  for (const [skillId, data] of Object.entries(descTranslations.value)) {
-    list.push({ skillId, skillName: getSkillName(skillId), type: 'desc', preview: data.translatedDesc, inProgress: false, updatedAt: data.updatedAt || 0 })
+  for (const [hash, data] of Object.entries(descTranslations.value)) {
+    list.push({ skillId: hash, skillName: getSkillNameByHash(hash), type: 'desc', preview: data.translatedDesc, status: 'done', updatedAt: data.updatedAt || 0 })
   }
-  list.sort((a, b) => b.updatedAt - a.updatedAt)
+  list.sort((a, b) => {
+    const order: Record<string, number> = { translating: 0, pending: 1, done: 2 }
+    const diff = order[a.status] - order[b.status]
+    if (diff !== 0) return diff
+    return b.updatedAt - a.updatedAt
+  })
   return list
 })
 const translationsTotal = computed(() => translationsList.value.length)
@@ -380,15 +512,28 @@ const translationsPaged = computed(() => {
   return translationsList.value.slice(start, start + pageSize.value)
 })
 
+const filteredFailureRecords = computed(() => {
+  if (failureTypeFilter.value === 'all') return failureRecords.value
+  return failureRecords.value.filter(r => r.type === failureTypeFilter.value)
+})
+const failuresTotal = computed(() => filteredFailureRecords.value.length)
+const failuresPages = computed(() => Math.max(1, Math.ceil(failuresTotal.value / pageSize.value)))
+const failuresPaged = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  return filteredFailureRecords.value.slice(start, start + pageSize.value)
+})
+
 const currentTotal = computed(() => {
   if (activeTab.value === 'downloads') return downloadsTotal.value
   if (activeTab.value === 'dist') return distTotal.value
+  if (activeTab.value === 'failures') return failuresTotal.value
   return translationsTotal.value
 })
 
 const currentPages = computed(() => {
   if (activeTab.value === 'downloads') return downloadsPages.value
   if (activeTab.value === 'dist') return distPages.value
+  if (activeTab.value === 'failures') return failuresPages.value
   return translationsPages.value
 })
 
@@ -447,6 +592,16 @@ watch(activeTab, () => {
           </svg>
           翻译记录
           <span class="tab-count">{{ translationsTotal }}</span>
+        </button>
+        <button class="tab-btn" :class="{ active: activeTab === 'failures' }" @click="activeTab = 'failures'">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="8" x2="12" y2="12"/>
+            <line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+          失败记录
+          <span v-if="failuresTotal > 0" class="tab-count error">{{ failuresTotal }}</span>
+          <span v-else class="tab-count">{{ failuresTotal }}</span>
         </button>
       </div>
     </div>
@@ -584,7 +739,7 @@ watch(activeTab, () => {
 
       <div v-else-if="activeTab === 'translations'" class="records-list">
         <div v-if="hasStuckItems" class="stuck-bar">
-          <span class="stuck-bar-text">{{ translationQueue.length }} 项翻译卡在「翻译中...」状态</span>
+          <span class="stuck-bar-text">{{ translationQueue.length }} 项翻译在队列中</span>
           <button class="resume-all-btn" @click="resumeAllStuck">继续全部</button>
           <button class="clear-all-stuck-btn" @click="clearAll">清除全部</button>
         </div>
@@ -599,10 +754,10 @@ watch(activeTab, () => {
         </div>
         <template v-else>
           <div class="record-table trans-table">
-            <div class="record-row header-row">
+              <div class="record-row header-row">
               <div class="col-check">
                 <label class="checkbox-wrap">
-                  <input type="checkbox" :checked="isAllSelected(translationsPaged.filter(i => !i.inProgress).map(i => ({ key: `${i.type}:${i.skillId}` })))" @change="toggleSelectAll(translationsPaged.filter(i => !i.inProgress).map(i => ({ key: `${i.type}:${i.skillId}` })))">
+                  <input type="checkbox" :checked="isAllSelected(translationsPaged.filter(i => i.status === 'done').map(i => ({ key: `${i.type}:${i.skillId}` })))" @change="toggleSelectAll(translationsPaged.filter(i => i.status === 'done').map(i => ({ key: `${i.type}:${i.skillId}` })))">
                   <span class="checkbox-custom"></span>
                 </label>
               </div>
@@ -612,9 +767,9 @@ watch(activeTab, () => {
               <div class="col-time">时间</div>
               <div class="col-action"></div>
             </div>
-            <div v-for="(item, idx) in translationsPaged" :key="idx" class="record-row" :class="{ 'in-progress': item.inProgress, selected: selectedItems.has(`${item.type}:${item.skillId}`) }">
+            <div v-for="(item, idx) in translationsPaged" :key="idx" class="record-row" :class="{ 'in-progress': item.status !== 'done', 'translating': item.status === 'translating', 'pending': item.status === 'pending', selected: selectedItems.has(`${item.type}:${item.skillId}`) }">
               <div class="col-check">
-                <label v-if="!item.inProgress" class="checkbox-wrap">
+                <label v-if="item.status === 'done'" class="checkbox-wrap">
                   <input type="checkbox" :checked="selectedItems.has(`${item.type}:${item.skillId}`)" @change="toggleSelect(`${item.type}:${item.skillId}`)">
                   <span class="checkbox-custom"></span>
                 </label>
@@ -627,9 +782,12 @@ watch(activeTab, () => {
                 <span class="type-badge" :class="item.type">{{ item.type === 'content' ? '内容翻译' : '描述翻译' }}</span>
               </div>
               <div class="col-preview">
-                <span v-if="item.inProgress" class="preview-text translating-preview">
+                <span v-if="item.status === 'translating'" class="preview-text translating-preview">
                   <svg class="spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
                   翻译中...
+                </span>
+                <span v-else-if="item.status === 'pending'" class="preview-text pending-preview">
+                  排队中...
                 </span>
                 <span v-else class="preview-text">{{ truncate(item.preview, 80) }}</span>
               </div>
@@ -637,7 +795,7 @@ watch(activeTab, () => {
                 <span class="time-text">{{ item.updatedAt ? formatTime(item.updatedAt) : '—' }}</span>
               </div>
               <div class="col-action">
-                <button v-if="!item.inProgress" class="delete-btn" @click.stop="confirmDeleteTranslation(item)" title="删除">
+                <button v-if="item.status === 'done'" class="delete-btn" @click.stop="confirmDeleteTranslation(item)" title="删除">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
                 </button>
                 <template v-else>
@@ -650,6 +808,73 @@ watch(activeTab, () => {
                 </template>
               </div>
             </div>
+          </div>
+        </template>
+      </div>
+
+      <div v-else-if="activeTab === 'failures'" class="records-list">
+        <div class="failure-filters">
+          <button class="filter-btn" :class="{ active: failureTypeFilter === 'all' }" @click="setFailureTypeFilter('all')">全部</button>
+          <button class="filter-btn" :class="{ active: failureTypeFilter === 'translation' }" @click="setFailureTypeFilter('translation')">翻译</button>
+          <button class="filter-btn" :class="{ active: failureTypeFilter === 'download' }" @click="setFailureTypeFilter('download')">下载</button>
+          <button class="filter-btn" :class="{ active: failureTypeFilter === 'distribution' }" @click="setFailureTypeFilter('distribution')">分发</button>
+        </div>
+        <div v-if="failuresTotal === 0" class="empty">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color: hsl(var(--muted-foreground) / 0.4)">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="8" x2="12" y2="12"/>
+            <line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+          <p>暂无失败记录</p>
+          <p class="empty-hint">翻译、下载或分发失败时，记录将显示在这里</p>
+        </div>
+        <template v-else>
+          <div class="record-table failures-table">
+            <div class="record-row header-row">
+              <div class="col-check">
+                <label class="checkbox-wrap">
+                  <input type="checkbox" :checked="isAllSelected(failuresPaged.map(r => ({ key: `failure:${r.id}` })))" @change="toggleSelectAll(failuresPaged.map(r => ({ key: `failure:${r.id}` })))">
+                  <span class="checkbox-custom"></span>
+                </label>
+              </div>
+              <div class="col-type">类型</div>
+              <div class="col-name">Skill 名称</div>
+              <div class="col-error">错误信息</div>
+              <div class="col-time">时间</div>
+              <div class="col-action"></div>
+            </div>
+            <div v-for="(record, idx) in failuresPaged" :key="idx" class="record-row clickable" :class="{ selected: selectedItems.has(`failure:${record.id}`) }" @click="openFailureDetail(record)">
+              <div class="col-check">
+                <label class="checkbox-wrap">
+                  <input type="checkbox" :checked="selectedItems.has(`failure:${record.id}`)" @change="toggleSelect(`failure:${record.id}`)">
+                  <span class="checkbox-custom"></span>
+                </label>
+              </div>
+              <div class="col-type">
+                <span class="failure-type-badge" :class="record.type">
+                  {{ record.type === 'translation' ? '翻译' : record.type === 'download' ? '下载' : '分发' }}
+                </span>
+              </div>
+              <div class="col-name">
+                <span class="skill-name">{{ record.skillName }}</span>
+                <span class="skill-id">{{ record.skillId }}</span>
+              </div>
+              <div class="col-error">
+                <span v-if="record.errorCategory" class="error-category-badge" :style="{ color: getErrorCategoryColor(record.errorCategory) }">
+                  {{ getErrorCategoryLabel(record.errorCategory) }}
+                </span>
+                <span class="error-text">{{ truncate(record.error, 60) }}</span>
+              </div>
+              <div class="col-time">{{ formatTime(record.timestamp) }}</div>
+              <div class="col-action">
+                <button class="delete-btn" @click.stop="confirmDeleteFailure(record)" title="删除">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+          <div v-if="failuresTotal > 0" class="clear-bar">
+            <button class="clear-btn" @click="clearAllFailureRecords">清除所有失败记录</button>
           </div>
         </template>
       </div>
@@ -696,7 +921,7 @@ watch(activeTab, () => {
       <div class="confirm-modal" @click.stop>
         <div class="confirm-title">确认删除</div>
         <div class="confirm-message">
-          确定要删除这条{{ deleteTarget?.type === 'dist' ? '分发' : '翻译' }}记录吗？
+          确定要删除这条{{ deleteTarget?.type === 'dist' ? '分发' : deleteTarget?.type === 'failure' ? '失败' : '翻译' }}记录吗？
         </div>
         <div class="confirm-actions">
           <button class="confirm-cancel" @click="showDeleteConfirm = false">取消</button>
@@ -713,6 +938,84 @@ watch(activeTab, () => {
         <div class="confirm-actions">
           <button class="confirm-cancel" @click="showBatchDeleteConfirm = false">取消</button>
           <button class="confirm-ok" @click="executeBatchDelete">删除 {{ selectedItems.size }} 项</button>
+        </div>
+      </div>
+    </div>
+    <div v-if="showFailureDetail && selectedFailureRecord" class="confirm-overlay" @click="closeFailureDetail">
+      <div class="failure-detail-modal" @click.stop>
+        <div class="failure-detail-header">
+          <h3 class="failure-detail-title">错误详情</h3>
+          <button class="panel-close" @click="closeFailureDetail">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="failure-detail-content">
+          <div class="detail-section">
+            <div class="detail-row">
+              <span class="detail-label">类型</span>
+              <span class="failure-type-badge" :class="selectedFailureRecord.type">
+                {{ selectedFailureRecord.type === 'translation' ? '翻译' : selectedFailureRecord.type === 'download' ? '下载' : '分发' }}
+              </span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Skill</span>
+              <span class="detail-value">{{ selectedFailureRecord.skillName }}</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">时间</span>
+              <span class="detail-value">{{ formatTime(selectedFailureRecord.timestamp) }}</span>
+            </div>
+          </div>
+
+          <div class="detail-section">
+            <div class="detail-row">
+              <span class="detail-label">错误信息</span>
+              <span class="detail-value error-message">{{ selectedFailureRecord.error }}</span>
+            </div>
+            <div v-if="selectedFailureRecord.details" class="detail-row">
+              <span class="detail-label">详情</span>
+              <span class="detail-value">{{ selectedFailureRecord.details }}</span>
+            </div>
+          </div>
+
+          <div v-if="selectedFailureRecord.errorCategory || selectedFailureRecord.model || selectedFailureRecord.provider" class="detail-section">
+            <h4 class="section-title">技术信息</h4>
+            <div v-if="selectedFailureRecord.errorCategory" class="detail-row">
+              <span class="detail-label">错误分类</span>
+              <span class="error-category-badge" :style="{ color: getErrorCategoryColor(selectedFailureRecord.errorCategory) }">
+                {{ getErrorCategoryLabel(selectedFailureRecord.errorCategory) }}
+              </span>
+            </div>
+            <div v-if="selectedFailureRecord.model" class="detail-row">
+              <span class="detail-label">模型</span>
+              <span class="detail-value mono">{{ selectedFailureRecord.model }}</span>
+            </div>
+            <div v-if="selectedFailureRecord.provider" class="detail-row">
+              <span class="detail-label">供应商</span>
+              <span class="detail-value mono">{{ selectedFailureRecord.provider }}</span>
+            </div>
+            <div v-if="selectedFailureRecord.endpoint" class="detail-row">
+              <span class="detail-label">端点</span>
+              <span class="detail-value mono small">{{ selectedFailureRecord.endpoint }}</span>
+            </div>
+            <div v-if="selectedFailureRecord.statusCode" class="detail-row">
+              <span class="detail-label">HTTP 状态码</span>
+              <span class="detail-value mono">{{ selectedFailureRecord.statusCode }}</span>
+            </div>
+            <div v-if="selectedFailureRecord.requestId" class="detail-row">
+              <span class="detail-label">请求 ID</span>
+              <span class="detail-value mono small">{{ selectedFailureRecord.requestId }}</span>
+            </div>
+            <div v-if="selectedFailureRecord.duration" class="detail-row">
+              <span class="detail-label">耗时</span>
+              <span class="detail-value">{{ selectedFailureRecord.duration }}ms</span>
+            </div>
+          </div>
+
+          <div v-if="selectedFailureRecord.metadata?.rawResponse" class="detail-section">
+            <h4 class="section-title">原始响应</h4>
+            <pre class="raw-response">{{ selectedFailureRecord.metadata.rawResponse }}</pre>
+          </div>
         </div>
       </div>
     </div>
@@ -733,51 +1036,52 @@ watch(activeTab, () => {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  padding: 22px 28px 16px;
+  padding: 24px 32px 18px;
   background: hsl(var(--card));
   border-bottom: 1px solid hsl(var(--border));
 }
 
-.header-left { display: flex; flex-direction: column; gap: 6px; }
-.header-title-row { display: flex; align-items: center; gap: 10px; }
-.header-left h2 { font-size: 22px; font-weight: 600; color: hsl(var(--foreground)); margin: 0; }
-.page-subtitle { font-size: 13px; color: hsl(var(--muted-foreground)); margin: 0; }
+.header-left { display: flex; flex-direction: column; gap: 8px; }
+.header-title-row { display: flex; align-items: center; gap: 12px; }
+.header-left h2 { font-size: 24px; font-weight: 600; color: hsl(var(--foreground)); margin: 0; }
+.page-subtitle { font-size: 14px; color: hsl(var(--muted-foreground)); margin: 0; }
 
-.filter-tabs-row { display: flex; align-items: center; gap: 4px; padding: 10px 28px 0; }
-.filter-tabs { display: flex; align-items: center; gap: 2px; }
+.filter-tabs-row { display: flex; align-items: center; gap: 6px; padding: 12px 32px 0; }
+.filter-tabs { display: flex; align-items: center; gap: 4px; }
 
 .tab-btn {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 6px 10px; font-size: 13px; font-weight: 500;
-  border: none; border-radius: 6px; background: transparent;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 14px; font-size: 13px; font-weight: 500;
+  border: 1px solid transparent; border-radius: 8px; background: transparent;
   color: hsl(var(--muted-foreground)); cursor: pointer;
   transition: all var(--duration-base) var(--ease-standard); white-space: nowrap;
 }
-.tab-btn:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
-.tab-btn.active { background: hsl(var(--primary) / 0.1); color: hsl(var(--primary)); font-weight: 600; }
+.tab-btn:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); border-color: hsl(var(--border)); }
+.tab-btn.active { background: hsl(var(--primary) / 0.1); color: hsl(var(--primary)); font-weight: 600; border-color: hsl(var(--primary) / 0.2); }
 
 .tab-count {
-  font-size: 11px; font-weight: 600; padding: 0 4px; min-width: 20px;
-  text-align: center; border-radius: 6px;
-  background: hsl(var(--muted) / 0.6); color: hsl(var(--muted-foreground)); line-height: 1.6;
+  font-size: 11px; font-weight: 600; padding: 0 6px; min-width: 22px;
+  text-align: center; border-radius: 10px;
+  background: hsl(var(--muted) / 0.7); color: hsl(var(--muted-foreground)); line-height: 1.8;
 }
 .tab-btn.active .tab-count { background: hsl(var(--primary) / 0.15); color: hsl(var(--primary)); }
 .tab-count.active { background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); }
 
 .records-content {
   flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
-  padding: 0 28px 12px;
+  padding: 0 32px 16px;
 }
 
 .empty {
-  text-align: center; padding: 64px 28px; color: hsl(var(--muted-foreground));
-  font-size: 14px; display: flex; flex-direction: column; align-items: center; gap: 12px;
+  text-align: center; padding: 72px 32px; color: hsl(var(--muted-foreground));
+  font-size: 14px; display: flex; flex-direction: column; align-items: center; gap: 14px;
 }
-.empty-hint { font-size: 12px; color: hsl(var(--muted-foreground) / 0.7); }
+.empty-hint { font-size: 13px; color: hsl(var(--muted-foreground) / 0.7); }
 
 .record-table {
   background: hsl(var(--card)); border: 1px solid hsl(var(--border));
   border-radius: 12px; width: 100%; margin-top: 16px;
+  box-shadow: var(--shadow-sm);
 }
 
 .record-table .record-row:first-child { border-radius: 12px 12px 0 0; }
@@ -786,7 +1090,7 @@ watch(activeTab, () => {
 
 .record-row {
   display: grid; grid-template-columns: 2fr 1fr 1fr 0.7fr 1.2fr;
-  gap: 12px; align-items: center; padding: 12px 16px;
+  gap: 14px; align-items: center; padding: 14px 18px;
   border-bottom: 1px solid hsl(var(--border)); font-size: 13px;
   color: hsl(var(--foreground)); transition: background var(--duration-base) var(--ease-standard);
   min-width: 0;
@@ -800,17 +1104,18 @@ watch(activeTab, () => {
   grid-template-columns: 36px 2fr 2fr 1fr 1.2fr 40px;
 }
 .record-row:last-child { border-bottom: none; }
-.record-row:not(.header-row):hover { background: hsl(var(--accent) / 0.5); }
-.record-row.selected { background: hsl(var(--primary) / 0.05); }
+.record-row:not(.header-row):hover { background: hsl(var(--accent) / 0.4); }
+.record-row.selected { background: hsl(var(--primary) / 0.06); }
 
 .header-row {
   background: hsl(var(--muted)); font-weight: 600; font-size: 12px; color: hsl(var(--muted-foreground));
   position: sticky; top: 0; z-index: 2;
+  text-transform: uppercase; letter-spacing: 0.3px;
 }
 
 .col-action { width: 40px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 
-.sortable { cursor: pointer; display: inline-flex; align-items: center; gap: 3px; user-select: none; }
+.sortable { cursor: pointer; display: inline-flex; align-items: center; gap: 4px; user-select: none; }
 .sortable:hover { color: hsl(var(--foreground)); }
 .sort-indicator { display: inline-flex; align-items: center; color: hsl(var(--muted-foreground)); transition: color var(--duration-base) var(--ease-standard); }
 .sortable:hover .sort-indicator { color: hsl(var(--foreground)); }
@@ -829,22 +1134,22 @@ watch(activeTab, () => {
 }
 
 .skill-name { font-weight: 500; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.skill-id { font-size: 11px; color: hsl(var(--muted-foreground)); display: block; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.skill-id { font-size: 11px; color: hsl(var(--muted-foreground)); display: block; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .source-badge, .platform-badge {
-  font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 6px;
+  font-size: 11px; font-weight: 500; padding: 3px 10px; border-radius: 6px;
   white-space: nowrap; display: inline-flex; align-items: center; gap: 4px;
 }
 
-.platform-info { display: flex; align-items: center; gap: 6px; width: 100%; }
+.platform-info { display: flex; align-items: center; gap: 8px; width: 100%; }
 .platform-label { font-size: 12px; font-weight: 500; color: hsl(var(--foreground)); }
 
 .tag-icon-svg { display: inline-flex; align-items: center; }
 .tag-icon-svg svg { width: 10px; height: 10px; }
 
 .delete-btn {
-  width: 28px; height: 28px; border: none; background: transparent;
-  color: hsl(var(--muted-foreground)); cursor: pointer; border-radius: 6px;
+  width: 30px; height: 30px; border: none; background: transparent;
+  color: hsl(var(--muted-foreground)); cursor: pointer; border-radius: 8px;
   display: flex; align-items: center; justify-content: center;
   transition: all var(--duration-base) var(--ease-standard); opacity: 0;
 }
@@ -856,40 +1161,43 @@ watch(activeTab, () => {
   background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center;
 }
 .confirm-modal {
-  width: 360px; background: hsl(var(--card));
-  border: 1px solid hsl(var(--border)); border-radius: 12px;
+  width: 380px; background: hsl(var(--card));
+  border: 1px solid hsl(var(--border)); border-radius: 14px;
   box-shadow: var(--shadow-lg); overflow: hidden;
 }
-.confirm-title { padding: 16px 20px 0; font-weight: 600; font-size: 15px; }
-.confirm-message { padding: 12px 20px; font-size: 13px; color: hsl(var(--muted-foreground)); }
-.confirm-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px 16px; }
+.confirm-title { padding: 18px 22px 0; font-weight: 600; font-size: 16px; }
+.confirm-message { padding: 14px 22px; font-size: 13px; color: hsl(var(--muted-foreground)); line-height: 1.5; }
+.confirm-actions { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 22px 18px; }
 .confirm-cancel {
-  padding: 7px 16px; font-size: 13px; border: 1px solid hsl(var(--border));
+  padding: 8px 18px; font-size: 13px; border: 1px solid hsl(var(--border));
   border-radius: 8px; background: transparent; color: hsl(var(--foreground));
   cursor: pointer; transition: all var(--duration-base) var(--ease-standard);
 }
 .confirm-cancel:hover { background: hsl(var(--accent)); }
 .confirm-ok {
-  padding: 7px 16px; font-size: 13px; border: none;
+  padding: 8px 18px; font-size: 13px; border: none;
   border-radius: 8px; background: hsl(var(--destructive));
   color: hsl(var(--destructive-foreground)); cursor: pointer;
   transition: all var(--duration-base) var(--ease-standard);
 }
 .confirm-ok:hover { opacity: 0.9; }
 
-.mode-badge { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 6px; white-space: nowrap; }
+.mode-badge { font-size: 11px; font-weight: 500; padding: 3px 10px; border-radius: 6px; white-space: nowrap; }
 .mode-badge.symlink { background: hsl(142 60% 44% / 0.1); color: hsl(142 60% 44%); }
 .mode-badge.copy { background: hsl(210 80% 50% / 0.1); color: hsl(210 80% 50%); }
 
-.type-badge { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 6px; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; }
+.type-badge { font-size: 11px; font-weight: 500; padding: 3px 10px; border-radius: 6px; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; }
 .type-badge.content { background: hsl(260 60% 55% / 0.1); color: hsl(260 60% 55%); }
 .type-badge.desc { background: hsl(38 90% 50% / 0.1); color: hsl(38 90% 50%); }
 .type-badge.translating { background: hsl(210 80% 50% / 0.1); color: hsl(210 80% 50%); }
 .record-row.in-progress { background: hsl(210 80% 50% / 0.03); }
+.record-row.translating { background: hsl(210 80% 50% / 0.06); }
+.record-row.pending { background: hsl(38 90% 50% / 0.05); }
 
 .col-preview { overflow: hidden; }
 .preview-text { font-size: 12px; color: hsl(var(--muted-foreground)); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.translating-preview { display: inline-flex; align-items: center; gap: 4px; color: hsl(210 80% 50%); }
+.translating-preview { display: inline-flex; align-items: center; gap: 5px; color: hsl(210 80% 50%); }
+.pending-preview { display: inline-flex; align-items: center; gap: 5px; color: hsl(38 90% 50%); }
 
 .col-check { width: 36px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .checkbox-wrap { display: inline-flex; align-items: center; cursor: pointer; }
@@ -909,18 +1217,18 @@ watch(activeTab, () => {
 .checkbox-wrap:hover .checkbox-custom { border-color: hsl(var(--primary) / 0.5); }
 
 .batch-toolbar {
-  display: flex; align-items: center; gap: 12px;
+  display: flex; align-items: center; gap: 14px;
 }
 .batch-count { font-size: 13px; font-weight: 500; color: hsl(var(--primary)); }
 .batch-delete-btn {
-  padding: 5px 12px; font-size: 12px; font-weight: 500; border: none; border-radius: 6px;
+  padding: 6px 14px; font-size: 12px; font-weight: 500; border: none; border-radius: 7px;
   background: hsl(var(--destructive)); color: hsl(var(--destructive-foreground)); cursor: pointer;
   transition: opacity var(--duration-base) var(--ease-standard);
 }
 .batch-delete-btn:hover { opacity: 0.9; }
 .batch-cancel-btn {
-  padding: 5px 12px; font-size: 12px; font-weight: 500; border: 1px solid hsl(var(--border));
-  border-radius: 6px; background: transparent; color: hsl(var(--muted-foreground)); cursor: pointer;
+  padding: 6px 14px; font-size: 12px; font-weight: 500; border: 1px solid hsl(var(--border));
+  border-radius: 7px; background: transparent; color: hsl(var(--muted-foreground)); cursor: pointer;
   transition: all var(--duration-base) var(--ease-standard);
 }
 .batch-cancel-btn:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
@@ -930,46 +1238,46 @@ watch(activeTab, () => {
 .spin { animation: spin 0.7s linear infinite; }
 
 .queue-list { background: hsl(var(--card)); border: 1px solid hsl(var(--border)); border-radius: 12px; overflow: hidden; }
-.queue-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid hsl(var(--border)); background: hsl(var(--muted) / 0.3); }
+.queue-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 18px; border-bottom: 1px solid hsl(var(--border)); background: hsl(var(--muted) / 0.3); }
 .queue-title { font-size: 13px; font-weight: 600; color: hsl(var(--foreground)); }
-.queue-clear-btn { font-size: 12px; padding: 4px 10px; border: 1px solid hsl(var(--border)); border-radius: 6px; background: transparent; color: hsl(var(--muted-foreground)); cursor: pointer; transition: all var(--duration-base) var(--ease-standard); }
+.queue-clear-btn { font-size: 12px; padding: 5px 12px; border: 1px solid hsl(var(--border)); border-radius: 6px; background: transparent; color: hsl(var(--muted-foreground)); cursor: pointer; transition: all var(--duration-base) var(--ease-standard); }
 .queue-clear-btn:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
 
-.clear-bar { display: flex; justify-content: flex-end; padding: 10px 0 0; }
-.clear-btn { font-size: 12px; padding: 5px 12px; border: 1px solid hsl(var(--border)); border-radius: 6px; background: transparent; color: hsl(var(--muted-foreground)); cursor: pointer; transition: all var(--duration-base) var(--ease-standard); }
+.clear-bar { display: flex; justify-content: flex-end; padding: 12px 0 0; }
+.clear-btn { font-size: 12px; padding: 6px 14px; border: 1px solid hsl(var(--border)); border-radius: 7px; background: transparent; color: hsl(var(--muted-foreground)); cursor: pointer; transition: all var(--duration-base) var(--ease-standard); }
 .clear-btn:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
 
-.queue-item { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid hsl(var(--border)); transition: background var(--duration-base) var(--ease-standard); }
+.queue-item { display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-bottom: 1px solid hsl(var(--border)); transition: background var(--duration-base) var(--ease-standard); }
 .queue-item:last-child { border-bottom: none; }
-.queue-item:hover { background: hsl(var(--accent) / 0.5); }
+.queue-item:hover { background: hsl(var(--accent) / 0.4); }
 .queue-item-icon { flex-shrink: 0; }
-.queue-item-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.queue-item-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .queue-item-name { font-size: 13px; font-weight: 500; color: hsl(var(--foreground)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .queue-item-meta { font-size: 11px; color: hsl(var(--muted-foreground)); }
 .queue-item.success .queue-item-name { color: hsl(142 50% 40%); }
 .queue-item.error .queue-item-name { color: hsl(var(--destructive)); }
-.queue-item-error { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; font-size: 11px; font-weight: 700; border-radius: 50%; background: hsl(var(--destructive)); color: hsl(var(--destructive-foreground)); flex-shrink: 0; }
+.queue-item-error { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; font-size: 11px; font-weight: 700; border-radius: 50%; background: hsl(var(--destructive)); color: hsl(var(--destructive-foreground)); flex-shrink: 0; }
 
 .page-footer {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 10px 28px; border-top: 1px solid hsl(var(--border));
+  padding: 12px 32px; border-top: 1px solid hsl(var(--border));
   background: hsl(var(--card)); flex-shrink: 0;
 }
 
-.footer-left { display: flex; align-items: center; gap: 8px; }
+.footer-left { display: flex; align-items: center; gap: 10px; }
 .footer-total { font-size: 13px; color: hsl(var(--muted-foreground)); }
-.footer-right { display: flex; align-items: center; gap: 8px; }
+.footer-right { display: flex; align-items: center; gap: 10px; }
 .footer-label { font-size: 13px; color: hsl(var(--muted-foreground)); }
 
 .footer-pagination {
-  display: flex; align-items: center; gap: 4px; margin-left: 8px; padding-left: 12px;
+  display: flex; align-items: center; gap: 6px; margin-left: 10px; padding-left: 14px;
   border-left: 1px solid hsl(var(--border));
 }
 
 .page-btn {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 28px; height: 28px; border: 1px solid hsl(var(--border));
-  border-radius: 6px; background: hsl(var(--card)); color: hsl(var(--foreground));
+  width: 30px; height: 30px; border: 1px solid hsl(var(--border));
+  border-radius: 8px; background: hsl(var(--card)); color: hsl(var(--foreground));
   cursor: pointer; transition: all var(--duration-base) var(--ease-standard);
 }
 .page-btn:hover:not(:disabled) { background: hsl(var(--accent)); border-color: hsl(var(--primary) / 0.3); }
@@ -983,24 +1291,24 @@ watch(activeTab, () => {
 
 .page-size-btn {
   display: inline-flex; align-items: center; gap: 4px;
-  padding: 4px 8px; font-size: 13px; border: 1px solid hsl(var(--border));
-  border-radius: 6px; background: hsl(var(--card)); color: hsl(var(--foreground));
+  padding: 5px 10px; font-size: 13px; border: 1px solid hsl(var(--border));
+  border-radius: 8px; background: hsl(var(--card)); color: hsl(var(--foreground));
   cursor: pointer; outline: none; transition: border-color var(--duration-base) var(--ease-standard);
-  width: 50px; justify-content: center;
+  width: 52px; justify-content: center;
 }
 .page-size-btn:hover { border-color: hsl(var(--primary) / 0.5); }
 
 .page-size-dropdown {
   position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
-  margin-bottom: 4px; min-width: 80px;
+  margin-bottom: 6px; min-width: 84px;
   background: hsl(var(--app-settings-card-bg)); border: 1px solid hsl(var(--app-settings-card-border));
-  border-radius: 8px; box-shadow: var(--app-settings-card-shadow); z-index: 100;
+  border-radius: 10px; box-shadow: var(--app-settings-card-shadow); z-index: 100;
   padding: 4px; overflow: hidden;
 }
 
 .page-size-option {
-  display: block; width: 100%; padding: 6px 12px; font-size: 13px;
-  border: none; border-radius: 4px; background: transparent;
+  display: block; width: 100%; padding: 7px 14px; font-size: 13px;
+  border: none; border-radius: 6px; background: transparent;
   color: hsl(var(--foreground)); cursor: pointer; text-align: left;
   transition: background var(--duration-base) var(--ease-standard);
 }
@@ -1008,33 +1316,130 @@ watch(activeTab, () => {
 .page-size-option.active { background: hsl(var(--primary) / 0.1); color: hsl(var(--primary)); font-weight: 600; }
 
 .stuck-bar {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 16px; margin-top: 16px;
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 18px; margin-top: 16px;
   background: hsl(38 90% 50% / 0.08); border: 1px solid hsl(38 90% 50% / 0.2);
-  border-radius: 10px; font-size: 13px;
+  border-radius: 12px; font-size: 13px;
 }
 .stuck-bar-text { flex: 1; color: hsl(38 90% 40%); font-weight: 500; }
 .resume-all-btn {
-  padding: 5px 12px; font-size: 12px; font-weight: 600;
-  border: none; border-radius: 6px;
+  padding: 6px 14px; font-size: 12px; font-weight: 600;
+  border: none; border-radius: 7px;
   background: hsl(var(--primary)); color: hsl(var(--primary-foreground));
   cursor: pointer; transition: opacity var(--duration-base) var(--ease-standard);
 }
 .resume-all-btn:hover { opacity: 0.9; }
 .clear-all-stuck-btn {
-  padding: 5px 12px; font-size: 12px; font-weight: 500;
-  border: 1px solid hsl(var(--border)); border-radius: 6px;
+  padding: 6px 14px; font-size: 12px; font-weight: 500;
+  border: 1px solid hsl(var(--border)); border-radius: 7px;
   background: transparent; color: hsl(var(--muted-foreground));
   cursor: pointer; transition: all var(--duration-base) var(--ease-standard);
 }
 .clear-all-stuck-btn:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
 
 .stuck-resume-btn, .stuck-clear-btn {
-  width: 28px; height: 28px; border: none; background: transparent;
-  color: hsl(var(--muted-foreground)); cursor: pointer; border-radius: 6px;
+  width: 30px; height: 30px; border: none; background: transparent;
+  color: hsl(var(--muted-foreground)); cursor: pointer; border-radius: 8px;
   display: inline-flex; align-items: center; justify-content: center;
   transition: all var(--duration-base) var(--ease-standard);
 }
 .stuck-resume-btn:hover { background: hsl(var(--primary) / 0.1); color: hsl(var(--primary)); }
 .stuck-clear-btn:hover { background: hsl(var(--destructive) / 0.1); color: hsl(var(--destructive)); }
+
+.failure-filters {
+  display: flex; align-items: center; gap: 6px; padding: 12px 0 0;
+}
+.filter-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 7px 12px; font-size: 13px; font-weight: 500;
+  border: 1px solid transparent; border-radius: 8px; background: transparent;
+  color: hsl(var(--muted-foreground)); cursor: pointer;
+  transition: all var(--duration-base) var(--ease-standard); white-space: nowrap;
+}
+.filter-btn:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); border-color: hsl(var(--border)); }
+.filter-btn.active { background: hsl(var(--primary) / 0.1); color: hsl(var(--primary)); font-weight: 600; border-color: hsl(var(--primary) / 0.2); }
+
+.failures-table .record-row {
+  grid-template-columns: 36px 100px 2fr 2fr 1.2fr 40px;
+}
+
+.failure-type-badge {
+  font-size: 11px; font-weight: 500; padding: 3px 10px; border-radius: 6px;
+  white-space: nowrap; display: inline-flex; align-items: center; gap: 4px;
+}
+.failure-type-badge.translation { background: hsl(260 60% 55% / 0.1); color: hsl(260 60% 55%); }
+.failure-type-badge.download { background: hsl(210 80% 50% / 0.1); color: hsl(210 80% 50%); }
+.failure-type-badge.distribution { background: hsl(142 60% 44% / 0.1); color: hsl(142 60% 44%); }
+
+.col-error { overflow: hidden; }
+.error-text { font-size: 12px; color: hsl(var(--destructive)); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.error-category-badge { font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 5px; display: inline-block; margin-bottom: 3px; background: hsl(var(--muted)); }
+
+.tab-count.error { background: hsl(var(--destructive) / 0.15); color: hsl(var(--destructive)); }
+
+.clickable { cursor: pointer; }
+.clickable:hover { background: hsl(var(--accent) / 0.6); }
+
+.failure-detail-modal {
+  width: 580px; max-width: 95vw; max-height: 80vh;
+  background: hsl(var(--card)); border: 1px solid hsl(var(--border));
+  border-radius: 14px; box-shadow: var(--shadow-lg); overflow: hidden;
+  display: flex; flex-direction: column;
+}
+
+.failure-detail-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 22px; border-bottom: 1px solid hsl(var(--border));
+}
+
+.failure-detail-title { margin: 0; font-size: 16px; font-weight: 600; color: hsl(var(--foreground)); }
+
+.panel-close {
+  width: 30px; height: 30px; border-radius: 8px; border: none;
+  background: transparent; color: hsl(var(--muted-foreground));
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: all var(--duration-base) var(--ease-standard);
+}
+.panel-close:hover { background: hsl(var(--muted)); color: hsl(var(--foreground)); }
+
+.failure-detail-content {
+  flex: 1; overflow-y: auto; padding: 18px 22px;
+}
+
+.detail-section {
+  margin-bottom: 18px; padding-bottom: 18px;
+  border-bottom: 1px solid hsl(var(--border));
+}
+.detail-section:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+
+.section-title {
+  font-size: 12px; font-weight: 600; color: hsl(var(--muted-foreground));
+  margin: 0 0 12px; text-transform: uppercase; letter-spacing: 0.5px;
+}
+
+.detail-row {
+  display: flex; align-items: flex-start; gap: 14px;
+  margin-bottom: 10px;
+}
+.detail-row:last-child { margin-bottom: 0; }
+
+.detail-label {
+  font-size: 12px; font-weight: 500; color: hsl(var(--muted-foreground));
+  min-width: 84px; flex-shrink: 0; padding-top: 2px;
+}
+
+.detail-value {
+  font-size: 13px; color: hsl(var(--foreground)); word-break: break-word;
+}
+.detail-value.mono { font-family: monospace; font-size: 12px; }
+.detail-value.small { font-size: 11px; }
+.detail-value.error-message { color: hsl(var(--destructive)); font-weight: 500; }
+
+.raw-response {
+  font-family: monospace; font-size: 11px; line-height: 1.6;
+  background: hsl(var(--muted)); border: 1px solid hsl(var(--border));
+  border-radius: 8px; padding: 12px 14px; margin: 0;
+  overflow-x: auto; white-space: pre-wrap; word-break: break-all;
+  max-height: 160px; overflow-y: auto;
+}
 </style>

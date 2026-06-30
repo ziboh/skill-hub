@@ -11,6 +11,7 @@ export interface Skill {
   tags: string[]
   format: SkillFormat
   source: SkillSource
+  contentHash?: string
   sourceUrl?: string
   repo?: string
   path?: string
@@ -126,6 +127,7 @@ export interface AppSettings {
   aiModels: ModelConfig[]
   translationModelId: string
   autoTranslate: boolean
+  translationTimeout: number
 }
 
 export interface SkillManifest {
@@ -277,4 +279,26 @@ export interface SkillScanResult {
     format: string
     language: string
   }
+}
+
+export type FailureType = 'translation' | 'download' | 'distribution'
+
+export type ErrorCategory = 'network' | 'auth' | 'api' | 'response' | 'config' | 'unknown'
+
+export interface FailureRecord {
+  id: string
+  type: FailureType
+  skillId: string
+  skillName: string
+  error: string
+  details?: string
+  timestamp: number
+  metadata?: Record<string, any>
+  errorCategory?: ErrorCategory
+  model?: string
+  provider?: string
+  endpoint?: string
+  statusCode?: number
+  requestId?: string
+  duration?: number
 }

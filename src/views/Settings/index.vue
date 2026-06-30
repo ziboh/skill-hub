@@ -13,6 +13,7 @@ import PlatformIcon from '../../components/PlatformIcon.vue'
 import ProviderIcon from '../../components/ProviderIcon.vue'
 import ConfirmModal from '../../components/ConfirmModal.vue'
 import CleanupSelectModal from '../../components/CleanupSelectModal.vue'
+import QuickSwitcher, { type QuickSwitcherItem } from '../../components/QuickSwitcher.vue'
 import { loadRegistry } from '../../utils/skill-registry'
 
 const props = defineProps<{ anchor?: string }>()
@@ -114,8 +115,8 @@ function startSidebarResize(e: MouseEvent | TouchEvent) {
 const sections = [
   { id: 'general', label: '通用设置', icon: '⚙' },
   { id: 'appearance', label: '显示设置', icon: '🎨' },
-  { id: 'ai', label: '模型服务', icon: '🧠' },
-  { id: 'default-model', label: '默认模型', icon: '🎯' },
+  { id: 'ai', label: '模型设置', icon: '🧠' },
+  { id: 'default-model', label: '翻译设置', icon: '🌐' },
   { id: 'agent', label: 'Agent 配置', icon: '🤖' },
 ]
 
@@ -723,7 +724,8 @@ function deleteModel(index: number) {
   if (models.length && !models.some((m) => m.isDefault)) {
     models[0].isDefault = true
   }
-  if (settings.translationModelId === settings.aiModels[index]?.id) {
+  const deletedProviderId = settings.aiModels[index]?.id
+  if (settings.translationModelId === deletedProviderId || settings.translationModelId.startsWith(deletedProviderId + '::')) {
     updateSettings({ aiModels: models, translationModelId: models.find((m) => m.isDefault)?.id || '' })
   } else {
     updateSettings({ aiModels: models })
@@ -735,7 +737,8 @@ function deleteModelFromProvider(providerIndex: number, modelId: string) {
   const provider = { ...models[providerIndex] }
   provider.models = (provider.models || []).filter((m) => m.id !== modelId)
   models[providerIndex] = provider
-  if (settings.translationModelId === modelId) {
+  const compoundKey = provider.id + '::' + modelId
+  if (settings.translationModelId === modelId || settings.translationModelId === compoundKey) {
     updateSettings({ aiModels: models, translationModelId: '' })
   } else {
     updateSettings({ aiModels: models })
@@ -754,7 +757,7 @@ function toggleGroupModels(providerIndex: number, groupName: string) {
   )
   models[providerIndex] = m
   const patch: Partial<AppSettings> = { aiModels: models }
-  if (!newEnabled && settings.translationModelId && groupModels.some(mm => mm.id === settings.translationModelId)) {
+  if (!newEnabled && settings.translationModelId && groupModels.some(mm => settings.translationModelId === mm.id || settings.translationModelId === m.id + '::' + mm.id)) {
     patch.translationModelId = ''
   }
   updateSettings(patch)
@@ -764,10 +767,11 @@ function deleteGroupModels(providerIndex: number, groupName: string) {
   const models = [...settings.aiModels]
   const m = { ...models[providerIndex] }
   const deletedIds = new Set((m.models || []).filter(mm => (mm.owned_by || '其他') === groupName).map(mm => mm.id))
+  const deletedCompoundKeys = new Set((m.models || []).filter(mm => (mm.owned_by || '其他') === groupName).map(mm => m.id + '::' + mm.id))
   m.models = (m.models || []).filter(mm => (mm.owned_by || '其他') !== groupName)
   models[providerIndex] = m
   const patch: Partial<AppSettings> = { aiModels: models }
-  if (settings.translationModelId && deletedIds.has(settings.translationModelId)) {
+  if (settings.translationModelId && (deletedIds.has(settings.translationModelId) || deletedCompoundKeys.has(settings.translationModelId))) {
     patch.translationModelId = ''
   }
   updateSettings(patch)
@@ -784,7 +788,7 @@ function deleteProvider(id: string) {
   if (models.length && !models.some((m) => m.isDefault)) {
     models[0].isDefault = true
   }
-  if (settings.translationModelId === id) {
+  if (settings.translationModelId === id || settings.translationModelId.startsWith(id + '::')) {
     updateSettings({ aiModels: models, translationModelId: models.find((m) => m.isDefault)?.id || '' })
   } else {
     updateSettings({ aiModels: models })
@@ -819,9 +823,17 @@ function doDeleteModel() {
   const modelId = confirmDeleteModel.value
   confirmDeleteModel.value = null
   if (!modelId) return
-  settings.aiModels.forEach((m, i) => {
-    if (m.models?.some((mm: any) => mm.id === modelId)) deleteModelFromProvider(i, modelId)
-  })
+  const sepIdx = modelId.lastIndexOf('::')
+  if (sepIdx >= 0) {
+    const providerId = modelId.substring(0, sepIdx)
+    const innerModelId = modelId.substring(sepIdx + 2)
+    const idx = settings.aiModels.findIndex(m => m.id === providerId)
+    if (idx >= 0) deleteModelFromProvider(idx, innerModelId)
+  } else {
+    settings.aiModels.forEach((m, i) => {
+      if (m.models?.some((mm: any) => mm.id === modelId)) deleteModelFromProvider(i, modelId)
+    })
+  }
 }
 
 function setDefaultModel(index: number) {
@@ -837,18 +849,21 @@ function getTranslationModelName(): string {
   if (!settings.translationModelId) {
     return '未配置'
   }
-  
-  // 先按供应商 ID 查找
+  const sepIdx = settings.translationModelId.lastIndexOf('::')
+  if (sepIdx >= 0) {
+    const providerId = settings.translationModelId.substring(0, sepIdx)
+    const modelId = settings.translationModelId.substring(sepIdx + 2)
+    const provider = settings.aiModels.find(m => m.id === providerId)
+    if (provider) {
+      const model = provider.models?.find(m => m.id === modelId)
+      if (model) return `${model.name || model.id} (${provider.name || getProviderInfo(provider.provider)?.name})`
+    }
+    return '未找到'
+  }
+  // 兼容旧格式：按供应商 ID 查找
   const byProvider = settings.aiModels.find(m => m.id === settings.translationModelId)
   if (byProvider) {
     return `${byProvider.name || getProviderInfo(byProvider.provider)?.name} (供应商)`
-  }
-  // 遍历所有供应商的模型列表查找
-  for (const provider of settings.aiModels) {
-    const model = provider.models?.find(m => m.id === settings.translationModelId)
-    if (model) {
-      return `${model.name || model.id} (${provider.name || getProviderInfo(provider.provider)?.name})`
-    }
   }
   return '未找到'
 }
@@ -1012,7 +1027,8 @@ function toggleModelEnabled(modelIndex: number, modelId: string) {
     m.models = modelList
     models[modelIndex] = m
     const patch: Partial<AppSettings> = { aiModels: models }
-    if (!modelList[idx].enabled && settings.translationModelId === modelId) {
+    const compoundKey = m.id + '::' + modelId
+    if (!modelList[idx].enabled && (settings.translationModelId === modelId || settings.translationModelId === compoundKey)) {
       patch.translationModelId = ''
     }
     updateSettings(patch)
@@ -1040,18 +1056,37 @@ function toggleExpandedSection(modelId: string, section: 'apiInfo' | 'models') {
   }
 }
 
-const enabledProviders = computed(() => settings.aiModels.filter(m => m.enabled && m.apiKeys?.some(k => k.enabled) && m.models?.length))
+const enabledProviders = computed(() => settings.aiModels.filter(m => m.enabled && m.apiKeys?.some(k => k.enabled) && m.models?.length).sort((a, b) => (a.isBuiltin === b.isBuiltin ? 0 : a.isBuiltin ? 1 : -1)))
 const allEnabledProviders = computed(() => settings.aiModels.filter(m => m.enabled && m.models?.length))
 const hasValidTranslationModel = computed(() => {
   if (!settings.translationModelId) return false
-  for (const provider of settings.aiModels) {
-    if (provider.id === settings.translationModelId && provider.enabled) return true
-    if (provider.models?.some(m => m.id === settings.translationModelId && m.enabled && provider.enabled)) return true
+  const sepIdx = settings.translationModelId.lastIndexOf('::')
+  if (sepIdx >= 0) {
+    const providerId = settings.translationModelId.substring(0, sepIdx)
+    const modelId = settings.translationModelId.substring(sepIdx + 2)
+    const provider = settings.aiModels.find(m => m.id === providerId && m.enabled)
+    if (!provider) return false
+    return provider.models?.some(m => m.id === modelId && m.enabled) ?? false
   }
-  return false
+  const provider = settings.aiModels.find(m => m.id === settings.translationModelId && m.enabled)
+  return !!provider
 })
-const pendingProviders = computed(() => settings.aiModels.filter(m => m.enabled && (!m.apiKeys?.some(k => k.enabled) || !m.models?.length)))
-const disabledProviders = computed(() => settings.aiModels.filter(m => !m.enabled))
+
+const translationModelItems = computed<QuickSwitcherItem[]>(() => {
+  const items: QuickSwitcherItem[] = []
+  for (const provider of allEnabledProviders.value) {
+    for (const model of (provider.models || []).filter(m => m.enabled)) {
+      items.push({
+        id: `${provider.id}::${model.id}`,
+        label: model.name || model.id,
+        subtitle: provider.name || getProviderInfo(provider.provider)?.name || '',
+      })
+    }
+  }
+  return items
+})
+const pendingProviders = computed(() => settings.aiModels.filter(m => m.enabled && (!m.apiKeys?.some(k => k.enabled) || !m.models?.length)).sort((a, b) => (a.isBuiltin === b.isBuiltin ? 0 : a.isBuiltin ? 1 : -1)))
+const disabledProviders = computed(() => settings.aiModels.filter(m => !m.enabled).sort((a, b) => (a.isBuiltin === b.isBuiltin ? 0 : a.isBuiltin ? 1 : -1)))
 
 function getModelIndex(id: string): number {
   return settings.aiModels.findIndex(m => m.id === id)
@@ -2128,22 +2163,12 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                 </div>
               </div>
                 <div class="default-model-select">
-                  <div class="select-wrapper">
-                    <select 
-                      :value="hasValidTranslationModel ? settings.translationModelId : ''" 
-                      @change="setTranslationModel(($event.target as HTMLSelectElement).value)"
-                      class="form-select"
-                    >
-                      <template v-for="provider in allEnabledProviders" :key="provider.id">
-                        <optgroup v-if="provider.models?.filter(m => m.enabled).length" :label="provider.name || getProviderInfo(provider.provider)?.name">
-                          <option v-for="model in provider.models?.filter(m => m.enabled)" :key="model.id" :value="model.id">
-                            {{ model.name || model.id }}
-                          </option>
-                        </optgroup>
-                      </template>
-                    </select>
-                    <span v-if="!hasValidTranslationModel" class="select-placeholder">请选择模型</span>
-                  </div>
+                  <QuickSwitcher
+                    :items="translationModelItems"
+                    :selectedId="hasValidTranslationModel ? settings.translationModelId : null"
+                    placeholder="选择翻译模型"
+                    @select="setTranslationModel($event)"
+                  />
               </div>
             </div>
 
@@ -2160,6 +2185,27 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                 >
                   <span class="toggle-thumb"></span>
                 </button>
+              </div>
+            </div>
+
+            <div class="setting-card" style="margin-top: 16px;">
+              <div class="setting-row">
+                <div class="setting-row-info">
+                  <div class="setting-row-label">翻译超时</div>
+                  <div class="setting-row-desc">单次翻译请求的最大等待时间（秒），超过将视为失败</div>
+                </div>
+                <div class="setting-row-control">
+                  <input
+                    type="number"
+                    class="number-input"
+                    :value="settings.translationTimeout"
+                    min="10"
+                    max="300"
+                    step="10"
+                    @change="updateSettings({ translationTimeout: Math.max(10, Math.min(300, parseInt(($event.target as HTMLInputElement).value) || 60)) })"
+                  />
+                  <span class="input-suffix">秒</span>
+                </div>
               </div>
             </div>
           </div>
@@ -2801,6 +2847,29 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
 
 .token-toggle:hover {
   background: hsl(var(--accent));
+}
+
+.number-input {
+  width: 72px;
+  padding: 8px 12px;
+  font-size: 13px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+  outline: none;
+  text-align: center;
+}
+
+.number-input:focus {
+  border-color: hsl(var(--ring));
+  box-shadow: 0 0 0 3px hsl(var(--ring) / 0.12);
+}
+
+.input-suffix {
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+  margin-left: 6px;
 }
 
 .token-link {
@@ -4628,45 +4697,6 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
 /* Default Translation Model */
 .default-model-select {
   margin-top: 12px;
-}
-
-.default-model-select .form-select {
-  width: 100%;
-  padding: 10px 12px;
-  font-size: 13px;
-  border: 1px solid hsl(var(--border));
-  border-radius: 8px;
-  background: hsl(var(--card));
-  color: hsl(var(--foreground));
-  outline: none;
-  transition: all var(--duration-base) var(--ease-standard);
-  cursor: pointer;
-}
-
-.default-model-select .form-select:focus {
-  border-color: hsl(var(--ring));
-  box-shadow: 0 0 0 3px hsl(var(--ring) / 0.12);
-}
-
-.select-wrapper {
-  position: relative;
-}
-
-.select-placeholder {
-  position: absolute;
-  left: 1px;
-  top: 1px;
-  right: 1px;
-  bottom: 1px;
-  display: flex;
-  align-items: center;
-  padding: 0 12px;
-  font-size: 13px;
-  color: hsl(var(--muted-foreground));
-  pointer-events: none;
-  background: hsl(var(--card));
-  border-radius: 7px;
-  z-index: 1;
 }
 
 .current-model-info {

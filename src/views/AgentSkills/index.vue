@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, inject, unref } from 'vue'
-import { KeyShowToast, KeyDetectedPlatforms, KeyPlatformSkillCounts, KeyRefreshCounts } from '../../inject-keys'
+import { KeyShowToast, KeyDetectedPlatforms, KeyPlatformSkillCounts, KeyRefreshCounts, KeyAgentSkills, KeyUpdateAgentPlatformSkills } from '../../inject-keys'
 import { detectPlatforms, getPlatformPath, defaultPlatforms } from '../../data/platforms'
 import { storage } from '../../utils/storage'
 import { useSettings } from '../../composables/useSettings'
@@ -17,10 +17,14 @@ const showToast = inject(KeyShowToast, () => {})
 const allPlatforms = inject(KeyDetectedPlatforms, ref([]) as any)
 const platformSkillCounts = inject(KeyPlatformSkillCounts, ref({}) as any)
 const refreshCounts = inject(KeyRefreshCounts, () => {})
+const injectAgentSkills = inject(KeyAgentSkills)!
+
+if (!injectAgentSkills) throw new Error('KeyAgentSkills not provided')
+const updateAgentPlatformSkills = inject(KeyUpdateAgentPlatformSkills, () => {})
 
 const detectedPlatforms = ref<PlatformInfo[]>([])
 const selectedId = ref(props.initialPlatformId || '')
-const platformSkills = ref<Record<string, SkillScanResult[]>>({})
+const platformSkills = computed(() => injectAgentSkills.value)
 const loading = ref(false)
 const skillFilter = ref<string>('')
 const viewMode = ref<'grid' | 'list'>('grid')
@@ -110,14 +114,6 @@ onMounted(() => {
   const orderToUse = platformOrder.length ? platformOrder : defaultPlatforms.map(p => p.id)
   const orderMap = new Map(orderToUse.map((id, idx) => [id, idx]))
   installedPlatforms.sort((a, b) => (orderMap.get(a.id) ?? Infinity) - (orderMap.get(b.id) ?? Infinity))
-  for (const p of installedPlatforms) {
-    const dir = getPlatformPath(p, 'global') || getPlatformPath(p, 'project')
-    if (dir) {
-      try {
-        platformSkills.value[p.id] = window.services.scanForSkillFiles([dir])
-      } catch { platformSkills.value[p.id] = [] }
-    }
-  }
   detectedPlatforms.value = installedPlatforms
   const savedState = storage.getPageState('agent-skills')
   if (savedState?.platformId && detectedPlatforms.value.some((p) => p.id === savedState.platformId)) selectedId.value = savedState.platformId
@@ -135,8 +131,11 @@ function refreshCurrent() {
       const dir = getPlatformPath(p, 'global') || getPlatformPath(p, 'project')
       if (dir) {
         try {
-          platformSkills.value[p.id] = window.services.scanForSkillFiles([dir])
-        } catch { platformSkills.value[p.id] = [] }
+          const skills = window.services.scanForSkillFiles([dir])
+          updateAgentPlatformSkills(p.id, skills)
+        } catch {
+          updateAgentPlatformSkills(p.id, [])
+        }
       }
     }
     loading.value = false
@@ -323,8 +322,10 @@ function refreshPlatformSkillsForImport() {
   const dir = getPlatformPath(selectedPlatform.value, 'global') || getPlatformPath(selectedPlatform.value, 'project')
   if (dir) {
     try {
-      platformSkills.value[selectedPlatform.value.id] = window.services.scanForSkillFiles([dir])
-    } catch {}
+      updateAgentPlatformSkills(selectedPlatform.value.id, window.services.scanForSkillFiles([dir]))
+    } catch {
+      updateAgentPlatformSkills(selectedPlatform.value.id, [])
+    }
   }
 }
 

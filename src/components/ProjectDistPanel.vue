@@ -306,6 +306,7 @@ async function install() {
         } catch (err: any) {
           failedMessages.push(`${project.name}/${agentPath}: ${err.message || '未知错误'} (源: ${sourceDir} → 目标: ${targetDir})`)
           addLog(`${project.name}/${agentPath}`, 'error', `${err.message}: ${sourceDir} → ${targetDir}`)
+          storage.addFailureRecord({ type: 'distribution', skillId: props.skill.id, skillName: props.skill.name, error: err.message || '未知错误', details: `分发到 ${project.name}/${agentPath} 失败` })
         }
       }
     }

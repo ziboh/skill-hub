@@ -41,6 +41,7 @@ interface SkillScanResult {
 }
 
 interface Services {
+  hashContent: (content: string) => string
   readFile: (file: string) => string | null
   expandPath: (p: string) => string
   homeDir: () => string

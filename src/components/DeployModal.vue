@@ -162,7 +162,9 @@ async function deploy() {
       })
       deployResults.value.push({ platform: platform.name, status: 'ok', msg: installMode.value === 'symlink' ? '已链接' : '已复制' })
     } catch (err) {
-      deployResults.value.push({ platform: platform.name, status: 'error', msg: err instanceof Error ? err.message : '未知错误' })
+      const msg = err instanceof Error ? err.message : '未知错误'
+      deployResults.value.push({ platform: platform.name, status: 'error', msg })
+      storage.addFailureRecord({ type: 'distribution', skillId: props.skill.id, skillName: props.skill.name, error: msg, details: `分发到 ${platform.name} 失败` })
     }
     done++
   }
