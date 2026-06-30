@@ -491,14 +491,11 @@ function getInstalledPlatforms(skillId: string) {
 
 function collectAllSkillDirs(root: string): string[] {
   const results: string[] = []
+  const rootSkill = ['SKILL.md', 'skill.md'].find((f) => window.services.pathExists(window.services.pathJoin(root, f)))
+  if (rootSkill) results.push(root)
   const items = window.services.readDir(root) || []
   for (const item of items) {
     if (!item.isDirectory) continue
-    const skillPath = window.services.pathJoin(item.path, 'SKILL.md')
-    const skillPathLower = window.services.pathJoin(item.path, 'skill.md')
-    if (window.services.pathExists(skillPath) || window.services.pathExists(skillPathLower)) {
-      results.push(item.path)
-    }
     results.push(...collectAllSkillDirs(item.path))
   }
   return results
@@ -580,6 +577,7 @@ async function downloadSkill(skill: Skill) {
     const rootDir = extractedItems.find((d: any) => d.isDirectory)
     const sourceRoot = rootDir ? rootDir.path : extractDir
     const pathCandidates = [
+      '.',
       skillPath,
       `skills/${skillPath}`,
       `agent-skills/${skillPath}`,

@@ -328,6 +328,7 @@ window.services = {
     const rootDir = extractedItems.find((d) => d.isDirectory)
     const sourceRoot = rootDir ? rootDir.path : extractDir
     const pathCandidates = [
+      '.',
       skillPath,
       `skills/${skillPath}`,
       `agent-skills/${skillPath}`,

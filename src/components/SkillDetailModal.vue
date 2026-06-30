@@ -120,6 +120,9 @@ function initChineseDetection() {
     showDescTranslation.value = true
   }
   isContentChinese.value = isChineseContent(skillContent.value)
+  if (isContentChinese.value) {
+    showTranslation.value = true
+  }
 }
 
 onMounted(() => { fetchContent(); loadFavorites(); restoreTranslatingState() })
@@ -346,14 +349,11 @@ function handleReTranslateDesc() {
 
 function collectAllSkillDirs(root: string): string[] {
   const results: string[] = []
+  const rootSkill = ['SKILL.md', 'skill.md'].find((f) => window.services.pathExists(window.services.pathJoin(root, f)))
+  if (rootSkill) results.push(root)
   const items = window.services.readDir(root) || []
   for (const item of items) {
     if (!item.isDirectory) continue
-    const skillPath = window.services.pathJoin(item.path, 'SKILL.md')
-    const skillPathLower = window.services.pathJoin(item.path, 'skill.md')
-    if (window.services.pathExists(skillPath) || window.services.pathExists(skillPathLower)) {
-      results.push(item.path)
-    }
     results.push(...collectAllSkillDirs(item.path))
   }
   return results
@@ -424,7 +424,7 @@ async function handleImport() {
     const extractedItems = window.services.readDir(extractDir)
     const rootDir = extractedItems.find((d: any) => d.isDirectory)
     const sourceRoot = rootDir ? rootDir.path : extractDir
-    const candidates = [props.skill.path, `skills/${props.skill.path}`, `agent-skills/${props.skill.path}`].filter(Boolean) as string[]
+    const candidates = ['.', props.skill.path, `skills/${props.skill.path}`, `agent-skills/${props.skill.path}`].filter(Boolean) as string[]
     let sourceDir: string | null = ''
     for (const p of candidates) {
       const candidate = window.services.pathJoin(sourceRoot, p)
@@ -549,7 +549,7 @@ async function handleImport() {
                   <span class="section-hint">预览</span>
                 </h3>
                 <div class="section-actions">
-                  <template v-if="isContentChinese && showTranslation">
+                  <template v-if="isContentChinese">
                     <span class="already-chinese-hint">此内容已是中文</span>
                   </template>
                   <template v-else>

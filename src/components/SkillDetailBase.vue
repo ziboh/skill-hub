@@ -163,6 +163,9 @@ function loadTranslationCache() {
     showTranslation.value = false
   }
   isContentChinese.value = isChineseContent(props.skillContent)
+  if (isContentChinese.value) {
+    showTranslation.value = true
+  }
   const dh = descHash.value
   const cachedDesc = dh ? storage.getDescTranslationByHash(dh) : null
   if (cachedDesc) {
@@ -578,7 +581,7 @@ function handleReTranslateDesc() {
                   <span class="section-hint">预览</span>
                 </h3>
                 <div class="section-actions">
-                  <template v-if="isContentChinese && showTranslation">
+                  <template v-if="isContentChinese">
                     <span class="already-chinese-hint">此内容已是中文</span>
                   </template>
                   <template v-else>
