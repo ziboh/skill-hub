@@ -171,6 +171,26 @@ window.services = {
     }
   },
 
+  // === 图标文件管理 ===
+  saveIconFile(sourceFilePath) {
+    const iconsDir = path.join(window.ztools.getPath('userData'), 'store-icons')
+    this.mkdir(iconsDir)
+    const ext = path.extname(sourceFilePath).toLowerCase() || '.png'
+    const fileName = `icon-${Date.now()}${ext}`
+    const dest = path.join(iconsDir, fileName)
+    this.copyFile(sourceFilePath, dest)
+    return dest
+  },
+  readFileAsDataUri(filePath) {
+    try {
+      const buffer = fs.readFileSync(expandPath(filePath))
+      const ext = path.extname(filePath).toLowerCase().slice(1)
+      const mimeMap = { svg: 'image/svg+xml', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', ico: 'image/x-icon' }
+      const mime = mimeMap[ext] || 'application/octet-stream'
+      return `data:${mime};base64,${buffer.toString('base64')}`
+    } catch { return null }
+  },
+
   // === Symlink 支持 ===
   createSymlink(target, linkPath) {
     const fullTarget = expandPath(target)

@@ -1,6 +1,6 @@
 import type { Skill } from '../types'
 import type { SkillIdentity, SkillSourceLocation } from '../types'
-import { STORE_ICONS, getStoreIconFromSource } from '../data/store-icons'
+import { STORE_ICONS, getStoreIconFromSource, isProviderIcon, isStoreIconKey } from '../data/store-icons'
 import { storage } from './storage'
 
 export interface SourceInfo {
@@ -15,7 +15,9 @@ export function isSvgIcon(val: string | undefined | null): boolean {
 }
 
 export function isImageUrl(val: string | undefined | null): boolean {
-  return !!val && !val.startsWith('<svg') && (val.startsWith('http') || val.includes('/'))
+  return !!val && !val.startsWith('<svg') && !val.startsWith('data:')
+    && !isProviderIcon(val) && !isStoreIconKey(val)
+    && (val.startsWith('http') || val.includes('/'))
 }
 
 export function getSourceInfo(skill: Skill, registry?: Map<string, SkillIdentity>): SourceInfo {

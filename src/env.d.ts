@@ -73,6 +73,9 @@ interface Services {
   updateSkillFromGitHub: (repo: string, skillPath: string, targetDir: string, token?: string, branch?: string) => Promise<boolean>
 
   getStateDir: () => string
+
+  saveIconFile: (sourceFilePath: string) => string
+  readFileAsDataUri: (filePath: string) => string | null
 }
 
 declare global {

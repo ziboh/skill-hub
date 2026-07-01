@@ -2,7 +2,8 @@
 import { ref, computed, watch } from 'vue'
 import { storage } from '../utils/storage'
 import type { StoreSource, StoreSourceType } from '../types'
-import { getDefaultStoreIcon, getStoreIconFromSource, ICON_GITHUB, ICON_MARKETPLACE, ICON_FOLDER, ICON_STORE } from '../data/store-icons'
+import { getDefaultStoreIcon, getStoreIconFromSource, getIconRenderType, ICON_GITHUB, ICON_MARKETPLACE, ICON_FOLDER, ICON_STORE } from '../data/store-icons'
+import StoreIconPicker from './StoreIconPicker.vue'
 
 const props = defineProps<{
   editSource?: StoreSource | null
@@ -54,7 +55,7 @@ function handleSave() {
     url: sourceUrl.value.trim(),
     branch: sourceType.value === 'git-repo' ? sourceBranch.value.trim() || undefined : undefined,
     directory: sourceType.value === 'git-repo' ? sourceDirectory.value.trim() || undefined : undefined,
-    icon: sourceIcon.value.trim() || undefined,
+    icon: sourceIcon.value || undefined,
     enabled: true,
   }
   if (editingId.value) {
@@ -106,16 +107,10 @@ function handleSave() {
           <input v-model="sourceBranch" type="text" placeholder="分支（可选）" class="form-input" />
           <input v-model="sourceDirectory" type="text" placeholder="目录（可选）" class="form-input" />
         </div>
-        <div class="form-row">
-          <input v-model="sourceIcon" type="text" placeholder="图标 URL（可选，默认根据类型自动选择）" class="form-input" />
-        </div>
+        <StoreIconPicker v-model="sourceIcon" :defaultIcon="getDefaultStoreIcon(sourceType)" />
         <div class="examples-box">
           <div class="examples-label">{{ examples[sourceType].label }}</div>
           <div v-for="(line, i) in examples[sourceType].lines" :key="i" class="examples-line">{{ line }}</div>
-          <div class="icon-preview">
-            <span class="icon-preview-label">默认图标：</span>
-            <span class="icon-preview-svg" v-html="getDefaultStoreIcon(sourceType)"></span>
-          </div>
         </div>
       </div>
 

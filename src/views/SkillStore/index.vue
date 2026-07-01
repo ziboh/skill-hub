@@ -10,12 +10,13 @@ import type { Skill, SkillFormat, StoreSource } from '../../types'
 import { SKILL_CATEGORIES, ALL_CATEGORIES, inferCategory, CATEGORY_ICONS } from '../../data/skill-categories'
 import type { SkillCategory } from '../../data/skill-categories'
 import { lookupBuiltinIcon, lookupBuiltinCategory } from '../../data/skill-icons'
-import { STORE_ICONS, getStoreIconFromSource } from '../../data/store-icons'
+import { STORE_ICONS, getStoreIconFromSource, getIconRenderType, isProviderIcon, isStoreIconKey, resolveStoreIcon } from '../../data/store-icons'
 import SkillDetailModal from '../../components/SkillDetailModal.vue'
 import SkillPickModal from '../../components/SkillPickModal.vue'
 import ConfirmModal from '../../components/ConfirmModal.vue'
 import QuickSwitcher from '../../components/QuickSwitcher.vue'
 import StoreConfigModal from '../../components/StoreConfigModal.vue'
+import ProviderIcon from '../../components/ProviderIcon.vue'
 import { getAvatarColor } from '../../utils/color'
 
 import { defaultPlatforms } from '../../data/platforms'
@@ -63,6 +64,17 @@ const storeSources = computed(() => {
     }))
   return [...builtin, ...custom]
 })
+
+const localIconCache = ref<Record<string, string>>({})
+
+function loadLocalIcons() {
+  for (const s of storeSources.value) {
+    if (s.icon && getIconRenderType(s.icon) === 'local-path' && window.services) {
+      const dataUri = window.services.readFileAsDataUri(s.icon)
+      if (dataUri) localIconCache.value[s.id] = dataUri
+    }
+  }
+}
 
 const PAGE_SIZE = 24
 const savedState = storage.getPageState('skill-store')
@@ -121,6 +133,7 @@ watch(() => props.storeId, (id) => {
 })
 
 watch(storeSources, (list) => {
+  loadLocalIcons()
   if (list.length && !list.some(s => s.id === activePresetId.value)) {
     const fallback = list[0].id
     activePresetId.value = fallback
@@ -131,7 +144,7 @@ watch(storeSources, (list) => {
 
 let scrollObserver: IntersectionObserver | null = null
 function onKeydown(e: KeyboardEvent) { if (e.key === 'Escape' && (searchActive.value || isLocalSearchActive.value)) { searchQuery.value = ''; exitSearch() } }
-onMounted(() => { downloadedIds.value = storage.getDownloadedIds(); fetchCurrentSkills(); setupScrollObserver(); window.addEventListener('keydown', onKeydown) })
+onMounted(() => { downloadedIds.value = storage.getDownloadedIds(); fetchCurrentSkills(); setupScrollObserver(); loadLocalIcons(); window.addEventListener('keydown', onKeydown) })
 onUnmounted(() => { scrollObserver?.disconnect(); stopLoadingDots(); window.removeEventListener('keydown', onKeydown) })
 
 function setupScrollObserver() {
@@ -734,7 +747,14 @@ function isSvgIcon(icon: string): boolean {
 }
 
 function getSourceIcon(id: string): string | undefined {
-  return storeSources.value.find(s => s.id === id)?.icon
+  const icon = storeSources.value.find(s => s.id === id)?.icon
+  if (!icon) return undefined
+  if (isStoreIconKey(icon)) return resolveStoreIcon(icon)
+  const renderType = getIconRenderType(icon)
+  if (renderType === 'local-path') {
+    return localIconCache.value[id] || icon
+  }
+  return icon
 }
 
 function onDeleteStore(id: string) {
@@ -854,13 +874,15 @@ function confirmDeleteStore() {
       >
         <template #trigger-prefix="{ item }">
           <span class="qs-trigger-icon" v-if="item">
-            <img v-if="getSourceIcon(item.id) && !isSvgIcon(getSourceIcon(item.id)!)" :src="getSourceIcon(item.id)!" :alt="item.label" width="16" height="16" />
+            <ProviderIcon v-if="getSourceIcon(item.id) && isProviderIcon(getSourceIcon(item.id)!)" :icon="getSourceIcon(item.id)!" :size="16" />
+            <img v-else-if="getSourceIcon(item.id) && !isSvgIcon(getSourceIcon(item.id)!)" :src="getSourceIcon(item.id)!" :alt="item.label" width="16" height="16" />
             <span v-else v-html="getSourceIcon(item.id)"></span>
           </span>
         </template>
         <template #item-prefix="{ item }">
           <span class="qs-item-icon">
-            <img v-if="getSourceIcon(item.id) && !isSvgIcon(getSourceIcon(item.id)!)" :src="getSourceIcon(item.id)!" :alt="item.label" width="16" height="16" />
+            <ProviderIcon v-if="getSourceIcon(item.id) && isProviderIcon(getSourceIcon(item.id)!)" :icon="getSourceIcon(item.id)!" :size="16" />
+            <img v-else-if="getSourceIcon(item.id) && !isSvgIcon(getSourceIcon(item.id)!)" :src="getSourceIcon(item.id)!" :alt="item.label" width="16" height="16" />
             <span v-else v-html="getSourceIcon(item.id)"></span>
           </span>
         </template>

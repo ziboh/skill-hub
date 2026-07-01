@@ -25,12 +25,12 @@ export function getProviderInfo(id: string): AiProviderPreset | undefined {
 
 
 export const AVAILABLE_ICONS = [
-  '302ai', '3min-top', 'abacus', 'ai-only', 'ai-studio', 'ai21', 'aihubmix', 'aionlabs',
+  '302ai', '3min-top', 'ai-only', 'ai-studio', 'ai21', 'aihubmix',
   'alayanew', 'allenai', 'anthropic', 'application', 'arcee-ai', 'aws-bedrock', 'azureai',
   'baai', 'baichuan', 'baidu', 'baidu-cloud', 'bailian', 'bfl', 'bing', 'bocha',
   'bolt-new', 'burncloud', 'bytedance', 'cephalon', 'cerebras', 'cherryin', 'cloudflare',
   'inceptionlabs', 'infini', 'inflection', 'intel', 'internlm', 'jimeng', 'kling',
-  'deepseek', 'devv', 'dify', 'dmxapi', 'doc2x', 'dola', 'dolphin-ai', 'doubao', 'duck',
+  'deepseek', 'devv', 'dify', 'dmxapi', 'doc2x', 'dola', 'doubao', 'duck',
   'elevenlabs', 'essential-ai', 'exa', 'felo', 'fireworks', 'flowith', 'genspark',
   'gitee-ai', 'github', 'github-copilot', 'glama', 'google', 'gpustack', 'graph-rag',
   'grok', 'groq', 'higress', 'huggingface', 'hyperbolic', 'ideogram', 'ima',
