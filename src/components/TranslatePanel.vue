@@ -5,6 +5,7 @@ import { useTranslationQueue } from '../composables/useTranslationQueue'
 import { isChineseContent, stripFrontmatter } from '../utils/translate'
 import type { ModelConfig, Skill } from '../types'
 import QuickSwitcher, { type QuickSwitcherItem } from './QuickSwitcher.vue'
+import PlatformIcon from './PlatformIcon.vue'
 
 const emit = defineEmits<{
   close: []
@@ -15,12 +16,31 @@ const props = defineProps<{
   currentRoute?: string
   currentSkills?: Skill[]
   allSkills?: Skill[]
+  selectedProject?: { name: string; skills: any[] } | null
+  allProjectSkills?: Skill[]
+  selectedAgentPlatform?: { id: string; name: string } | null
+  agentPlatformSkills?: Skill[]
 }>()
 
-const { queue, addTranslation, isTranslating: isInQueue } = useTranslationQueue()
+const { queue, addTranslation, isTranslating: isInQueue, cacheVersion } = useTranslationQueue()
 
-const translateScope = ref<'current' | 'all'>('all')
+const translateScope = ref<'current' | 'all' | 'project' | 'agent'>('all')
 const translateType = ref<'desc' | 'content' | 'both'>('both')
+
+const isProjectPage = computed(() => props.currentRoute === 'project-skills')
+const isAgentPage = computed(() => props.currentRoute === 'agent-skills')
+
+const currentPageLabel = computed(() => {
+  switch (props.currentRoute) {
+    case 'my': return '我的 Skill'
+    case 'project-skills': return '项目 Skill'
+    case 'agent-skills': return 'Agent Skill'
+    default: return '我的 Skill'
+  }
+})
+
+const projectName = computed(() => props.selectedProject?.name || '当前项目')
+const agentPlatformName = computed(() => props.selectedAgentPlatform?.name || '当前平台')
 
 const allEnabledProviders = computed(() => {
   const settings = storage.getSettings()
@@ -50,10 +70,10 @@ function onModelChange(modelId: string) {
 
 const hashCache = new Map<string, { contentHash: string | null; descHash: string | null }>()
 const contentCache = new Map<string, string | null>()
+const downloadedIdsCache = new Set<string>(storage.getDownloadedIds())
 
 function getSkillDir(skill: Skill): string {
-  const downloadedIds = storage.getDownloadedIds()
-  if (downloadedIds.includes(skill.id)) {
+  if (downloadedIdsCache.has(skill.id)) {
     return window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', skill.id)
   }
   return skill.path || ''
@@ -61,19 +81,23 @@ function getSkillDir(skill: Skill): string {
 
 function getSkillContent(skill: Skill): string | null {
   const dir = getSkillDir(skill)
-  if (contentCache.has(dir)) return contentCache.get(dir)!
-  const skillFile = ['SKILL.md', 'skill.md'].find(f =>
-    window.services.pathExists(window.services.pathJoin(dir, f))
-  )
-  const content = skillFile
-    ? window.services.readFile(window.services.pathJoin(dir, skillFile))
-    : (skill.readme || null)
-  // Normalize line endings and strip frontmatter to match detail page handling
-  const processed = content
-    ? stripFrontmatter(content.replace(/\r\n/g, '\n').replace(/\r/g, '\n'))
-    : null
-  contentCache.set(dir, processed)
-  return processed
+  if (!dir || contentCache.has(dir)) return contentCache.get(dir) ?? null
+  try {
+    const skillFile = ['SKILL.md', 'skill.md'].find(f =>
+      window.services.pathExists(window.services.pathJoin(dir, f))
+    )
+    const content = skillFile
+      ? window.services.readFile(window.services.pathJoin(dir, skillFile))
+      : (skill.readme || null)
+    const processed = content
+      ? stripFrontmatter(content.replace(/\r\n/g, '\n').replace(/\r/g, '\n'))
+      : null
+    contentCache.set(dir, processed)
+    return processed
+  } catch {
+    contentCache.set(dir, null)
+    return null
+  }
 }
 
 function getCachedHashes(skill: Skill) {
@@ -148,9 +172,20 @@ const translationModel = computed((): ModelConfig | null => {
 })
 
 const filteredSkills = computed(() => {
-  const source = translateScope.value === 'all'
-    ? (props.allSkills || storage.getCachedSkills())
-    : (props.currentSkills || storage.getCachedSkills())
+  let source: Skill[]
+  if (translateScope.value === 'all') {
+    source = props.allSkills || storage.getCachedSkills().filter(s => storage.isDownloaded(s.id))
+  } else if (translateScope.value === 'project' && isProjectPage.value) {
+    source = props.allProjectSkills || []
+  } else if (translateScope.value === 'current' && isProjectPage.value) {
+    source = props.currentSkills || []
+  } else if (translateScope.value === 'current' && isAgentPage.value) {
+    source = props.currentSkills || []
+  } else if (translateScope.value === 'agent' && isAgentPage.value) {
+    source = props.agentPlatformSkills || []
+  } else {
+    source = props.currentSkills || storage.getCachedSkills().filter(s => storage.isDownloaded(s.id))
+  }
   const seen = new Set<string>()
   return source.filter(skill => {
     const key = getSkillKey(skill)
@@ -164,6 +199,15 @@ const filteredSkills = computed(() => {
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 const statusCountsReady = ref(true)
 
+watch(() => props.currentRoute, () => {
+  if (translateScope.value === 'project' && !isProjectPage.value) {
+    translateScope.value = 'all'
+  }
+  if (translateScope.value === 'agent' && !isAgentPage.value) {
+    translateScope.value = 'all'
+  }
+})
+
 watch([translateScope, translateType], () => {
   statusCountsReady.value = false
   hashCache.clear()
@@ -174,16 +218,30 @@ watch([translateScope, translateType], () => {
   }, 30)
 })
 
-const statusCounts = computed(() => {
-  if (!statusCountsReady.value) return { pending: 0, translating: 0, queued: 0, done: 0, chinese: 0 }
-  const counts = { pending: 0, translating: 0, queued: 0, done: 0, chinese: 0 }
-  const translationCache = storage._readTranslationCache()
-  const descTranslationCache = storage._readDescTranslationCache()
-  for (const skill of filteredSkills.value) {
-    counts[getTranslationStatusWithCache(skill, translationCache, descTranslationCache)]++
-  }
-  return counts
-})
+const _statusCounts = ref({ pending: 0, translating: 0, queued: 0, done: 0, chinese: 0 })
+const statusCounts = computed(() => _statusCounts.value)
+
+let _statusCountTimer: ReturnType<typeof setTimeout> | null = null
+function _recalcStatusCounts() {
+  if (_statusCountTimer) clearTimeout(_statusCountTimer)
+  _statusCountTimer = setTimeout(() => {
+    if (!statusCountsReady.value) {
+      _statusCounts.value = { pending: 0, translating: 0, queued: 0, done: 0, chinese: 0 }
+      return
+    }
+    const counts = { pending: 0, translating: 0, queued: 0, done: 0, chinese: 0 }
+    const translationCache = storage._readTranslationCache()
+    const descTranslationCache = storage._readDescTranslationCache()
+    for (const skill of filteredSkills.value) {
+      counts[getTranslationStatusWithCache(skill, translationCache, descTranslationCache)]++
+    }
+    _statusCounts.value = counts
+  }, 300)
+}
+
+_recalcStatusCounts()
+watch(queue, _recalcStatusCounts, { deep: true })
+watch(filteredSkills, _recalcStatusCounts)
 
 const pendingCount = computed(() => statusCounts.value.pending)
 
@@ -206,24 +264,39 @@ function translateSkill(skill: Skill) {
   }
 }
 
-function translateAll() {
-  for (const skill of filteredSkills.value) {
-    const ch = getContentHash(skill)
-    const dh = getDescHash(skill)
+const translatingAll = ref(false)
 
-    if (translateType.value === 'desc' || translateType.value === 'both') {
-      if (dh && !isChineseContent(skill.description) && !storage.getDescTranslationByHash(dh) && !isInQueue(dh, 'desc')) {
-        addTranslation(dh, 'desc', skill.name, skill.description)
-      }
-    }
-    if (translateType.value === 'content' || translateType.value === 'both') {
-      if (ch && !isInQueue(ch, 'content')) {
-        const cached = storage.getTranslationByHash(ch)
-        if (!cached && !isChineseContent(getSkillContent(skill) || '')) {
-          addTranslation(ch, 'content', skill.name, getSkillContent(skill) ?? undefined)
+async function translateAll() {
+  if (translatingAll.value) return
+  translatingAll.value = true
+  try {
+    const skills = filteredSkills.value
+    const batchSize = 20
+    for (let i = 0; i < skills.length; i++) {
+      const skill = skills[i]
+      const ch = getContentHash(skill)
+      const dh = getDescHash(skill)
+
+      if (translateType.value === 'desc' || translateType.value === 'both') {
+        if (dh && !isChineseContent(skill.description) && !storage.getDescTranslationByHash(dh) && !isInQueue(dh, 'desc')) {
+          addTranslation(dh, 'desc', skill.name, skill.description)
         }
       }
+      if (translateType.value === 'content' || translateType.value === 'both') {
+        if (ch && !isInQueue(ch, 'content')) {
+          const cached = storage.getTranslationByHash(ch)
+          if (!cached && !isChineseContent(getSkillContent(skill) || '')) {
+            addTranslation(ch, 'content', skill.name, getSkillContent(skill) ?? undefined)
+          }
+        }
+      }
+
+      if (i % batchSize === batchSize - 1) {
+        await new Promise<void>(r => requestAnimationFrame(() => r()))
+      }
     }
+  } finally {
+    translatingAll.value = false
   }
 }
 
@@ -250,6 +323,10 @@ function isSkillChinese(skill: Skill): boolean {
   return results.every(r => r === true)
 }
 
+let _cachedTranslationCache: Record<string, any> | null = null
+let _cachedDescTranslationCache: Record<string, any> | null = null
+let _translationCacheVersion = -1
+
 function getTranslationStatus(skill: Skill): 'pending' | 'translating' | 'queued' | 'done' | 'chinese' {
   const ch = getContentHash(skill)
   const dh = getDescHash(skill)
@@ -257,8 +334,15 @@ function getTranslationStatus(skill: Skill): 'pending' | 'translating' | 'queued
   if ((ch && hasTranslatingItem(ch)) || (dh && hasTranslatingItem(dh))) return 'translating'
   if ((ch && isInQueue(ch, 'content')) || (dh && isInQueue(dh, 'desc')) || (ch && isInQueue(ch, 'desc')) || (dh && isInQueue(dh, 'content'))) return 'queued'
 
-  const contentValid = ch ? storage.getTranslationByHash(ch) : null
-  const descTranslated = dh ? storage.getDescTranslationByHash(dh) : null
+  const cv = cacheVersion.value
+  if (cv !== _translationCacheVersion) {
+    _cachedTranslationCache = storage._readTranslationCache()
+    _cachedDescTranslationCache = storage._readDescTranslationCache()
+    _translationCacheVersion = cv
+  }
+
+  const contentValid = ch ? _cachedTranslationCache![ch] : null
+  const descTranslated = dh ? _cachedDescTranslationCache![dh]?.translatedDesc : null
 
   const needDesc = translateType.value === 'desc' || translateType.value === 'both'
   const needContent = translateType.value === 'content' || translateType.value === 'both'
@@ -370,15 +454,52 @@ function getStatusLabel(status: string) {
               @click="translateScope = 'all'"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-              <span>所有技能</span>
+              <span>所有 Skill</span>
             </button>
             <button
+              v-if="isProjectPage"
+              class="segment-btn"
+              :class="{ active: translateScope === 'project' }"
+              @click="translateScope = 'project'"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              <span>项目 Skill</span>
+            </button>
+            <button
+              v-if="isAgentPage"
+              class="segment-btn"
+              :class="{ active: translateScope === 'current' }"
+              @click="translateScope = 'current'"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              <span>Agent Skill</span>
+            </button>
+            <button
+              v-if="!isProjectPage && !isAgentPage"
               class="segment-btn"
               :class="{ active: translateScope === 'current' }"
               @click="translateScope = 'current'"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
-              <span>当前页面</span>
+              <span>{{ currentPageLabel }}</span>
+            </button>
+            <button
+              v-if="isProjectPage"
+              class="segment-btn"
+              :class="{ active: translateScope === 'current' }"
+              @click="translateScope = 'current'"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              <span>{{ projectName }}</span>
+            </button>
+            <button
+              v-if="isAgentPage"
+              class="segment-btn"
+              :class="{ active: translateScope === 'agent' }"
+              @click="translateScope = 'agent'"
+            >
+              <PlatformIcon v-if="selectedAgentPlatform" :platform-id="selectedAgentPlatform.id" :size="14" />
+              <span>{{ agentPlatformName }}</span>
             </button>
           </div>
         </div>
@@ -414,7 +535,7 @@ function getStatusLabel(status: string) {
           <button
             class="translate-all-btn"
             @click="translateAll"
-            :disabled="!translationModel"
+            :disabled="!translationModel || translatingAll"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>
             <span>{{ pendingCount ? `翻译所有 (${pendingCount})` : '翻译所有' }}</span>

@@ -77,24 +77,19 @@ export async function chatCompletion(
 
   let res: Response
   try {
+    const timeoutMs = options?.timeout && options.timeout > 0 ? options.timeout * 1000 : 60_000
     const controller = new AbortController()
-    let timeoutId: ReturnType<typeof setTimeout> | undefined
-    if (options?.timeout && options.timeout > 0) {
-      timeoutId = setTimeout(() => controller.abort(), options.timeout * 1000)
-    }
-    try {
-      res = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${activeKey}`,
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      })
-    } finally {
-      if (timeoutId) clearTimeout(timeoutId)
-    }
+    const timeoutSignal = AbortSignal.timeout(timeoutMs)
+    timeoutSignal.addEventListener('abort', () => controller.abort(), { once: true })
+    res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${activeKey}`,
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    })
   } catch (err: any) {
     const isTimeout = err.name === 'AbortError'
     throw new AIError({

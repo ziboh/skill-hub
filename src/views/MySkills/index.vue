@@ -92,11 +92,39 @@ async function enrichLocalDescriptions() {
   }
 }
 
-const installedSkillIds = computed(() => new Set(installRecords.value.map((r) => r.skillId)))
+const installedSkillIds = computed(() => storage.getInstalledSkillSet())
 
 const downloadedSkills = computed(() =>
-  allSkills.value.filter((s) => downloadedIds.value.includes(s.id))
+  allSkills.value.filter((s) => storage.isDownloaded(s.id))
 )
+
+const downloadedSkillStats = computed(() => {
+  const list = downloadedSkills.value
+  const favSet = storage.getFavoriteSet()
+  const instSet = installedSkillIds.value
+  let favCount = 0
+  let distCount = 0
+  let pendCount = 0
+  for (const s of list) {
+    if (favSet.has(s.id)) favCount++
+    if (instSet.has(s.id)) distCount++
+    else pendCount++
+  }
+  return { total: list.length, favCount, distCount, pendCount }
+})
+const totalDownloaded = computed(() => downloadedSkillStats.value.total)
+const totalFavorites = computed(() => downloadedSkillStats.value.favCount)
+const totalDistributed = computed(() => downloadedSkillStats.value.distCount)
+const totalPending = computed(() => downloadedSkillStats.value.pendCount)
+
+const sourceCounts = computed(() => {
+  const map = new Map<string, number>()
+  for (const s of downloadedSkills.value) {
+    const src = getSourceLabel(s)
+    map.set(src, (map.get(src) || 0) + 1)
+  }
+  return Array.from(map.entries())
+})
 
 const {
   filteredSkills,
@@ -112,8 +140,6 @@ const {
   installedSkillIds: () => installedSkillIds.value,
   getSourceLabel,
 })
-
-const totalDownloaded = computed(() => downloadedSkills.value.length)
 
 function getInstalledPlatforms(skillId: string): string[] {
   return installRecords.value
@@ -179,7 +205,7 @@ onUnmounted(() => {
   iconObservers.clear()
 })
 
-function isFavorited(id: string) { return favoriteIds.value.includes(id) }
+function isFavorited(id: string) { return storage.isFavorite(id) }
 function toggleFavorite(id: string) { storage.toggleFavorite(id); favoriteIds.value = storage.getFavoriteIds(); refreshMySkills() }
 function deleteSkill(skill: Skill) {
   deleteSkillTarget.value = skill
@@ -276,19 +302,6 @@ const batchMode = ref(false)
 const selectedIds = ref<Set<string>>(new Set())
 const showBatchSyncModal = ref(false)
 const batchSyncSkills = ref<Skill[]>([])
-
-const totalFavorites = computed(() => downloadedSkills.value.filter((s) => favoriteIds.value.includes(s.id)).length)
-const totalDistributed = computed(() => downloadedSkills.value.filter((s) => installedSkillIds.value.has(s.id)).length)
-const totalPending = computed(() => downloadedSkills.value.filter((s) => !installedSkillIds.value.has(s.id)).length)
-
-const sourceCounts = computed(() => {
-  const map = new Map<string, number>()
-  for (const s of downloadedSkills.value) {
-    const src = getSourceLabel(s)
-    map.set(src, (map.get(src) || 0) + 1)
-  }
-  return Array.from(map.entries())
-})
 
 const totalSources = computed(() => sourceCounts.value.reduce((sum, [, c]) => sum + c, 0))
 

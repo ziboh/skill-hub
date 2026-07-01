@@ -15,7 +15,7 @@ export interface TranslationQueueItem {
 }
 
 export const MAX_CONCURRENT = 2
-const STALE_MS = 5 * 60 * 1000
+const STALE_MS = 2 * 60 * 1000
 const HEARTBEAT_MS = 60 * 1000
 
 const QUEUE_KEY = 'sm_translation_queue'
@@ -72,6 +72,19 @@ function startHeartbeat() {
   }, HEARTBEAT_MS)
 }
 startHeartbeat()
+
+let lastHiddenAt: number | null = null
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    lastHiddenAt = Date.now()
+  } else if (lastHiddenAt !== null) {
+    const hiddenDuration = Date.now() - lastHiddenAt
+    lastHiddenAt = null
+    if (hiddenDuration > 30_000) {
+      cleanStaleItems()
+    }
+  }
+})
 
 function promoteNext() {
   const translatingCount = queue.value.filter(i => i.status === 'translating').length

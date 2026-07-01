@@ -60,6 +60,19 @@ interface SessionDownload {
 const _sessionDownloads: SessionDownload[] = []
 let _onSessionDownload: ((download: SessionDownload) => void) | null = null
 
+// Cache state (module-level, survives between method calls)
+let _installRecordsCache: InstallRecord[] | null = null
+let _installedSkillSetCache: Set<string> | null = null
+let _cachedSkillsCache: Skill[] | null = null
+let _downloadedIdsCache: string[] | null = null
+let _downloadedSetCache: Set<string> | null = null
+let _favoriteSetCache: Set<string> | null = null
+
+function invalidateInstallCache() { _installRecordsCache = null; _installedSkillSetCache = null }
+function invalidateCachedSkills() { _cachedSkillsCache = null }
+function invalidateDownloadedCache() { _downloadedIdsCache = null; _downloadedSetCache = null }
+function invalidateFavoriteCache() { _favoriteSetCache = null }
+
 export const storage = {
   // === Session Downloads (temporary, cleared on app restart) ===
   getSessionDownloads(): SessionDownload[] {
@@ -79,9 +92,14 @@ export const storage = {
     _onSessionDownload = callback
   },
 
-  // === Install Records ===
+  // === Install Records (with Set cache) ===
   getInstallRecords(): InstallRecord[] {
-    return dbGet<InstallRecord[]>(KEYS.INSTALLED_SKILLS) || []
+    if (!_installRecordsCache) _installRecordsCache = dbGet<InstallRecord[]>(KEYS.INSTALLED_SKILLS) || []
+    return _installRecordsCache
+  },
+  getInstalledSkillSet(): Set<string> {
+    if (!_installedSkillSetCache) _installedSkillSetCache = new Set(this.getInstallRecords().map(r => r.skillId))
+    return _installedSkillSetCache
   },
   saveInstallRecord(record: InstallRecord): void {
     const records = this.getInstallRecords()
@@ -90,16 +108,19 @@ export const storage = {
     )
     if (idx >= 0) records[idx] = record
     else records.push(record)
+    invalidateInstallCache()
     dbSet(KEYS.INSTALLED_SKILLS, records)
   },
   removeInstallRecord(skillId: string, platformId: string, scope?: string): void {
     const records = this.getInstallRecords().filter(
       (r) => !(r.skillId === skillId && r.platformId === platformId && (scope === undefined || r.scope === scope))
     )
+    invalidateInstallCache()
     dbSet(KEYS.INSTALLED_SKILLS, records)
   },
   removeAllForSkill(skillId: string): void {
     const records = this.getInstallRecords().filter((r) => r.skillId !== skillId)
+    invalidateInstallCache()
     dbSet(KEYS.INSTALLED_SKILLS, records)
   },
   getInstalledForPlatform(platformId: string): InstallRecord[] {
@@ -235,9 +256,10 @@ export const storage = {
     dbSet(KEYS.SCANNED_SKILLS, paths)
   },
 
-  // === Cached Skills ===
+  // === Cached Skills (with cache) ===
   getCachedSkills(): Skill[] {
-    return dbGet<Skill[]>(KEYS.CACHED_SKILLS) || []
+    if (!_cachedSkillsCache) _cachedSkillsCache = dbGet<Skill[]>(KEYS.CACHED_SKILLS) || []
+    return _cachedSkillsCache
   },
   saveCachedSkills(skills: Skill[]): void {
     const existing = this.getCachedSkills()
@@ -251,22 +273,28 @@ export const storage = {
       }
       map.set(copy.id, copy)
     }
+    invalidateCachedSkills()
     dbSet(KEYS.CACHED_SKILLS, Array.from(map.values()))
   },
 
-  // === Favorites ===
+  // === Favorites (with Set cache for O(1) lookup) ===
   getFavoriteIds(): string[] {
     return dbGet<string[]>(KEYS.FAVORITE_IDS) || []
+  },
+  getFavoriteSet(): Set<string> {
+    if (!_favoriteSetCache) _favoriteSetCache = new Set(this.getFavoriteIds())
+    return _favoriteSetCache
   },
   toggleFavorite(id: string): void {
     const ids = this.getFavoriteIds()
     const idx = ids.indexOf(id)
     if (idx >= 0) ids.splice(idx, 1)
     else ids.push(id)
+    invalidateFavoriteCache()
     dbSet(KEYS.FAVORITE_IDS, ids)
   },
   isFavorite(id: string): boolean {
-    return this.getFavoriteIds().includes(id)
+    return this.getFavoriteSet().has(id)
   },
 
   // === User Tags ===
@@ -294,23 +322,30 @@ export const storage = {
     return Array.from(tagSet).sort()
   },
 
-  // === Downloaded Skills ===
+  // === Downloaded Skills (with Set cache for O(1) lookup) ===
   getDownloadedIds(): string[] {
-    return dbGet<string[]>(KEYS.DOWNLOADED_IDS) || []
+    if (!_downloadedIdsCache) _downloadedIdsCache = dbGet<string[]>(KEYS.DOWNLOADED_IDS) || []
+    return _downloadedIdsCache
+  },
+  getDownloadedSet(): Set<string> {
+    if (!_downloadedSetCache) _downloadedSetCache = new Set(this.getDownloadedIds())
+    return _downloadedSetCache
   },
   addDownloadedId(id: string): void {
     const ids = this.getDownloadedIds()
     if (!ids.includes(id)) {
       ids.push(id)
+      if (_downloadedSetCache) _downloadedSetCache.add(id)
       dbSet(KEYS.DOWNLOADED_IDS, ids)
     }
   },
   removeDownloadedId(id: string): void {
     const ids = this.getDownloadedIds().filter((i) => i !== id)
+    invalidateDownloadedCache()
     dbSet(KEYS.DOWNLOADED_IDS, ids)
   },
   isDownloaded(id: string): boolean {
-    return this.getDownloadedIds().includes(id)
+    return this.getDownloadedSet().has(id)
   },
   cleanStaleCachedSkills(): void {
     const repoRoot = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo')
@@ -323,8 +358,8 @@ export const storage = {
     const aliveIds = aliveCached.map((s) => s.id)
     const aliveIdSet = new Set(aliveIds)
     const aliveInstallRecords = this.getInstallRecords().filter((r) => aliveIdSet.has(r.skillId))
-    if (aliveCached.length !== cached.length) dbSet(KEYS.CACHED_SKILLS, aliveCached)
-    if (aliveIds.length !== ids.length) dbSet(KEYS.DOWNLOADED_IDS, aliveIds)
+    if (aliveCached.length !== cached.length) { dbSet(KEYS.CACHED_SKILLS, aliveCached); invalidateCachedSkills() }
+    if (aliveIds.length !== ids.length) { dbSet(KEYS.DOWNLOADED_IDS, aliveIds); invalidateDownloadedCache() }
     if (aliveInstallRecords.length !== this.getInstallRecords().length) dbSet(KEYS.INSTALLED_SKILLS, aliveInstallRecords)
   },
 
@@ -340,7 +375,7 @@ export const storage = {
         changed = true
       }
     }
-    if (changed) dbSet(KEYS.CACHED_SKILLS, skills)
+    if (changed) { dbSet(KEYS.CACHED_SKILLS, skills); invalidateCachedSkills() }
   },
 
   // === Registered Projects ===
@@ -466,10 +501,12 @@ export const storage = {
   removeSkillFromCache(skillId: string): void {
     const skills = this.getCachedSkills()
     const filtered = skills.filter((s) => s.id !== skillId)
+    invalidateCachedSkills()
     dbSet(KEYS.CACHED_SKILLS, filtered)
 
     const favorites = this.getFavoriteIds()
     const favFiltered = favorites.filter((id) => id !== skillId)
+    invalidateFavoriteCache()
     dbSet(KEYS.FAVORITE_IDS, favFiltered)
   },
 

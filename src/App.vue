@@ -9,7 +9,7 @@ import {
   KeyDetectedPlatforms, KeyPlatformSkillCounts, KeyScanProject, KeyProjectScanning,
   KeyRefreshCounts, KeyCurrentRoute, KeyFilterCategory, KeyFilterSource,
   KeyRefreshMySkills, KeyOpenImportModal, KeyRefreshKey, KeyTriggerRefresh,
-  KeyAgentSkills, KeyUpdateAgentPlatformSkills,
+  KeyAgentSkills, KeyUpdateAgentPlatformSkills, KeySelectedAgentPlatformId,
 } from './inject-keys'
 
 const SkillStore = defineAsyncComponent(() => import('./views/SkillStore/index.vue'))
@@ -94,6 +94,7 @@ provide(KeyNavigateToProjectSkills, () => { route.value = 'project-skills'; show
 provide(KeyDetectedPlatforms, detectedPlatforms)
 provide(KeyPlatformSkillCounts, platformSkillCounts)
 provide(KeyAgentSkills, inventoryAgentSkills)
+provide(KeySelectedAgentPlatformId, selectedAgentPlatformId)
 provide(KeyUpdateAgentPlatformSkills, updateAgentPlatformSkills)
 provide(KeyScanProject, scanProject)
 provide(KeyProjectScanning, projectScanning)
@@ -130,12 +131,20 @@ function refreshCounts() {
 provide(KeyRefreshCounts, refreshCounts)
 provide(KeyCurrentRoute, route)
 
+const NAV_ITEM_ICONS: Record<string, string> = {
+  my: 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4',
+  'project-skills': 'M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z',
+  'agent-skills': 'M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714a2.25 2.25 0 00.659 1.591L19 14.5m-4.25-11.396c.251.023.501.05.75.082M12 21a8.966 8.966 0 005.982-2.275M12 21a8.966 8.966 0 01-5.982-2.275M15.75 3.186a24.284 24.284 0 011.957.967M15.75 3.186c-.376.056-.75.118-1.12.185m1.12-.185a24.284 24.284 0 00-1.957.967M6.258 5.526a24.284 24.284 0 011.957-.967m0 0A24.234 24.234 0 0112 3.493',
+  store: 'M13.5 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0012 9.75c-2.551 0-5.056.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75z',
+  records: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z',
+}
+
 const navItems = computed(() => [
-  { code: 'my', label: '我的 Skill', icon: 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4', count: downloadedCount.value },
-  { code: 'project-skills', label: '项目 Skill', icon: 'M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z', count: registeredProjects.value.length },
-  { code: 'agent-skills', label: 'Agent Skill', icon: 'M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714a2.25 2.25 0 00.659 1.591L19 14.5m-4.25-11.396c.251.023.501.05.75.082M12 21a8.966 8.966 0 005.982-2.275M12 21a8.966 8.966 0 01-5.982-2.275M15.75 3.186a24.284 24.284 0 011.957.967M15.75 3.186c-.376.056-.75.118-1.12.185m1.12-.185a24.284 24.284 0 00-1.957.967M6.258 5.526a24.284 24.284 0 011.957-.967m0 0A24.234 24.234 0 0112 3.493', count: agentCount.value },
-  { code: 'store', label: 'Skill 商店', icon: 'M13.5 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0012 9.75c-2.551 0-5.056.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75z', count: 0 },
-  { code: 'records', label: '记录', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', count: 0 },
+  { code: 'my', label: '我的 Skill', icon: NAV_ITEM_ICONS.my, count: downloadedCount.value },
+  { code: 'project-skills', label: '项目 Skill', icon: NAV_ITEM_ICONS['project-skills'], count: registeredProjects.value.length },
+  { code: 'agent-skills', label: 'Agent Skill', icon: NAV_ITEM_ICONS['agent-skills'], count: agentCount.value },
+  { code: 'store', label: 'Skill 商店', icon: NAV_ITEM_ICONS.store, count: 0 },
+  { code: 'records', label: '记录', icon: NAV_ITEM_ICONS.records, count: 0 },
 ])
 
 let mqCleanup: (() => void) | null = null
@@ -205,14 +214,25 @@ const myAllSkills = ref<Skill[]>([])
 const myDownloadedIds = ref<string[]>([])
 const myInstallRecords = ref<any[]>([])
 const myFavoriteIds = ref<string[]>([])
-const myInstalledIds = computed(() => new Set(myInstallRecords.value.map((r: any) => r.skillId)))
-const myDownloadedSkills = computed(() => myAllSkills.value.filter((s: Skill) => myDownloadedIds.value.includes(s.id)))
-const myCategories = computed(() => [
-  { id: 'all', label: '全部', count: myDownloadedSkills.value.length },
-  { id: 'favorites', label: '收藏', count: myDownloadedSkills.value.filter((s: Skill) => myFavoriteIds.value.includes(s.id)).length },
-  { id: 'distributed', label: '已分发', count: myDownloadedSkills.value.filter((s: Skill) => myInstalledIds.value.has(s.id)).length },
-  { id: 'pending', label: '待分发', count: myDownloadedSkills.value.filter((s: Skill) => !myInstalledIds.value.has(s.id)).length },
-])
+const myInstalledIds = computed(() => storage.getInstalledSkillSet())
+const myDownloadedSkills = computed(() => myAllSkills.value.filter((s: Skill) => storage.isDownloaded(s.id)))
+const myCategories = computed(() => {
+  const downloaded = myDownloadedSkills.value
+  const favSet = storage.getFavoriteSet()
+  const instSet = myInstalledIds.value
+  let fav = 0, dist = 0, pend = 0
+  for (const s of downloaded) {
+    if (favSet.has(s.id)) fav++
+    if (instSet.has(s.id)) dist++
+    else pend++
+  }
+  return [
+    { id: 'all', label: '全部', count: downloaded.length },
+    { id: 'favorites', label: '收藏', count: fav },
+    { id: 'distributed', label: '已分发', count: dist },
+    { id: 'pending', label: '待分发', count: pend },
+  ]
+})
 const mySources = computed(() => {
   const map = new Map<string, number>()
   for (const s of myDownloadedSkills.value) {
@@ -249,13 +269,56 @@ const { isDarkMode, toggleTheme } = useTheme()
 
 const allAvailableSkills = computed<Skill[]>(() => inventoryAllSkills.value as Skill[])
 
+const allProjectsSkills = computed<Skill[]>(() => {
+  const all = registeredProjects.value.flatMap(p => (p.skills || []).map(s => normalizeSkillScanResult(s)))
+  const seen = new Set<string>()
+  return all.filter(s => {
+    const key = s.name.toLowerCase()
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+})
+
+const currentAgentPlatform = computed(() => {
+  if (route.value !== 'agent-skills' || !selectedAgentPlatformId.value) return null
+  const platform = detectedPlatforms.value.find(p => p.id === selectedAgentPlatformId.value)
+  return platform ? { id: platform.id, name: platform.name } : null
+})
+
+const currentAgentPlatformSkills = computed<Skill[]>(() => {
+  if (route.value !== 'agent-skills' || !selectedAgentPlatformId.value) return []
+  const all = (inventoryAgentSkills.value[selectedAgentPlatformId.value] || []).map(s => normalizeSkillScanResult(s))
+  const seen = new Set<string>()
+  return all.filter(s => {
+    const key = s.name.toLowerCase()
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+})
+
 const currentPageSkills = computed<Skill[]>(() => {
   if (route.value === 'my') {
-    return storage.getCachedSkills().filter(s => storage.getDownloadedIds().includes(s.id))
+    return storage.getCachedSkills().filter(s => storage.isDownloaded(s.id))
   } else if (route.value === 'project-skills') {
-    return ((selectedProject.value?.skills || []) as any[]).map(s => normalizeSkillScanResult(s))
+    const all = ((selectedProject.value?.skills || []) as any[]).map(s => normalizeSkillScanResult(s))
+    const seen = new Set<string>()
+    return all.filter(s => {
+      const key = s.name.toLowerCase()
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
   } else if (route.value === 'agent-skills') {
-    return (Object.values(inventoryAgentSkills.value).flat() as any[]).map(s => normalizeSkillScanResult(s))
+    const all = (Object.values(inventoryAgentSkills.value).flat() as any[]).map(s => normalizeSkillScanResult(s))
+    const seen = new Set<string>()
+    return all.filter(s => {
+      const key = s.name.toLowerCase()
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
   }
   return []
 })
@@ -343,11 +406,16 @@ const currentPageSkills = computed<Skill[]>(() => {
     </button>
 
     <!-- 翻译面板 -->
-    <TranslatePanel 
-      v-if="showTranslatePanel" 
+    <TranslatePanel
+      v-if="showTranslatePanel"
       @close="showTranslatePanel = false"
+      :current-route="route"
       :current-skills="currentPageSkills"
       :all-skills="allAvailableSkills"
+      :selected-project="selectedProject"
+      :all-project-skills="allProjectsSkills"
+      :selected-agent-platform="currentAgentPlatform"
+      :agent-platform-skills="currentAgentPlatformSkills"
     />
   </div>
 </template>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, inject, unref } from 'vue'
-import { KeyShowToast, KeyDetectedPlatforms, KeyPlatformSkillCounts, KeyRefreshCounts, KeyAgentSkills, KeyUpdateAgentPlatformSkills } from '../../inject-keys'
+import { KeyShowToast, KeyDetectedPlatforms, KeyPlatformSkillCounts, KeyRefreshCounts, KeyAgentSkills, KeyUpdateAgentPlatformSkills, KeySelectedAgentPlatformId } from '../../inject-keys'
 import { detectPlatforms, getPlatformPath, defaultPlatforms } from '../../data/platforms'
 import { storage } from '../../utils/storage'
 import { useSettings } from '../../composables/useSettings'
@@ -21,6 +21,7 @@ const injectAgentSkills = inject(KeyAgentSkills)!
 
 if (!injectAgentSkills) throw new Error('KeyAgentSkills not provided')
 const updateAgentPlatformSkills = inject(KeyUpdateAgentPlatformSkills, () => {})
+const injectSelectedAgentPlatformId = inject(KeySelectedAgentPlatformId)
 
 const detectedPlatforms = ref<PlatformInfo[]>([])
 const selectedId = ref(props.initialPlatformId || '')
@@ -35,18 +36,19 @@ function getSkillId(skill: SkillScanResult): string {
   return skill.manifest?.name || skill.name
 }
 
+const _cachedSkillsForAgent = ref<Skill[]>([])
+function refreshCachedSkills() { _cachedSkillsForAgent.value = storage.getCachedSkills() }
+
 function findCachedSkill(skill: any): Skill | null {
   const id = getSkillId(skill)
-  if (downloadedIds.value.includes(id)) {
-    const cached = storage.getCachedSkills()
-    const found = cached.find((s) => s.id === id && downloadedIds.value.includes(s.id))
-    if (found) return found
-  }
+  const cached = _cachedSkillsForAgent.value
+  const downloadedSet = storage.getDownloadedSet()
+  const found = cached.find((s) => s.id === id && downloadedSet.has(s.id))
+  if (found) return found
   const dirName = (skill.dir || '').split(/[\\/]/).pop() || ''
   if (!dirName) return null
-  const cached = storage.getCachedSkills()
   return cached.find((s) => {
-    if (!downloadedIds.value.includes(s.id)) return false
+    if (!downloadedSet.has(s.id)) return false
     const cachedPathLast = (s.path || '').split('/').pop() || ''
     if (cachedPathLast && cachedPathLast === dirName) return true
     if (s.name && s.name.toLowerCase() === (skill.manifest?.name || skill.name || '').toLowerCase()) return true
@@ -56,6 +58,12 @@ function findCachedSkill(skill: any): Skill | null {
 
 function isInMySkills(skill: any): boolean {
   return findCachedSkill(skill) !== null
+}
+
+function getPlatFormInstallDirSet(): Set<string> {
+  if (!selectedPlatform.value) return new Set()
+  const installed = storage.getInstalledForPlatform(selectedPlatform.value.id)
+  return new Set(installed.map((r) => normalizePath(r.targetPath)))
 }
 
 function getBadgeType(skill: any): string {
@@ -70,12 +78,13 @@ function getBadgeType(skill: any): string {
   }
   if (selectedPlatform.value) {
     const normalizedDir = normalizePath(skill.dir || '')
-    const installed = storage.getInstalledForPlatform(selectedPlatform.value.id)
-    const isInstalled = installed.some((r) => normalizePath(r.targetPath) === normalizedDir)
-    if (!isInstalled) return 'local'
+    const installedTargetPaths = _platformInstallDirs.value
+    if (!installedTargetPaths.has(normalizedDir)) return 'local'
   }
   return 'managed'
 }
+
+const _platformInstallDirs = ref<Set<string>>(new Set())
 
 const { settings, updateSettings } = useSettings()
 
@@ -144,8 +153,14 @@ function refreshCurrent() {
 
 function selectPlatform(p: PlatformInfo) { selectedId.value = p.id; skillFilter.value = ''; storage.savePageState('agent-skills', { platformId: p.id }) }
 
+watch(selectedId, (id) => {
+  if (injectSelectedAgentPlatformId) injectSelectedAgentPlatformId.value = id
+})
+
 const selectedPlatform = computed(() => detectedPlatforms.value.find((p) => p.id === selectedId.value))
 const selectedSkills = computed(() => selectedId.value ? (platformSkills.value[selectedId.value] || []) : [])
+
+watch(selectedPlatform, () => { _platformInstallDirs.value = getPlatFormInstallDirSet() }, { immediate: true })
 
 const filteredSkills = computed(() => {
   const skills = selectedSkills.value
@@ -158,8 +173,16 @@ const filteredSkills = computed(() => {
   })
 })
 
-const localCount = computed(() => selectedSkills.value.filter((s) => getBadgeType(s) === 'local').length)
-const managedCount = computed(() => selectedSkills.value.filter((s) => getBadgeType(s) !== 'local').length)
+const localAndManagedCount = computed(() => {
+  let local = 0, managed = 0
+  for (const s of selectedSkills.value) {
+    if (getBadgeType(s) === 'local') local++
+    else managed++
+  }
+  return { local, managed }
+})
+const localCount = computed(() => localAndManagedCount.value.local)
+const managedCount = computed(() => localAndManagedCount.value.managed)
 
 function getBadge(skill: any): { text: string; type: string } {
   const t = getBadgeType(skill)
@@ -304,7 +327,7 @@ const myAllSkills = ref<Skill[]>([])
 
 const filteredMySkills = computed(() => {
   const q = importSearch.value.toLowerCase().trim()
-  const skills = myAllSkills.value.filter((s) => storage.getDownloadedIds().includes(s.id))
+  const skills = myAllSkills.value.filter((s) => storage.isDownloaded(s.id))
   if (!q) return skills
   return skills.filter((s) => s.name.toLowerCase().includes(q) || (s.description || '').toLowerCase().includes(q))
 })

@@ -69,7 +69,7 @@ export function useSkillInventory() {
   }
 
   const allSkills = computed(() => {
-    const cachedSkills = storage.getCachedSkills() as Skill[]
+    const cachedSkills = (storage.getCachedSkills() as Skill[]).filter(s => storage.isDownloaded(s.id))
     const projectSkills = registeredProjects.value.flatMap(p => p.skills || []) as SkillScanResult[]
     const agentList = Object.values(agentSkills.value).flat() as SkillScanResult[]
 
