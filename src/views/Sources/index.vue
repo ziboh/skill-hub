@@ -38,7 +38,7 @@ const typeOptions: { value: StoreSourceType; icon: string; label: string; hint: 
 ]
 
 const examples: Record<StoreSourceType, { label: string; lines: string[] }> = {
-  'marketplace-json': { label: 'Example', lines: ['https://raw.githubusercontent.com/docker/claude-code-plugin-manager/main/marketplace.json'] },
+  'marketplace-json': { label: 'Example', lines: ['https://raw.githubusercontent.com/ziboh/skills-marketplace/main/marketplace.json'] },
   'git-repo': { label: 'Examples', lines: ['https://github.com/anthropics/skills', 'Branch: main | Dir: skills/.curated', '~/Projects/my-skill-repo'] },
   'local-dir': { label: 'Example', lines: ['~/Documents/my-skills'] },
 }

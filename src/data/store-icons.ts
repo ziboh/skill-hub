@@ -1,10 +1,11 @@
-import { PLATFORM_ICONS } from './platform-icons'
 import skillsShIcon from '../assets/platforms/skills-sh-favicon.ico'
+import claudeIcon from '../assets/platforms/claude.png'
+import codexIcon from '../assets/platforms/codex.png'
 
 export const STORE_ICONS: Record<string, string> = {
   'skills-sh': skillsShIcon,
-  'claude': PLATFORM_ICONS.claude,
-  'codex': PLATFORM_ICONS.codex,
+  'claude': claudeIcon,
+  'codex': codexIcon,
 }
 
 export type StoreId = keyof typeof STORE_ICONS

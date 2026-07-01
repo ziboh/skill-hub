@@ -6,7 +6,7 @@ import { defaultPlatforms } from '../../data/platforms'
 import { KeyCurrentRoute } from '../../inject-keys'
 import { useDownloadQueue } from '../../composables/useDownloadQueue'
 import { useTranslationQueue } from '../../composables/useTranslationQueue'
-import { getSourceInfo as getSourceInfoUtil } from '../../utils/source-info'
+import { getSourceInfo as getSourceInfoUtil, isSvgIcon, isImageUrl } from '../../utils/source-info'
 
 import type { Skill } from '../../types'
 import PlatformIcon from '../../components/PlatformIcon.vue'
@@ -588,8 +588,8 @@ watch(activeTab, () => {
                     <line x1="2" y1="12" x2="22" y2="12"/>
                     <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
                   </svg>
-                  <img v-else-if="getSourceInfoForDownload(record.source).icon.startsWith('http') || getSourceInfoForDownload(record.source).icon.includes('/')" :src="getSourceInfoForDownload(record.source).icon" width="10" height="10" alt="" style="border-radius: 2px;" />
-                  <span v-else-if="getSourceInfoForDownload(record.source).icon.startsWith('<')" v-html="getSourceInfoForDownload(record.source).icon" class="tag-icon-svg"></span>
+                  <img v-else-if="isImageUrl(getSourceInfoForDownload(record.source).icon)" :src="getSourceInfoForDownload(record.source).icon" width="10" height="10" alt="" style="border-radius: 2px;" />
+                  <span v-else-if="isSvgIcon(getSourceInfoForDownload(record.source).icon)" v-html="getSourceInfoForDownload(record.source).icon" class="tag-icon-svg"></span>
                   <svg v-else-if="getSourceInfoForDownload(record.source).icon === 'git'" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="18" cy="18" r="3"/>
                     <circle cx="6" cy="6" r="3"/>

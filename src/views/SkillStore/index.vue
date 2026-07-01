@@ -67,6 +67,7 @@ const storeSources = computed(() => {
 const PAGE_SIZE = 24
 const savedState = storage.getPageState('skill-store')
 const activePresetId = ref(savedState?.presetId || props.storeId)
+const currentSource = computed(() => storeSources.value.find(s => s.id === activePresetId.value))
 const showPickModal = ref(false)
 const pickSkills = ref<{ name: string; description: string; dir: string }[]>([])
 let pickSkillResolve: ((dir: string | null) => void) | null = null
@@ -146,7 +147,8 @@ function fetchCurrentSkills(force = false) {
   if (!force && skillsCache.value[id]) {
     allEntries.value = skillsCache.value[id]
     totalCount.value = totalCountCache.value[id] ?? allEntries.value.length
-    sourceSkills.value = allEntries.value.slice(0, PAGE_SIZE)
+    const isMarketplace = storage.getStoreSources().find(s => s.id === id)?.type === 'marketplace-json'
+    sourceSkills.value = isMarketplace ? allEntries.value : allEntries.value.slice(0, PAGE_SIZE)
     loading.value = false
     stopLoadingDots()
     error.value = ''
@@ -317,17 +319,15 @@ async function fetchGitHubSkills(url: string, directory?: string, branch?: strin
 
 async function fetchMarketplaceSkills(source: StoreSource) {
   const presetId = activePresetId.value
-  loading.value = true; loadingMore.value = false; error.value = ''; allEntries.value = []; totalCount.value = 0; sourceSkills.value = []
+  loading.value = true; error.value = ''
   try {
     const res = await fetch(source.url!)
     const data = await res.json()
     if (activePresetId.value !== presetId) return
+
     const entries = Array.isArray(data) ? data : (data.skills || data.plugins || data.packages || [])
-    totalCount.value = entries.length
-    loading.value = false; stopLoadingDots(); loadingMore.value = true
-    nextTick(reobserveScroll)
-    for (const entry of entries) {
-      if (activePresetId.value !== presetId) { loadingMore.value = false; return }
+
+    const skills: Skill[] = entries.map((entry: any) => {
       const name = entry.name || entry.title || '未知'
       const description = entry.description || ''
       const author = entry.author || ''
@@ -335,23 +335,39 @@ async function fetchMarketplaceSkills(source: StoreSource) {
       const dirName = name.toLowerCase().replace(/\s+/g, '-')
       const category = inferCategory(dirName, description)
       const repo = entry.repo || entry.repository || ''
+      let skillPath = dirName
+      if (entry.homepage && repo) {
+        const repoUrl = `https://github.com/${repo}/tree/`
+        if (entry.homepage.startsWith(repoUrl)) {
+          const afterBranch = entry.homepage.slice(repoUrl.length).split('/').slice(1).join('/')
+          if (afterBranch) skillPath = afterBranch
+        }
+      }
       const skillId = repo ? `${repo}/${dirName}` : `${source.id}/${dirName}`
-      const skill: Skill = {
+      return {
         id: skillId, name, description, author, tags,
         format: 'generic', source: 'marketplace-json',
-        repo: repo || undefined, path: dirName,
+        repo: repo || undefined, path: skillPath,
         category, storeSourceId: presetId,
         sourceUrl: entry.url || entry.sourceUrl || entry.homepage || entry.downloadUrl || source.url,
         iconUrl: entry.icon || entry.iconUrl,
-      }
-      allEntries.value = [...allEntries.value, skill]
-      sourceSkills.value = allEntries.value.slice(0, Math.max(sourceSkills.value.length, PAGE_SIZE))
-    }
-    if (activePresetId.value !== presetId) { loadingMore.value = false; return }
+      } as Skill
+    })
+
+    allEntries.value = skills
+    totalCount.value = skills.length
+    sourceSkills.value = skills
+    loading.value = false
     loadingMore.value = false
-    skillsCache.value[presetId] = allEntries.value; totalCountCache.value[presetId] = allEntries.value.length
-    storage.saveCachedSkills(allEntries.value)
-  } catch (err: any) { error.value = err.message || '加载 Marketplace 失败'; loading.value = false; stopLoadingDots(); loadingMore.value = false }
+
+    skillsCache.value[presetId] = skills
+    totalCountCache.value[presetId] = skills.length
+    storage.saveCachedSkills(skills)
+  } catch (err: any) {
+    error.value = err.message || '加载 Marketplace 失败'
+    loading.value = false
+    loadingMore.value = false
+  }
 }
 
 async function fetchLocalDirSkills(source: StoreSource) {
@@ -407,17 +423,19 @@ const localSearchResults = computed(() => {
 
 const importedSkills = computed(() => {
   const idMap = new Map<string, Skill>()
+  const cached = storage.getCachedSkills()
+  const cachedMap = new Map(cached.map(s => [s.id, s]))
   if (allEntries.value.length) {
     for (const s of allEntries.value) {
-      if (downloadedIds.value.includes(s.id)) idMap.set(s.id, s)
+      if (!downloadedIds.value.includes(s.id)) continue
+      const cs = cachedMap.get(s.id)
+      if (!cs || cs.storeSourceId !== activePresetId.value) continue
+      idMap.set(s.id, s)
     }
   }
-  const cached = storage.getCachedSkills()
-  const repo = activePresetId.value === 'skills-sh' ? null : getPresetOwnerRepo(activePresetId.value)
   for (const s of cached) {
     if (!downloadedIds.value.includes(s.id)) continue
-    if (activePresetId.value === 'skills-sh' && s.storeSourceId !== 'skills-sh' && s.source !== 'skills-sh') continue
-    if (repo && s.id && !s.id.startsWith(repo + '/')) continue
+    if (s.storeSourceId !== activePresetId.value) continue
     if (!idMap.has(s.id)) idMap.set(s.id, s)
   }
   let list = downloadedIds.value.filter((id) => idMap.has(id)).map((id) => idMap.get(id)!)
@@ -440,7 +458,11 @@ function getPresetOwnerRepo(storeId: string): string | null {
 }
 
 const availableSkills = computed(() => {
-  let list = sourceSkills.value.filter((s) => !downloadedIds.value.includes(s.id))
+  let list = sourceSkills.value.filter((s) => {
+    if (!downloadedIds.value.includes(s.id)) return true
+    const cs = storage.getCachedSkills().find(c => c.id === s.id)
+    return !cs || cs.storeSourceId !== activePresetId.value
+  })
   if (filterTab.value !== 'all') list = list.filter((s) => s.category === filterTab.value)
   return list
 })
@@ -553,7 +575,11 @@ function handlePickCancel() {
 }
 
 async function downloadSkill(skill: Skill) {
-  if (!skill.repo || downloadedIds.value.includes(skill.id) || isDownloading(skill.id)) return
+  if (downloadedIds.value.includes(skill.id) || isDownloading(skill.id)) return
+  if (!skill.repo) {
+    showToast('该技能没有关联的 GitHub 仓库，无法下载', 'error')
+    return
+  }
   downloading.value.add(skill.id)
   const queueItem = addDownload(skill.id, skill.name, activePresetId.value || 'unknown')
   try {
@@ -577,7 +603,6 @@ async function downloadSkill(skill: Skill) {
     const rootDir = extractedItems.find((d: any) => d.isDirectory)
     const sourceRoot = rootDir ? rootDir.path : extractDir
     const pathCandidates = [
-      '.',
       skillPath,
       `skills/${skillPath}`,
       `agent-skills/${skillPath}`,
@@ -911,7 +936,11 @@ function confirmDeleteStore() {
               <h3 class="card-name">{{ skill.name }}</h3>
               <p class="card-desc">{{ skill.description || '暂无描述' }}</p>
               <div class="card-badges">
-                <span class="card-badge source-badge">{{ getActivePreset()?.name }}</span>
+                <span class="card-badge source-badge">
+                  <img v-if="currentSource && currentSource.icon && !isSvgIcon(currentSource.icon)" :src="currentSource.icon" width="12" height="12" alt="" class="badge-icon" />
+                  <span v-else-if="currentSource?.icon" v-html="currentSource.icon" class="badge-icon-svg"></span>
+                  {{ currentSource?.label || getActivePreset()?.name }}
+                </span>
               </div>
             </div>
           </div>
@@ -950,7 +979,11 @@ function confirmDeleteStore() {
               <h3 class="card-name">{{ skill.name }}</h3>
               <p class="card-desc">{{ skill.description || '暂无描述' }}</p>
               <div class="card-badges">
-                <span class="card-badge source-badge">{{ getActivePreset()?.name }}</span>
+                <span class="card-badge source-badge">
+                  <img v-if="currentSource && currentSource.icon && !isSvgIcon(currentSource.icon)" :src="currentSource.icon" width="12" height="12" alt="" class="badge-icon" />
+                  <span v-else-if="currentSource?.icon" v-html="currentSource.icon" class="badge-icon-svg"></span>
+                  {{ currentSource?.label || getActivePreset()?.name }}
+                </span>
               </div>
             </div>
           </div>
@@ -975,7 +1008,11 @@ function confirmDeleteStore() {
               <h3 class="card-name">{{ skill.name }}</h3>
               <p class="card-desc">{{ skill.description || '暂无描述' }}</p>
               <div class="card-badges">
-                <span class="card-badge source-badge">{{ getActivePreset()?.name }}</span>
+                <span class="card-badge source-badge">
+                  <img v-if="currentSource && currentSource.icon && !isSvgIcon(currentSource.icon)" :src="currentSource.icon" width="12" height="12" alt="" class="badge-icon" />
+                  <span v-else-if="currentSource?.icon" v-html="currentSource.icon" class="badge-icon-svg"></span>
+                  {{ currentSource?.label || getActivePreset()?.name }}
+                </span>
               </div>
             </div>
           </div>
@@ -1015,7 +1052,11 @@ function confirmDeleteStore() {
                 <h3 class="card-name">{{ skill.name }}</h3>
                 <p class="card-desc">{{ skill.description || '暂无描述' }}</p>
                 <div class="card-badges">
-                  <span class="card-badge source-badge">{{ getActivePreset()?.name }}</span>
+                  <span class="card-badge source-badge">
+                  <img v-if="currentSource && currentSource.icon && !isSvgIcon(currentSource.icon)" :src="currentSource.icon" width="12" height="12" alt="" class="badge-icon" />
+                  <span v-else-if="currentSource?.icon" v-html="currentSource.icon" class="badge-icon-svg"></span>
+                  {{ currentSource?.label || getActivePreset()?.name }}
+                </span>
                 </div>
               </div>
             </div>
@@ -1478,7 +1519,10 @@ function confirmDeleteStore() {
 
 .card-badges { display: flex; gap: 4px; flex-wrap: wrap; }
 .card-badge { font-size: 10px; font-weight: 500; padding: 2px 8px; border-radius: 6px; white-space: nowrap; }
-.card-badge.source-badge { background: hsl(var(--primary) / 0.1); color: hsl(var(--primary)); }
+.card-badge.source-badge { background: hsl(var(--primary) / 0.1); color: hsl(var(--primary)); display: inline-flex; align-items: center; gap: 4px; }
+.badge-icon { border-radius: 2px; flex-shrink: 0; }
+.badge-icon-svg { width: 12px; height: 12px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.badge-icon-svg svg { width: 12px; height: 12px; }
 .card-badge.installs-badge { background: hsl(var(--muted)); color: hsl(var(--muted-foreground)); font-variant-numeric: tabular-nums; }
 
 .download-btn {

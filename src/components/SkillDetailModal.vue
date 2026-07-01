@@ -11,7 +11,7 @@ import { isChineseContent, computeContentHash } from '../utils/translate'
 import type { TranslationMode } from '../utils/translate'
 import { getAvatarColor } from '../utils/color'
 import { SKILL_CATEGORIES, inferCategory, CATEGORY_ICONS } from '../data/skill-categories'
-import { getSourceInfo } from '../utils/source-info'
+import { getSourceInfo, isSvgIcon, isImageUrl } from '../utils/source-info'
 import { useTranslationQueue } from '../composables/useTranslationQueue'
 
 const props = defineProps<{ skill: Skill }>()
@@ -102,6 +102,26 @@ async function fetchContent() {
         initChineseDetection()
         return
       }
+    }
+    if (props.skill.sourceUrl) {
+      try {
+        const rawUrl = props.skill.sourceUrl
+          .replace('https://github.com/', 'https://raw.githubusercontent.com/')
+          .replace('/tree/', '/')
+        const resp = await fetch(`${rawUrl}/SKILL.md`)
+        if (resp.ok) {
+          const text = await resp.text()
+          if (text && (text.includes('#') || text.includes('---'))) {
+            const fm = parseFrontmatter(text)
+            skillName.value = props.skill.name
+            skillDesc.value = fm.description || props.skill.description || ''
+            skillContent.value = text
+            loading.value = false
+            initChineseDetection()
+            return
+          }
+        }
+      } catch {}
     }
     skillName.value = props.skill.name
     skillDesc.value = props.skill.description || ''
@@ -411,7 +431,11 @@ function handlePickCancel() {
 }
 
 async function handleImport() {
-  if (!props.skill.repo || isDownloaded.value) return
+  if (isDownloaded.value) return
+  if (!props.skill.repo) {
+    showToast('该技能没有关联的 GitHub 仓库，无法导入', 'error')
+    return
+  }
   importing.value = true
   try {
     const gh = props.skill.repo.split('/')
@@ -424,7 +448,7 @@ async function handleImport() {
     const extractedItems = window.services.readDir(extractDir)
     const rootDir = extractedItems.find((d: any) => d.isDirectory)
     const sourceRoot = rootDir ? rootDir.path : extractDir
-    const candidates = ['.', props.skill.path, `skills/${props.skill.path}`, `agent-skills/${props.skill.path}`].filter(Boolean) as string[]
+    const candidates = [props.skill.path, `skills/${props.skill.path}`, `agent-skills/${props.skill.path}`].filter(Boolean) as string[]
     let sourceDir: string | null = ''
     for (const p of candidates) {
       const candidate = window.services.pathJoin(sourceRoot, p)
@@ -478,8 +502,8 @@ async function handleImport() {
                     <line x1="2" y1="12" x2="22" y2="12"/>
                     <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
                   </svg>
-                  <img v-else-if="sourceInfo.icon.startsWith('http') || sourceInfo.icon.includes('/')" :src="sourceInfo.icon" width="12" height="12" alt="" style="border-radius: 2px;" />
-                  <span v-else-if="sourceInfo.icon.startsWith('<')" v-html="sourceInfo.icon" class="tag-icon-svg"></span>
+                  <img v-else-if="isImageUrl(sourceInfo.icon)" :src="sourceInfo.icon" width="12" height="12" alt="" style="border-radius: 2px;" />
+                  <span v-else-if="isSvgIcon(sourceInfo.icon)" v-html="sourceInfo.icon" class="tag-icon-svg"></span>
                   <svg v-else-if="sourceInfo.icon === 'git'" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="18" cy="18" r="3"/>
                     <circle cx="6" cy="6" r="3"/>
@@ -587,7 +611,7 @@ async function handleImport() {
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
           已在我的 Skill 中
         </div>
-        <button v-else class="import-btn" :disabled="importing || loading" @click="handleImport">
+        <button v-else class="import-btn" :disabled="importing || loading || !props.skill.repo" :title="!props.skill.repo ? '该技能没有关联的 GitHub 仓库' : ''" @click="handleImport">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           {{ importing ? '导入中...' : '导入到我的 Skill' }}
         </button>

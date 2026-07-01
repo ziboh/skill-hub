@@ -10,6 +10,14 @@ export interface SourceInfo {
   bg: string
 }
 
+export function isSvgIcon(val: string | undefined | null): boolean {
+  return !!val && val.startsWith('<svg')
+}
+
+export function isImageUrl(val: string | undefined | null): boolean {
+  return !!val && !val.startsWith('<svg') && (val.startsWith('http') || val.includes('/'))
+}
+
 export function getSourceInfo(skill: Skill, registry?: Map<string, SkillIdentity>): SourceInfo {
   if (registry) {
     const identity = registry.get(skill.canonicalId || skill.id)

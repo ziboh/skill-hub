@@ -13,7 +13,7 @@ import BatchSyncModal from '../../components/BatchSyncModal.vue'
 import ConfirmDeleteModal from '../../components/ConfirmDeleteModal.vue'
 import ConfirmBatchDeleteModal from '../../components/ConfirmBatchDeleteModal.vue'
 import { loadRegistry, getSourceLabel as getRegistrySourceLabel } from '../../utils/skill-registry'
-import { getSourceInfo as getSourceInfoUtil } from '../../utils/source-info'
+import { getSourceInfo as getSourceInfoUtil, isSvgIcon, isImageUrl } from '../../utils/source-info'
 import { isChineseContent } from '../../utils/translate'
 import { getAvatarColor } from '../../utils/color'
 import { KeyFilterCategory, KeyFilterSource, KeyRefreshMySkills, KeyOpenImportModal, KeyCurrentRoute, KeyRefreshKey, KeyRefreshCounts } from '../../inject-keys'
@@ -60,25 +60,30 @@ function refreshData() {
 
 async function enrichLocalDescriptions() {
   let changed = false
+  const userData = window.ztools.getPath('userData')
   for (const skill of allSkills.value) {
     if (!downloadedIds.value.includes(skill.id)) continue
-    const cleaned = cleanDescription(skill.description)
-    if (cleaned && cleaned === skill.description) continue
-    if (cleaned) { skill.description = cleaned; changed = true; continue }
-    skill.description = ''
-    changed = true
     try {
-      const skillDir = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', skill.id)
+      const skillDir = window.services.pathJoin(userData, 'skills-repo', skill.id)
       const files = window.services.readDir(skillDir)
       const skillMd = files.find((f: any) => f.name === 'SKILL.md' || f.name === 'skill.md')
       if (skillMd) {
         const parsed = window.services.parseSkillFile(skillMd.path)
         if (parsed?.manifest?.description) {
-          skill.description = parsed.manifest.description
-          changed = true
+          const newDesc = parsed.manifest.description
+          if (newDesc !== skill.description) {
+            skill.description = newDesc
+            changed = true
+          }
+          continue
         }
       }
     } catch { }
+    const cleaned = cleanDescription(skill.description)
+    if (cleaned !== skill.description) {
+      skill.description = cleaned || ''
+      changed = true
+    }
   }
   if (changed) {
     storage.saveCachedSkills(allSkills.value.map(s => ({ ...s })))
@@ -210,6 +215,23 @@ function getCategoryInfo(skill: Skill): { label: string; icon: string } {
   const cat = getSkillCategory(skill)
   return { label: SKILL_CATEGORIES[cat].label, icon: CATEGORY_ICONS[cat] }
 }
+
+const translatedSkillIds = computed(() => {
+  const descCaches = storage.getDescTranslationCaches()
+  const contentCaches = storage.getTranslationCaches()
+
+  const descNames = new Set(Object.values(descCaches).map((e: any) => e.skillName).filter(Boolean))
+  const contentNames = new Set(Object.values(contentCaches).map((e: any) => e.skillName).filter(Boolean))
+
+  const result = new Set<string>()
+  for (const skill of allSkills.value) {
+    if (!skill.description || isChineseContent(skill.description)) continue
+    if (descNames.has(skill.name) && contentNames.has(skill.name)) {
+      result.add(skill.id)
+    }
+  }
+  return result
+})
 
 
 
@@ -577,8 +599,8 @@ function batchSyncToPlatform() {
                   <line x1="2" y1="12" x2="22" y2="12"/>
                   <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
                 </svg>
-                <img v-else-if="getSourceInfo(skill).icon.startsWith('http') || getSourceInfo(skill).icon.includes('/')" :src="getSourceInfo(skill).icon" width="10" height="10" alt="" style="border-radius: 2px;" />
-                <span v-else-if="getSourceInfo(skill).icon.startsWith('<')" v-html="getSourceInfo(skill).icon" class="tag-icon-svg"></span>
+                <img v-else-if="isImageUrl(getSourceInfo(skill).icon)" :src="getSourceInfo(skill).icon" width="10" height="10" alt="" style="border-radius: 2px;" />
+                <span v-else-if="isSvgIcon(getSourceInfo(skill).icon)" v-html="getSourceInfo(skill).icon" class="tag-icon-svg"></span>
                 <svg v-else-if="getSourceInfo(skill).icon === 'git'" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <circle cx="18" cy="18" r="3"/>
                   <circle cx="6" cy="6" r="3"/>
@@ -592,6 +614,7 @@ function batchSyncToPlatform() {
               </span>
               <span class="card-tag category-tag">{{ getCategoryInfo(skill).icon }} {{ getCategoryInfo(skill).label }}</span>
               <span v-if="isChineseContent(skill.description || '')" class="card-tag chinese-tag">中文</span>
+              <span v-if="translatedSkillIds.has(skill.id)" class="card-tag translated-tag">译</span>
             </div>
             <div v-if="!batchMode" class="card-actions">
               <button class="card-action-btn" title="分发" @click.stop="openDeploy(skill)">
@@ -1294,6 +1317,11 @@ function batchSyncToPlatform() {
 .card-tag.chinese-tag {
   background: hsl(0 70% 50% / 0.1);
   color: hsl(0 70% 50%);
+}
+
+.card-tag.translated-tag {
+  background: hsl(160 70% 40% / 0.1);
+  color: hsl(160 70% 35%);
 }
 
 .card-actions {

@@ -112,7 +112,7 @@ async function importSelected() {
         const sourceRoot = rootDir ? rootDir.path : extractDir
         let skillSourceDir = window.services.pathJoin(sourceRoot, skill.path || '')
         if (!window.services.pathExists(skillSourceDir)) {
-          const pathCandidates = ['.', skill.path, `skills/${skill.path}`, `agent-skills/${skill.path}`].filter(Boolean) as string[]
+          const pathCandidates = [skill.path, `skills/${skill.path}`, `agent-skills/${skill.path}`].filter(Boolean) as string[]
           for (const p of pathCandidates) {
             const c = window.services.pathJoin(sourceRoot, p)
             if (window.services.pathExists(c)) { skillSourceDir = c; break }

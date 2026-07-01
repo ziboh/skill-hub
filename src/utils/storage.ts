@@ -242,9 +242,13 @@ export const storage = {
   saveCachedSkills(skills: Skill[]): void {
     const existing = this.getCachedSkills()
     const map = new Map(existing.map((s) => [s.id, s]))
+    const downloadedIds = this.getDownloadedIds()
     for (const s of skills) {
       const copy = JSON.parse(JSON.stringify(s)) as Skill
       copy.description = cleanDescription(copy.description)
+      if (downloadedIds.includes(copy.id) && map.has(copy.id)) {
+        copy.storeSourceId = map.get(copy.id)!.storeSourceId || copy.storeSourceId
+      }
       map.set(copy.id, copy)
     }
     dbSet(KEYS.CACHED_SKILLS, Array.from(map.values()))
@@ -402,6 +406,12 @@ export const storage = {
   },
   clearTranslations(): void {
     this._writeTranslationCache({})
+  },
+  getTranslationCaches(): Record<string, { sourceContent: string; translatedContent: string; mode: string; updatedAt: number; skillName?: string }> {
+    return this._readTranslationCache()
+  },
+  getDescTranslationCaches(): Record<string, { translatedDesc: string; updatedAt: number; skillName?: string }> {
+    return this._readDescTranslationCache()
   },
 
   // === Description Translation Cache (keyed by descHash) ===
