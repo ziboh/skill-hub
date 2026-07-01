@@ -107,7 +107,8 @@ function clearIcon() {
 
     <div class="sip-preview">
       <div class="sip-preview-icon">
-        <span v-if="currentIconType === 'default'" v-html="defaultIcon || STORE_TYPE_DEFAULT_ICONS['git-repo']" class="sip-preview-svg"></span>
+        <ProviderIcon v-if="currentIconType === 'default' && defaultIcon && isProviderIcon(defaultIcon)" :icon="defaultIcon" :size="32" />
+        <span v-else-if="currentIconType === 'default'" v-html="defaultIcon || STORE_TYPE_DEFAULT_ICONS['git-repo']" class="sip-preview-svg"></span>
         <span v-else-if="currentIconType === 'svg'" v-html="modelValue" class="sip-preview-svg"></span>
         <ProviderIcon v-else-if="currentIconType === 'provider-icon'" :icon="modelValue" :size="32" />
         <template v-else-if="currentIconType === 'store-icon' && resolvedStoreIcon">
@@ -144,7 +145,8 @@ function clearIcon() {
         </div>
         <div class="sip-grid">
           <div class="sip-grid-item" :class="{ active: !modelValue }" @click="selectDefault" title="默认（根据类型自动选择）">
-            <span class="sip-grid-svg" v-html="defaultIcon || STORE_TYPE_DEFAULT_ICONS['git-repo']"></span>
+            <ProviderIcon v-if="defaultIcon && isProviderIcon(defaultIcon)" :icon="defaultIcon" :size="24" />
+            <span v-else class="sip-grid-svg" v-html="defaultIcon || STORE_TYPE_DEFAULT_ICONS['git-repo']"></span>
             <span class="sip-grid-label">默认</span>
           </div>
           <div class="sip-grid-item" :class="{ active: modelValue === 'store:git-repo' }" @click="selectIcon('store:git-repo')" title="Git 仓库">

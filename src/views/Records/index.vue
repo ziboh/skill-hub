@@ -976,10 +976,10 @@ watch(activeTab, () => {
   border-bottom: 1px solid hsl(var(--border));
 }
 
-.header-left { display: flex; flex-direction: column; gap: 8px; }
+.header-left { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .header-title-row { display: flex; align-items: center; gap: 12px; }
 .header-left h2 { font-size: 24px; font-weight: 600; color: hsl(var(--foreground)); margin: 0; }
-.page-subtitle { font-size: 14px; color: hsl(var(--muted-foreground)); margin: 0; }
+.page-subtitle { font-size: 14px; color: hsl(var(--muted-foreground)); margin: 0; white-space: nowrap; overflow: hidden; }
 
 .filter-tabs-row { display: flex; align-items: center; gap: 6px; padding: 12px 32px 0; }
 .filter-tabs { display: flex; align-items: center; gap: 4px; }

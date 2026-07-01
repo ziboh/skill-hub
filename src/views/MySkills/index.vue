@@ -698,6 +698,7 @@ function batchSyncToPlatform() {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
 }
 
 .header-title-row {
@@ -717,6 +718,8 @@ function batchSyncToPlatform() {
   font-size: 13px;
   color: hsl(var(--muted-foreground));
   margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .count-badge {

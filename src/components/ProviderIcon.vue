@@ -14,9 +14,12 @@
  *   <ProviderIcon icon="openai" />                — avatar circle (default)
  *   <ProviderIcon icon="openai" variant="mono" /> — standalone icon
  *   <ProviderIcon icon="openai" :size="32" />     — custom size
+ *   <ProviderIcon icon="https://..." />           — URL image
+ *   <ProviderIcon icon="data:image/..." />        — data URI
+ *   <ProviderIcon icon="<svg>...</svg>" />         — inline SVG
  */
 
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 const props = withDefaults(defineProps<{
   icon?: string
@@ -46,6 +49,17 @@ function resolveName(icon: string): string {
   return ICON_ALIAS[icon] || icon
 }
 
+/* ── Icon type detection ──────────────────────────────────────── */
+
+type IconType = 'svg' | 'data-uri' | 'url' | 'local-path' | 'provider-icon'
+
+function detectIconType(icon: string): IconType {
+  if (icon.startsWith('<svg')) return 'svg'
+  if (icon.startsWith('data:')) return 'data-uri'
+  if (icon.startsWith('http://') || icon.startsWith('https://') || icon.startsWith('/')) return 'url'
+  return 'provider-icon'
+}
+
 /* ── Unique IDs (cherry-studio useId equivalent) ──────────────── */
 
 let uidCounter = 0
@@ -59,10 +73,15 @@ function injectSvg(raw: string): string {
     .replace(/\shref="#/g,            ` href="#${uid}-`)
 }
 
-/* ── Computed SVG content ────────────────────────────────────── */
+/* ── Computed icon data ───────────────────────────────────────── */
+
+const iconType = computed<IconType | null>(() => {
+  if (!props.icon) return null
+  return detectIconType(props.icon)
+})
 
 const iconSvg = computed(() => {
-  if (!props.icon) return ''
+  if (!props.icon || iconType.value !== 'provider-icon') return ''
   const name = resolveName(props.icon)
   const raw = (
     providerModules[`/src/assets/providers/${name}.svg`]
@@ -71,28 +90,72 @@ const iconSvg = computed(() => {
   )
   return raw ? injectSvg(raw) : ''
 })
+
+const iconSrc = computed(() => {
+  if (!props.icon) return ''
+  const t = iconType.value
+  if (t === 'svg') return props.icon
+  if (t === 'data-uri' || t === 'url') return props.icon
+  return ''
+})
+
+const localFileDataUri = ref('')
+
+watch(() => props.icon, (icon) => {
+  if (!icon) { localFileDataUri.value = ''; return }
+  const t = detectIconType(icon)
+  if (t === 'provider-icon' || t === 'svg' || t === 'data-uri' || t === 'url') {
+    localFileDataUri.value = ''
+    return
+  }
+  // local file path — read as data URI
+  if (window.services?.readFileAsDataUri) {
+    localFileDataUri.value = window.services.readFileAsDataUri(icon) || ''
+  } else {
+    localFileDataUri.value = ''
+  }
+}, { immediate: true })
+
+const isSvgInline = computed(() => iconType.value === 'svg' && iconSvg.value === '')
 </script>
 
 <template>
-  <!-- Avatar variant: circular themed container (cherry-studio CompoundIcon.Avatar) -->
+  <!-- Avatar variant: circular themed container -->
   <span
     v-if="variant === 'avatar'"
     class="pi-avatar"
     :style="{ width: size + 'px', height: size + 'px', minWidth: size + 'px' }"
   >
-    <span
-      v-if="iconSvg"
-      v-html="iconSvg"
-      class="pi-avatar-icon"
-    />
+    <span v-if="iconSvg" v-html="iconSvg" class="pi-avatar-icon" />
+    <span v-else-if="iconType === 'svg'" v-html="icon" class="pi-avatar-icon" />
+    <img v-else-if="iconType === 'url' || iconType === 'data-uri'" :src="icon" class="pi-avatar-img" />
+    <img v-else-if="localFileDataUri" :src="localFileDataUri" class="pi-avatar-img" />
     <span v-else class="pi-fallback">&#x2699;</span>
   </span>
 
-  <!-- Mono variant: standalone icon, inherits text color (cherry-studio default) -->
+  <!-- Mono variant: standalone icon, inherits text color -->
   <span
     v-else-if="iconSvg"
     v-html="iconSvg"
     class="pi-mono"
+    :style="{ width: size + 'px', height: size + 'px' }"
+  />
+  <span
+    v-else-if="iconType === 'svg'"
+    v-html="icon"
+    class="pi-mono"
+    :style="{ width: size + 'px', height: size + 'px' }"
+  />
+  <img
+    v-else-if="iconType === 'url' || iconType === 'data-uri'"
+    :src="icon"
+    class="pi-mono-img"
+    :style="{ width: size + 'px', height: size + 'px' }"
+  />
+  <img
+    v-else-if="localFileDataUri"
+    :src="localFileDataUri"
+    class="pi-mono-img"
     :style="{ width: size + 'px', height: size + 'px' }"
   />
   <span v-else class="pi-fallback-mono">&#x2699;</span>
@@ -122,6 +185,12 @@ const iconSvg = computed(() => {
   transform: scale(1.5);
 }
 
+.pi-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
 .pi-mono {
   display: flex;
   align-items: center;
@@ -132,6 +201,11 @@ const iconSvg = computed(() => {
 .pi-mono :deep(svg) {
   width: 100%;
   height: 100%;
+}
+
+.pi-mono-img {
+  object-fit: contain;
+  flex-shrink: 0;
 }
 
 .pi-fallback {

@@ -630,8 +630,9 @@ function getStatusLabel(status: string) {
   background: hsl(var(--card));
   border: 1px solid hsl(var(--border));
   border-radius: 16px;
-  width: 720px;
+  width: 560px;
   max-width: 95vw;
+  height: 480px;
   max-height: calc(100vh - 40px);
   display: flex;
   flex-direction: column;
@@ -696,9 +697,11 @@ function getStatusLabel(status: string) {
 }
 
 .panel-content {
-  flex: 1;
+  flex: 1 1 auto;
   overflow-y: auto;
   padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
 }
 
 .option-group {
@@ -753,8 +756,8 @@ function getStatusLabel(status: string) {
 
 .header-model-select {
   flex-shrink: 0;
-  width: 200px;
-  margin-inline: auto;
+  width: 180px;
+  margin-left: 12px;
 }
 
 .panel-actions {
@@ -851,6 +854,11 @@ function getStatusLabel(status: string) {
 .status-summary-item.done .status-dot { background: hsl(var(--success)); }
 
 .empty-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   text-align: center;
   padding: 40px 20px;
 }

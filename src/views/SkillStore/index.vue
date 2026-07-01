@@ -157,6 +157,7 @@ function reobserveScroll() { if (scrollObserver) { scrollObserver.disconnect(); 
 
 function fetchCurrentSkills(force = false) {
   const id = activePresetId.value
+  // 检查内存缓存
   if (!force && skillsCache.value[id]) {
     allEntries.value = skillsCache.value[id]
     totalCount.value = totalCountCache.value[id] ?? allEntries.value.length
@@ -168,6 +169,23 @@ function fetchCurrentSkills(force = false) {
     nextTick(reobserveScroll)
     return
   }
+  // 检查持久化缓存（仅 marketplace-json 类型使用）
+  const custom = storage.getStoreSources().find(s => s.id === id)
+  if (!force && custom?.type === 'marketplace-json') {
+    const cachedSkills = storage.getCachedSkills().filter(s => s.storeSourceId === id)
+    if (cachedSkills.length > 0) {
+      skillsCache.value[id] = cachedSkills
+      totalCountCache.value[id] = cachedSkills.length
+      allEntries.value = cachedSkills
+      totalCount.value = cachedSkills.length
+      sourceSkills.value = cachedSkills
+      loading.value = false
+      stopLoadingDots()
+      error.value = ''
+      nextTick(reobserveScroll)
+      return
+    }
+  }
   const preset = presets.find((p) => p.id === id)
   if (preset) {
     allEntries.value = []; totalCount.value = 0
@@ -176,7 +194,6 @@ function fetchCurrentSkills(force = false) {
     else if (preset.url) fetchGitHubSkills(preset.url, preset.directory)
     return
   }
-  const custom = storage.getStoreSources().find(s => s.id === id)
   if (!custom) {
     const first = storeSources.value[0]
     if (first && first.id !== id) {
@@ -189,7 +206,7 @@ function fetchCurrentSkills(force = false) {
   allEntries.value = []; totalCount.value = 0
   startLoadingDots()
   if (custom.type === 'git-repo') fetchGitHubSkills(custom.url!, custom.directory, custom.branch)
-  else if (custom.type === 'marketplace-json') fetchMarketplaceSkills(custom)
+  else if (custom.type === 'marketplace-json') fetchMarketplaceSkills(custom, force)
   else if (custom.type === 'local-dir') fetchLocalDirSkills(custom)
 }
 
@@ -330,8 +347,36 @@ async function fetchGitHubSkills(url: string, directory?: string, branch?: strin
   } catch (err: any) { error.value = err.message; loading.value = false; stopLoadingDots(); loadingMore.value = false }
 }
 
-async function fetchMarketplaceSkills(source: StoreSource) {
+async function fetchMarketplaceSkills(source: StoreSource, force = false) {
   const presetId = activePresetId.value
+  // 先检查内存缓存
+  if (!force && skillsCache.value[presetId]) {
+    allEntries.value = skillsCache.value[presetId]
+    totalCount.value = totalCountCache.value[presetId] ?? allEntries.value.length
+    sourceSkills.value = allEntries.value
+    loading.value = false
+    loadingMore.value = false
+    error.value = ''
+    nextTick(reobserveScroll)
+    return
+  }
+  // 检查持久化缓存
+  if (!force) {
+    const cachedSkills = storage.getCachedSkills().filter(s => s.storeSourceId === presetId)
+    if (cachedSkills.length > 0) {
+      skillsCache.value[presetId] = cachedSkills
+      totalCountCache.value[presetId] = cachedSkills.length
+      allEntries.value = cachedSkills
+      totalCount.value = cachedSkills.length
+      sourceSkills.value = cachedSkills
+      loading.value = false
+      loadingMore.value = false
+      error.value = ''
+      nextTick(reobserveScroll)
+      return
+    }
+  }
+  // 没有缓存，重新获取
   loading.value = true; error.value = ''
   try {
     const res = await fetch(source.url!)
@@ -1138,6 +1183,7 @@ function confirmDeleteStore() {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
 }
 
 .header-title-row {
@@ -1157,6 +1203,8 @@ function confirmDeleteStore() {
   font-size: 13px;
   color: hsl(var(--muted-foreground));
   margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .count-badge {

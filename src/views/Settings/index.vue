@@ -2,7 +2,7 @@
 import { ref, onMounted, computed, inject, watch, nextTick } from 'vue'
 import { KeyShowToast } from '../../inject-keys'
 import { defaultPlatforms } from '../../data/platforms'
-import { BUILTIN_PROVIDERS, getProviderInfo, AVAILABLE_ICONS } from '../../data/ai-providers'
+import { BUILTIN_PROVIDERS, getProviderInfo } from '../../data/ai-providers'
 import { storage } from '../../utils/storage'
 import { getMandiThemes, hexToHsl } from '../../utils/theme'
 import type { AppSettings, PlatformInfo, ThemeMode, FontSize, MotionPreference, ModelConfig } from '../../types'
@@ -11,6 +11,7 @@ import { useSettings } from '../../composables/useSettings'
 import { fetchAvailableModels, chatCompletion } from '../../utils/ai'
 import PlatformIcon from '../../components/PlatformIcon.vue'
 import ProviderIcon from '../../components/ProviderIcon.vue'
+import StoreIconPicker from '../../components/StoreIconPicker.vue'
 import ConfirmModal from '../../components/ConfirmModal.vue'
 import CleanupSelectModal from '../../components/CleanupSelectModal.vue'
 import QuickSwitcher, { type QuickSwitcherItem } from '../../components/QuickSwitcher.vue'
@@ -448,25 +449,33 @@ const modelForm = ref<ModelConfig>({
   id: '', name: '', provider: 'openai', baseUrl: '', apiPath: '', apiKeys: [], model: '', isDefault: false, isBuiltin: false, enabled: true, models: [], icon: '',
 })
 const showIconPicker = ref(false)
-const iconSearchQuery = ref('')
-const iconSearchRef = ref<HTMLInputElement>()
 const editingIconProviderId = ref<string | null>(null)
-watch(showIconPicker, (v) => {
-  if (v) {
-    iconSearchQuery.value = ''
-    nextTick(() => iconSearchRef.value?.focus())
-  }
-})
-const filteredIcons = computed(() => {
-  const q = iconSearchQuery.value.toLowerCase()
-  const list = q ? AVAILABLE_ICONS.filter(name => name.includes(q)) : AVAILABLE_ICONS
-  return list.filter(name => name !== 'openai')
-})
 const defaultProviderIcon = computed(() => {
   const providerId = editingIconProviderId.value
     ? (settings.aiModels.find(m => m.id === editingIconProviderId.value)?.provider || '')
     : modelForm.value.provider
   return getProviderInfo(providerId)?.icon || 'openai'
+})
+
+const currentIconValue = computed({
+  get() {
+    if (editingIconProviderId.value) {
+      return settings.aiModels.find(m => m.id === editingIconProviderId.value)?.icon || ''
+    }
+    return modelForm.value.icon
+  },
+  set(value: string) {
+    if (editingIconProviderId.value) {
+      const models = [...settings.aiModels]
+      const idx = models.findIndex(m => m.id === editingIconProviderId.value)
+      if (idx >= 0) {
+        models[idx] = { ...models[idx], icon: value }
+        updateSettings({ aiModels: models })
+      }
+    } else {
+      modelForm.value.icon = value
+    }
+  }
 })
 const showFetchModal = ref(false)
 const fetchModelsResult = ref<{ id: string; name: string; owned_by?: string }[]>([])
@@ -1105,21 +1114,6 @@ function openIconPickerForProvider(providerId: string) {
   editingIconProviderId.value = providerId
   editingModelIndex.value = null
   showIconPicker.value = true
-}
-
-function onIconPickerSelect(iconName: string) {
-  if (editingIconProviderId.value) {
-    const models = [...settings.aiModels]
-    const idx = models.findIndex(m => m.id === editingIconProviderId.value)
-    if (idx >= 0) {
-      models[idx] = { ...models[idx], icon: iconName }
-      updateSettings({ aiModels: models })
-    }
-    editingIconProviderId.value = null
-  } else if (editingModelIndex.value !== null) {
-    modelForm.value.icon = iconName
-  }
-  showIconPicker.value = false
 }
 
 function openAddModelModal(providerIndex: number) {
@@ -2004,35 +1998,13 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
         <div v-if="showIconPicker" class="modal-overlay" style="z-index: 1100;" @click.self="showIconPicker = false">
           <div class="modal modal-sm" style="width: 420px;">
             <div class="modal-header">
-              <h3 class="modal-title">选择图标 <span class="modal-title-count">{{ filteredIcons.length }}/{{ AVAILABLE_ICONS.length }}</span></h3>
+              <h3 class="modal-title">选择图标</h3>
               <button class="modal-close" @click="showIconPicker = false">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
             </div>
             <div class="modal-body" style="padding: 12px;">
-              <div class="icon-picker-search">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-                <input v-model="iconSearchQuery" type="text" class="icon-picker-input" placeholder="搜索图标..." @keydown.escape="showIconPicker = false" ref="iconSearchRef" />
-              </div>
-              <div class="icon-picker-grid">
-                <div class="icon-picker-item" :class="{ active: editingIconProviderId ? !(settings.aiModels.find(m => m.id === editingIconProviderId)?.icon) : !modelForm.icon }" @click="onIconPickerSelect('')">
-                  <span class="icon-picker-item-icon"><ProviderIcon :icon="defaultProviderIcon" :size="28" /></span>
-                  <span class="icon-picker-item-label">默认</span>
-                </div>
-                <div class="icon-picker-item" :class="{ active: editingIconProviderId ? settings.aiModels.find(m => m.id === editingIconProviderId)?.icon === 'openai' : modelForm.icon === 'openai' }" @click="onIconPickerSelect('openai')">
-                  <span class="icon-picker-item-icon"><ProviderIcon icon="openai" :size="28" /></span>
-                  <span class="icon-picker-item-label">openai</span>
-                </div>
-                <div
-                  v-for="name in filteredIcons" :key="name"
-                  class="icon-picker-item"
-                  :class="{ active: editingIconProviderId ? settings.aiModels.find(m => m.id === editingIconProviderId)?.icon === name : modelForm.icon === name }"
-                  @click="onIconPickerSelect(name)"
-                >
-                  <span class="icon-picker-item-icon"><ProviderIcon :icon="name" :size="28" /></span>
-                  <span class="icon-picker-item-label">{{ name }}</span>
-                </div>
-              </div>
+              <StoreIconPicker v-model="currentIconValue" :defaultIcon="defaultProviderIcon" />
             </div>
           </div>
         </div>

@@ -235,6 +235,7 @@ function getSourceLabel(type: string): string { return { 'marketplace-json': 'Ma
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
 }
 
 .header-title-row {
@@ -255,6 +256,8 @@ function getSourceLabel(type: string): string { return { 'marketplace-json': 'Ma
   font-size: 13px;
   color: hsl(var(--muted-foreground));
   margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .back-btn {

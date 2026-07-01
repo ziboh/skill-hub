@@ -351,15 +351,25 @@ export const storage = {
     const repoRoot = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo')
     const cached = this.getCachedSkills()
     const ids = this.getDownloadedIds()
-    const aliveCached = cached.filter((s) => {
-      const dir = window.services.pathJoin(repoRoot, s.id)
+    const downloadedSet = new Set(ids)
+
+    // 已下载的技能：目录必须存在，否则清理
+    const aliveDownloaded = ids.filter((id) => {
+      const dir = window.services.pathJoin(repoRoot, id)
       return window.services.pathExists(dir)
     })
-    const aliveIds = aliveCached.map((s) => s.id)
-    const aliveIdSet = new Set(aliveIds)
-    const aliveInstallRecords = this.getInstallRecords().filter((r) => aliveIdSet.has(r.skillId))
+    const aliveDownloadedSet = new Set(aliveDownloaded)
+
+    // 缓存技能：已下载的保留目录存在的，未下载的全部保留（用于商店浏览）
+    const aliveCached = cached.filter((s) => {
+      if (downloadedSet.has(s.id)) return aliveDownloadedSet.has(s.id)
+      return true
+    })
+
+    const aliveInstallRecords = this.getInstallRecords().filter((r) => aliveDownloadedSet.has(r.skillId))
+
     if (aliveCached.length !== cached.length) { dbSet(KEYS.CACHED_SKILLS, aliveCached); invalidateCachedSkills() }
-    if (aliveIds.length !== ids.length) { dbSet(KEYS.DOWNLOADED_IDS, aliveIds); invalidateDownloadedCache() }
+    if (aliveDownloaded.length !== ids.length) { dbSet(KEYS.DOWNLOADED_IDS, aliveDownloaded); invalidateDownloadedCache() }
     if (aliveInstallRecords.length !== this.getInstallRecords().length) dbSet(KEYS.INSTALLED_SKILLS, aliveInstallRecords)
   },
 
