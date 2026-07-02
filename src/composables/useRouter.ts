@@ -1,4 +1,5 @@
 import { ref, computed } from 'vue'
+import { storage } from '../utils/storage'
 import type { Skill, SkillScanResult } from '../types'
 
 export type RouteName = 'my' | 'store' | 'detail' | 'agent-skills' | 'agent-skill-detail' | 'project-skills' | 'sources' | 'settings' | 'records'
@@ -23,7 +24,7 @@ export function useRouter() {
   const selectedAgentPlatformId = ref('')
   const selectedDuplicateSkills = ref<SkillScanResult[] | null>(null)
   const settingsAnchor = ref('')
-  const storeSubId = ref('claude')
+  const storeSubId = ref(storage.getPageState('skill-store')?.presetId || 'claude')
 
   const activeRoute = computed(() => {
     if (route.value === 'sources') return 'store' as RouteName
@@ -61,6 +62,13 @@ export function useRouter() {
         selectedDuplicateSkills.value = params.duplicateSkills
       } else {
         selectedDuplicateSkills.value = null
+      }
+    }
+    // 当导航到商店页面且没有传递sub参数时，从存储中读取保存的状态
+    if (code === 'store' && !params?.sub) {
+      const savedState = storage.getPageState('skill-store')
+      if (savedState?.presetId) {
+        storeSubId.value = savedState.presetId
       }
     }
   }

@@ -32,98 +32,10 @@ body {
   zoom: var(--app-zoom, 1);
 }
 
-.app-background {
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  background-size: cover;
-  background-position: center;
-  pointer-events: none;
-  display: none;
-}
-
 .app-content {
-  position: relative;
-  z-index: 1;
   display: flex;
   height: 100vh;
   overflow: hidden;
-}
-
-/* ===== BACKGROUND IMAGE MODE ===== */
-:root[data-has-bg] .app-content { background: transparent; }
-:root[data-has-bg] .main-content { background: transparent; }
-:root[data-has-bg] .rail-sidebar {
-  background: hsl(var(--sidebar) / 0.7);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
-:root[data-has-bg] .settings-sidebar {
-  background: hsl(var(--app-ui-panel-bg) / 0.7);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-:root[data-has-bg] .settings-content { background: transparent; }
-
-/* ===== BACKGROUND IMAGE — SURFACE OVERRIDES ===== */
-:root[data-has-bg] .skill-card,
-:root[data-has-bg] .stat-card,
-:root[data-has-bg] .action-card,
-:root[data-has-bg] .desc-card,
-:root[data-has-bg] .content-card,
-:root[data-has-bg] .sidebar-section,
-:root[data-has-bg] .add-form,
-:root[data-has-bg] .source-card,
-:root[data-has-bg] .header-btn,
-:root[data-has-bg] .back-btn,
-:root[data-has-bg] .desc-text,
-:root[data-has-bg] .icon-btn,
-:root[data-has-bg] .skill-action,
-:root[data-has-bg] .heading-btn,
-:root[data-has-bg] .modal,
-:root[data-has-bg] .confirm-dialog,
-:root[data-has-bg] .confirm-cancel,
-:root[data-has-bg] .action-btn {
-  background: hsl(var(--card) / 0.3);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-
-:root[data-has-bg] .filter-tabs button,
-:root[data-has-bg] .form-input,
-:root[data-has-bg] .examples-box,
-:root[data-has-bg] .toggle-switch,
-:root[data-has-bg] .source-code,
-:root[data-has-bg] .install-log,
-:root[data-has-bg] .stat-icon,
-:root[data-has-bg] .action-icon {
-  background: hsl(var(--muted) / 0.25);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-
-:root[data-has-bg] .setting-card {
-  background: hsl(var(--app-settings-card-bg) / 0.3);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-
-:root[data-has-bg] .segmented-control {
-  background: hsl(var(--app-settings-subtle-bg) / 0.25);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-
-:root[data-has-bg] .rail-btn.active,
-:root[data-has-bg] .filter-tabs button.active,
-:root[data-has-bg] .download-btn,
-:root[data-has-bg] .add-btn,
-:root[data-has-bg] .import-btn,
-:root[data-has-bg] .scan-btn,
-:root[data-has-bg] .install-my-skill-btn {
-  background: hsl(var(--primary) / 0.5);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
 }
 
 /* ===== RAIL SIDEBAR ===== */
@@ -230,6 +142,8 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
+  margin-top: auto;
+  flex-shrink: 0;
 }
 
 /* ===== MAIN AREA ===== */

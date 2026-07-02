@@ -15,10 +15,12 @@ const props = withDefaults(defineProps<{
   placeholder?: string
   addLabel?: string
   showAdd?: boolean
+  emptyText?: string
 }>(), {
   placeholder: '搜索...',
   addLabel: '添加',
   showAdd: false,
+  emptyText: '无项目',
 })
 
 const emit = defineEmits<{
@@ -162,7 +164,7 @@ function select(id: string) {
       <slot name="trigger-prefix" :item="selectedItem">
         <span class="qs-trigger-avatar">{{ selectedItem ? selectedItem.label.charAt(0).toUpperCase() : '?' }}</span>
       </slot>
-      <span class="qs-trigger-label">{{ selectedItem ? selectedItem.label : (items.length ? '选择...' : '无项目') }}</span>
+      <span class="qs-trigger-label">{{ selectedItem ? selectedItem.label : (items.length ? '选择...' : emptyText) }}</span>
       <span class="qs-trigger-subtitle" v-if="selectedItem?.subtitle">{{ selectedItem.subtitle }}</span>
       <svg
         class="qs-chevron"
@@ -190,7 +192,7 @@ function select(id: string) {
 
       <div ref="listRef" class="qs-list">
         <div v-if="!filteredItems.length && !showAdd" class="qs-empty">
-          {{ search ? '未找到匹配项' : (items.length ? '' : '暂无项目') }}
+          {{ search ? '未找到匹配项' : (items.length ? '' : emptyText) }}
         </div>
         <button
           v-for="(item, i) in filteredItems"

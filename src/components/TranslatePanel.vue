@@ -157,14 +157,14 @@ const translationModel = computed((): ModelConfig | null => {
     const providerId = localModelId.value.substring(0, sepIdx)
     const modelId = localModelId.value.substring(sepIdx + 2)
     const provider = settings.aiModels.find(m => m.id === providerId)
-    if (provider && provider.models?.some(m => m.id === modelId)) {
+    if (provider && provider.enabled !== false && provider.models?.some(m => m.id === modelId && m.enabled)) {
       return { ...provider, model: modelId } as ModelConfig
     }
   } else {
     for (const provider of settings.aiModels) {
       if (provider.models) {
-        const model = provider.models.find(m => m.id === localModelId.value)
-        if (model) return { ...provider, model: model.id } as ModelConfig
+        const model = provider.models.find(m => m.id === localModelId.value && m.enabled)
+        if (model && provider.enabled !== false) return { ...provider, model: model.id } as ModelConfig
       }
     }
   }
@@ -215,6 +215,7 @@ watch([translateScope, translateType], () => {
   if (debounceTimer) clearTimeout(debounceTimer)
   debounceTimer = setTimeout(() => {
     statusCountsReady.value = true
+    _recalcStatusCounts()
   }, 30)
 })
 
@@ -331,8 +332,11 @@ function getTranslationStatus(skill: Skill): 'pending' | 'translating' | 'queued
   const ch = getContentHash(skill)
   const dh = getDescHash(skill)
 
-  if ((ch && hasTranslatingItem(ch)) || (dh && hasTranslatingItem(dh))) return 'translating'
-  if ((ch && isInQueue(ch, 'content')) || (dh && isInQueue(dh, 'desc')) || (ch && isInQueue(ch, 'desc')) || (dh && isInQueue(dh, 'content'))) return 'queued'
+  const needDesc = translateType.value === 'desc' || translateType.value === 'both'
+  const needContent = translateType.value === 'content' || translateType.value === 'both'
+
+  if ((needContent && ch && hasTranslatingItem(ch)) || (needDesc && dh && hasTranslatingItem(dh))) return 'translating'
+  if ((needContent && ch && isInQueue(ch, 'content')) || (needDesc && dh && isInQueue(dh, 'desc'))) return 'queued'
 
   const cv = cacheVersion.value
   if (cv !== _translationCacheVersion) {
@@ -343,9 +347,6 @@ function getTranslationStatus(skill: Skill): 'pending' | 'translating' | 'queued
 
   const contentValid = ch ? _cachedTranslationCache![ch] : null
   const descTranslated = dh ? _cachedDescTranslationCache![dh]?.translatedDesc : null
-
-  const needDesc = translateType.value === 'desc' || translateType.value === 'both'
-  const needContent = translateType.value === 'content' || translateType.value === 'both'
 
   const descDone = !needDesc || !!descTranslated
   const contentDone = !needContent || !!contentValid
@@ -364,14 +365,14 @@ function getTranslationStatusWithCache(
   const ch = getContentHash(skill)
   const dh = getDescHash(skill)
 
-  if ((ch && hasTranslatingItem(ch)) || (dh && hasTranslatingItem(dh))) return 'translating'
-  if ((ch && isInQueue(ch, 'content')) || (dh && isInQueue(dh, 'desc')) || (ch && isInQueue(ch, 'desc')) || (dh && isInQueue(dh, 'content'))) return 'queued'
+  const needDesc = translateType.value === 'desc' || translateType.value === 'both'
+  const needContent = translateType.value === 'content' || translateType.value === 'both'
+
+  if ((needContent && ch && hasTranslatingItem(ch)) || (needDesc && dh && hasTranslatingItem(dh))) return 'translating'
+  if ((needContent && ch && isInQueue(ch, 'content')) || (needDesc && dh && isInQueue(dh, 'desc'))) return 'queued'
 
   const contentValid = ch ? translationCache[ch] : null
   const descTranslated = dh ? descTranslationCache[dh]?.translatedDesc : null
-
-  const needDesc = translateType.value === 'desc' || translateType.value === 'both'
-  const needContent = translateType.value === 'content' || translateType.value === 'both'
 
   const descDone = !needDesc || !!descTranslated
   const contentDone = !needContent || !!contentValid
@@ -416,6 +417,7 @@ function getStatusLabel(status: string) {
             :items="translationModelItems"
             :selectedId="localModelId"
             placeholder="选择翻译模型"
+            emptyText="暂无可用模型"
             @select="onModelChange($event)"
           />
         </div>
@@ -630,7 +632,7 @@ function getStatusLabel(status: string) {
   background: hsl(var(--card));
   border: 1px solid hsl(var(--border));
   border-radius: 16px;
-  width: 560px;
+  width: 700px;
   max-width: 95vw;
   height: 480px;
   max-height: calc(100vh - 40px);

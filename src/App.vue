@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, computed, provide, defineAsyncComponent } from 'vue'
+import { onMounted, onUnmounted, ref, computed, provide, defineAsyncComponent, KeepAlive } from 'vue'
 import { useRouter } from './composables/useRouter'
 import { useProjectManager } from './composables/useProjectManager'
 import type { RouteName } from './composables/useRouter'
@@ -168,14 +168,14 @@ onMounted(() => {
           const providerId = s.translationModelId.substring(0, sepIdx)
           const modelId = s.translationModelId.substring(sepIdx + 2)
           const provider = providers.find(m => m.id === providerId)
-          if (provider && provider.models?.some(m => m.id === modelId)) {
+          if (provider && provider.enabled !== false && provider.models?.some(m => m.id === modelId && m.enabled)) {
             model = { ...provider, model: modelId } as ModelConfig
           }
         } else {
           for (const provider of providers) {
             if (provider.models) {
-              const m = provider.models.find(m => m.id === s.translationModelId)
-              if (m) { model = { ...provider, model: m.id } as ModelConfig; break }
+              const m = provider.models.find(m => m.id === s.translationModelId && m.enabled)
+              if (m && provider.enabled !== false) { model = { ...provider, model: m.id } as ModelConfig; break }
             }
           }
         }
@@ -328,7 +328,6 @@ const currentPageSkills = computed<Skill[]>(() => {
 
 <template>
   <div class="app-shell">
-    <div class="app-background"></div>
     <AddProjectModal v-if="showAddProjectModal" :submit-error="addProjectError" @close="showAddProjectModal = false; addProjectError = ''" @submit="handleProjectSubmit" />
     <AddProjectModal v-if="showEditProjectModal" :project="editingProject" @close="showEditProjectModal = false; editingProject = null" @submit="handleProjectSubmit" />
     <NewSkillModal v-if="showImportModal" @close="showImportModal = false" @imported="refreshCounts" @navigate="(route) => { showImportModal = false; navigate(route) }" />
@@ -375,15 +374,17 @@ const currentPageSkills = computed<Skill[]>(() => {
       <div class="main-area">
         <!-- ===== ALL VIEWS — SINGLE COLUMN ===== -->
         <main class="main-content" :class="{ 'full-height': isFullHeight, 'no-padding': true }">
-          <MySkills v-if="route === 'my'" @navigate="navigate" />
-          <SkillDetail v-else-if="route === 'detail'" :skill="selectedSkill" :context="detailContext" @navigate="navigate" />
-          <AgentSkillDetail v-else-if="route === 'agent-skill-detail'" :skill="selectedAgentSkill" :platform-id="selectedAgentPlatformId" :duplicate-skills="selectedDuplicateSkills" @navigate="navigate" />
-          <Sources v-else-if="route === 'sources'" @navigate="navigate" />
-          <Settings v-else-if="route === 'settings'" :anchor="settingsAnchor" />
-          <SkillStore v-else-if="route === 'store'" :store-id="storeSubId" @navigate="navigate" />
-          <Records v-else-if="route === 'records'" @navigate="navigate" />
-          <ProjectSkills ref="projectSkillsRef" v-else-if="route === 'project-skills'" @navigate="navigate" @edit-project="editProject" @delete-project="removeProject" />
-          <AgentSkills ref="agentSkillsRef" v-else-if="route === 'agent-skills'" :initial-platform-id="selectedAgentPlatformId" @navigate="navigate" />
+          <KeepAlive :max="5">
+            <MySkills v-if="route === 'my'" key="my" @navigate="navigate" />
+            <SkillDetail v-else-if="route === 'detail'" key="detail" :skill="selectedSkill" :context="detailContext" @navigate="navigate" />
+            <AgentSkillDetail v-else-if="route === 'agent-skill-detail'" key="agent-skill-detail" :skill="selectedAgentSkill" :platform-id="selectedAgentPlatformId" :duplicate-skills="selectedDuplicateSkills" @navigate="navigate" />
+            <Sources v-else-if="route === 'sources'" key="sources" @navigate="navigate" />
+            <Settings v-else-if="route === 'settings'" key="settings" :anchor="settingsAnchor" />
+            <SkillStore v-else-if="route === 'store'" key="store" :store-id="storeSubId" @navigate="navigate" />
+            <Records v-else-if="route === 'records'" key="records" @navigate="navigate" />
+            <ProjectSkills ref="projectSkillsRef" v-else-if="route === 'project-skills'" key="project-skills" @navigate="navigate" @edit-project="editProject" @delete-project="removeProject" />
+            <AgentSkills ref="agentSkillsRef" v-else-if="route === 'agent-skills'" key="agent-skills" :initial-platform-id="selectedAgentPlatformId" @navigate="navigate" />
+          </KeepAlive>
         </main>
       </div>
     </div>

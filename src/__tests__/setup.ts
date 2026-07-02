@@ -41,5 +41,13 @@ vi.stubGlobal('services', {
   parseSkillFile: vi.fn(() => null),
   checkSkillUpdate: vi.fn(() => ({ hasUpdate: false })),
   updateSkillFromGitHub: vi.fn(async () => {}),
+  fetchGitHubJSON: vi.fn(async () => ({})),
+  getLatestCommitSha: vi.fn(async () => null),
+  getRemoteSkillTree: vi.fn(async () => null),
+  saveSkillMeta: vi.fn(() => {}),
+  loadSkillMeta: vi.fn(() => null),
+  buildLocalFileManifest: vi.fn(() => []),
+  checkSkillUpdateFull: vi.fn(async () => ({ hasUpdate: false, changedFiles: [] })),
+  saveSkillMetaAfterDownload: vi.fn(async () => {}),
   getStateDir: vi.fn(() => '/mock/state'),
 })

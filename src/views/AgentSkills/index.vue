@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, inject, unref } from 'vue'
+import { ref, computed, onMounted, onActivated, watch, inject, unref } from 'vue'
 import { KeyShowToast, KeyDetectedPlatforms, KeyPlatformSkillCounts, KeyRefreshCounts, KeyAgentSkills, KeyUpdateAgentPlatformSkills, KeySelectedAgentPlatformId } from '../../inject-keys'
 import { detectPlatforms, getPlatformPath, defaultPlatforms } from '../../data/platforms'
 import { storage } from '../../utils/storage'
@@ -128,6 +128,21 @@ onMounted(() => {
   if (savedState?.platformId && detectedPlatforms.value.some((p) => p.id === savedState.platformId)) selectedId.value = savedState.platformId
   else if (props.initialPlatformId && detectedPlatforms.value.some((p) => p.id === props.initialPlatformId)) selectedId.value = props.initialPlatformId
   else if (detectedPlatforms.value.length) selectedId.value = detectedPlatforms.value[0].id
+})
+
+onActivated(() => {
+  const allPlatforms = detectPlatforms()
+  const savedConfigs = storage.getPlatformConfigs()
+  const installedPlatforms = allPlatforms.filter((p) => {
+    if (!p.detected) return false
+    const savedConfig = savedConfigs.find((c) => c.id === p.id)
+    return savedConfig ? savedConfig.enabled : p.enabled
+  })
+  const platformOrder = storage.getPlatformOrder()
+  const orderToUse = platformOrder.length ? platformOrder : defaultPlatforms.map(p => p.id)
+  const orderMap = new Map(orderToUse.map((id, idx) => [id, idx]))
+  installedPlatforms.sort((a, b) => (orderMap.get(a.id) ?? Infinity) - (orderMap.get(b.id) ?? Infinity))
+  detectedPlatforms.value = installedPlatforms
 })
 
 watch(() => props.initialPlatformId, (id) => { if (id && detectedPlatforms.value.some((p) => p.id === id)) selectedId.value = id })

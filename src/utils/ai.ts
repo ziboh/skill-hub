@@ -9,6 +9,7 @@ export interface ChatOptions {
   temperature?: number
   maxTokens?: number
   timeout?: number
+  extraBody?: Record<string, any>
 }
 
 export interface ChatResult {
@@ -73,6 +74,8 @@ export async function chatCompletion(
     temperature: options?.temperature ?? 0.3,
     max_tokens: options?.maxTokens ?? 8192,
     stream: false,
+    ...(model.extraBody || {}),
+    ...(options?.extraBody || {}),
   }
 
   let res: Response

@@ -202,15 +202,12 @@ export const storage = {
       fontSize: 'medium',
       motionPreference: 'standard',
       compactMode: false,
-      backgroundImage: '',
-      backgroundImageEnabled: false,
-      backgroundOpacity: 40,
-      backgroundBlur: 14,
       aiModels: [],
       translationModelId: '',
       autoTranslate: false,
-      translationTimeout: 60,
+      translationTimeout: 300,
       resumeTranslation: true,
+      translationExtraBody: {},
     }
     let saved: Partial<AppSettings> | null = null
     try {
@@ -224,9 +221,6 @@ export const storage = {
       saved.aiModels = saved.aiModels.filter(m => !m.isBuiltin || activeIds.has(m.provider))
     }
     const merged = { ...defaults, ...(saved || {}) }
-    if (merged.backgroundImage && saved && (saved as any).backgroundImageEnabled === undefined) {
-      merged.backgroundImageEnabled = true
-    }
     // Initialize built-in providers if not present
     if (!Array.isArray(merged.aiModels) || merged.aiModels.length === 0) {
       merged.aiModels = this.initBuiltinProviders()
@@ -264,13 +258,9 @@ export const storage = {
   saveCachedSkills(skills: Skill[]): void {
     const existing = this.getCachedSkills()
     const map = new Map(existing.map((s) => [s.id, s]))
-    const downloadedIds = this.getDownloadedIds()
     for (const s of skills) {
       const copy = JSON.parse(JSON.stringify(s)) as Skill
       copy.description = cleanDescription(copy.description)
-      if (downloadedIds.includes(copy.id) && map.has(copy.id)) {
-        copy.storeSourceId = map.get(copy.id)!.storeSourceId || copy.storeSourceId
-      }
       map.set(copy.id, copy)
     }
     invalidateCachedSkills()

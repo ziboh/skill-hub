@@ -63,19 +63,19 @@ async function checkForUpdate() {
   updateMessage.value = ''
   try {
     const token = storage.getSettings().githubToken || undefined
-    const remoteContent = await window.services.checkSkillUpdate(props.skill.repo, props.skill.path || '', token, props.skill.branch)
-    const localDir = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', props.skill!.id)
-    const files = window.services.readDir(localDir)
-    const skillMd = files.find((f: any) => f.name === 'SKILL.md' || f.name === 'skill.md')
-    let localContent = ''
-    if (skillMd) {
-      localContent = window.services.readFile(skillMd.path) || ''
-    }
-    if (remoteContent && remoteContent !== localContent) {
+    const result = await window.services.checkSkillUpdateFull(props.skill.repo, props.skill.path || '', token, props.skill.branch, props.skill.id)
+    if (!result) {
+      updateStatus.value = 'error'
+      updateMessage.value = '检查失败'
+      showToast('检查更新失败', 'error')
+    } else if (result.hasUpdate) {
       updateAvailable.value = true
       updateStatus.value = 'done'
-      updateMessage.value = '有新内容可用'
-      showToast('发现新内容，可点击更新', 'info')
+      const count = result.changedFiles.length
+      updateMessage.value = `有 ${count} 个文件已更新`
+      const preview = result.changedFiles.slice(0, 3).join(', ')
+      const suffix = count > 3 ? ` 等${count}个文件` : ''
+      showToast(`发现更新：${preview}${suffix}`, 'info')
     } else {
       updateAvailable.value = false
       updateStatus.value = 'done'
@@ -220,8 +220,9 @@ async function loadSkillContent() {
     if (result) {
       skillName.value = result.name
       skillDesc.value = result.description
-      skillContent.value = result.content
-      editedInstructions.value = result.content
+      const bodyMatch2 = result.content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').match(/^---\n[\s\S]*?\n---\n?([\s\S]*)$/)
+      skillContent.value = bodyMatch2 ? bodyMatch2[1].trim() : result.content
+      editedInstructions.value = skillContent.value
       return
     }
   }

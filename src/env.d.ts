@@ -72,10 +72,20 @@ interface Services {
   checkSkillUpdate: (repo: string, skillPath: string, token?: string, branch?: string) => Promise<string>
   updateSkillFromGitHub: (repo: string, skillPath: string, targetDir: string, token?: string, branch?: string) => Promise<boolean>
 
+  fetchGitHubJSON: (url: string, token?: string) => Promise<any>
+  getLatestCommitSha: (repo: string, branch?: string, token?: string) => Promise<string | null>
+  getRemoteSkillTree: (repo: string, skillPath: string, branch?: string, token?: string) => Promise<{ path: string; size: number }[] | null>
+  saveSkillMeta: (skillDir: string, meta: { commitSha: string | null; checkedAt: string; files: { path: string; size: number }[] }) => void
+  loadSkillMeta: (skillDir: string) => { commitSha: string | null; checkedAt: string; files: { path: string; size: number }[] } | null
+  buildLocalFileManifest: (skillDir: string) => { path: string; size: number }[]
+  checkSkillUpdateFull: (repo: string, skillPath: string, token?: string, branch?: string, skillId?: string) => Promise<{ hasUpdate: boolean; changedFiles: string[] } | null>
+  saveSkillMetaAfterDownload: (repo: string, branch: string, token: string | undefined, targetDir: string) => Promise<void>
+
   getStateDir: () => string
 
   saveIconFile: (sourceFilePath: string) => string
   readFileAsDataUri: (filePath: string) => string | null
+
 }
 
 declare global {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, inject, watch } from 'vue'
+import { ref, computed, onMounted, onActivated, inject, watch } from 'vue'
 import { storage } from '../../utils/storage'
 import type { InstallRecord, ModelConfig, FailureRecord, FailureType, ErrorCategory } from '../../types'
 import { defaultPlatforms } from '../../data/platforms'
@@ -205,6 +205,10 @@ onMounted(() => {
   loadData()
 })
 
+onActivated(() => {
+  loadData()
+})
+
 watch(cacheVersion, () => {
   loadData()
 })
@@ -227,14 +231,14 @@ function getTranslationModel(): ModelConfig | null {
     const providerId = settings.translationModelId.substring(0, sepIdx)
     const modelId = settings.translationModelId.substring(sepIdx + 2)
     const provider = providers.find(m => m.id === providerId)
-    if (provider && provider.models?.some(m => m.id === modelId)) {
+    if (provider && provider.enabled !== false && provider.models?.some(m => m.id === modelId && m.enabled)) {
       return { ...provider, model: modelId } as ModelConfig
     }
   } else {
     for (const provider of providers) {
       if (provider.models) {
-        const model = provider.models.find(m => m.id === settings.translationModelId)
-        if (model) return { ...provider, model: model.id } as ModelConfig
+        const model = provider.models.find(m => m.id === settings.translationModelId && m.enabled)
+        if (model && provider.enabled !== false) return { ...provider, model: model.id } as ModelConfig
       }
     }
   }
@@ -815,7 +819,7 @@ watch(activeTab, () => {
       </div>
     </div>
 
-    <div class="page-footer">
+    <div v-if="currentTotal > 0" class="page-footer">
       <div class="footer-left">
         <div v-if="selectedItems.size > 0" class="batch-toolbar">
           <span class="batch-count">已选择 {{ selectedItems.size }} 项</span>
@@ -971,17 +975,17 @@ watch(activeTab, () => {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  padding: 24px 32px 18px;
+  padding: 22px 28px 16px;
   background: hsl(var(--card));
   border-bottom: 1px solid hsl(var(--border));
 }
 
 .header-left { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .header-title-row { display: flex; align-items: center; gap: 12px; }
-.header-left h2 { font-size: 24px; font-weight: 600; color: hsl(var(--foreground)); margin: 0; }
-.page-subtitle { font-size: 14px; color: hsl(var(--muted-foreground)); margin: 0; white-space: nowrap; overflow: hidden; }
+.header-left h2 { font-size: 22px; font-weight: 600; color: hsl(var(--foreground)); margin: 0; }
+.page-subtitle { font-size: 13px; color: hsl(var(--muted-foreground)); margin: 0; white-space: nowrap; overflow: hidden; }
 
-.filter-tabs-row { display: flex; align-items: center; gap: 6px; padding: 12px 32px 0; }
+.filter-tabs-row { display: flex; align-items: center; gap: 6px; padding: 10px 28px 0; }
 .filter-tabs { display: flex; align-items: center; gap: 4px; }
 
 .tab-btn {
@@ -1004,7 +1008,7 @@ watch(activeTab, () => {
 
 .records-content {
   flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
-  padding: 0 32px 16px;
+  padding: 0 28px 16px;
 }
 
 .empty {
@@ -1195,7 +1199,7 @@ watch(activeTab, () => {
 
 .page-footer {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 12px 32px; border-top: 1px solid hsl(var(--border));
+  padding: 12px 28px; border-top: 1px solid hsl(var(--border));
   background: hsl(var(--card)); flex-shrink: 0;
 }
 

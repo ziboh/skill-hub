@@ -91,10 +91,18 @@ function switchDuplicate(index: number) {
   checkImported()
 }
 
+function stripFrontmatter(raw: string): string {
+  const trimmed = raw.trim()
+  if (!trimmed.startsWith('---')) return trimmed
+  const endIdx = trimmed.indexOf('---', 3)
+  if (endIdx === -1) return trimmed
+  return trimmed.slice(endIdx + 3).trim()
+}
+
 function loadSkillContentForActive() {
   const s = activeSkill.value
   if (!s) return
-  skillContent.value = s.content || ''
+  skillContent.value = stripFrontmatter(s.content || '')
   skillDesc.value = s.manifest?.description || ''
   skillName.value = s.manifest?.name || s.name
   editedInstructions.value = skillContent.value

@@ -11,6 +11,7 @@ import { getAvatarColor } from '../utils/color'
 import { SKILL_CATEGORIES, ALL_CATEGORIES, inferCategory, CATEGORY_ICONS, type SkillCategory } from '../data/skill-categories'
 import { getSourceInfo, isSvgIcon, isImageUrl } from '../utils/source-info'
 import { useTranslationQueue } from '../composables/useTranslationQueue'
+import MarkdownRenderer from './MarkdownRenderer.vue'
 
 const props = defineProps<{
   skill: Skill
@@ -70,22 +71,6 @@ function getProtocolLabel(): string {
   return map[props.skill.format] || '通用'
 }
 
-function renderMarkdown(md: string): string {
-  if (!md) return ''
-  return md
-    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    .replace(/`(.+?)`/g, '<code>$1</code>')
-    .replace(/^---$/gm, '<hr/>')
-    .replace(/^\- (.+)$/gm, '<li>$1</li>')
-    .replace(/(<li>.*<\/li>\n?)+/g, (m) => `<ul>${m}</ul>`)
-    .split('\n').filter(l => l.trim()).join('\n')
-}
-
-
 
 const confirmUninstall = ref<{ platformId: string; platformName: string } | null>(null)
 function cancelUninstall() { confirmUninstall.value = null }
@@ -109,7 +94,7 @@ const isTranslating = ref(false)
 const isPendingInQueue = ref(false)
 const showTranslation = ref(false)
 const translatedContent = ref('')
-const translationMode = ref<TranslationMode>('immersive')
+const translationMode = ref<TranslationMode>('full')
 const isContentChinese = ref(false)
 const contentHash = computed(() => props.skillContent ? computeContentHash(props.skillContent) : '')
 const descHash = computed(() => {
@@ -137,7 +122,7 @@ const translationModel = computed(() => {
       return { ...provider, model: modelId }
     }
   } else {
-    const byProvider = settings.aiModels.find((m) => m.id === settings.translationModelId)
+    const byProvider = settings.aiModels.find((m) => m.id === settings.translationModelId && m.enabled)
     if (byProvider) return byProvider
     for (const provider of settings.aiModels) {
       const matchedModel = provider.models?.find(
@@ -265,10 +250,7 @@ function restoreTranslatingState() {
 
 function getVisibleContent(): string {
   if (showTranslation.value && translatedContent.value) {
-    if (translationMode.value === 'immersive') {
-      return translatedContent.value
-    }
-    return translatedContent.value
+    return stripFrontmatter(translatedContent.value)
   }
   return props.skillContent
 }
@@ -439,6 +421,49 @@ function handleReTranslateDesc() {
     }
   })
 }
+
+function handleReTranslate() {
+  if (!props.skillContent.trim()) return
+
+  isContentChinese.value = isChineseContent(props.skillContent)
+  if (isContentChinese.value) {
+    translatedContent.value = props.skillContent
+    showTranslation.value = true
+    return
+  }
+
+  if (!translationModel.value) { showToast('请先在设置中配置 AI 模型', 'error'); return }
+  const ch = contentHash.value
+  if (!ch) return
+
+  storage.removeTranslationByHash(ch)
+  translatedContent.value = ''
+  showTranslation.value = false
+
+  const item = addTranslation(ch, 'content', props.skill.name || props.skillName, props.skillContent)
+  if (item?.status === 'pending') {
+    isPendingInQueue.value = true
+  } else {
+    isTranslating.value = true
+  }
+
+  const unwatch = watch(translationCacheVersion, () => {
+    const cached = storage.getTranslationByHash(ch)
+    if (cached) {
+      translatedContent.value = cached.translatedContent
+      showTranslation.value = true
+      isTranslating.value = false
+      isPendingInQueue.value = false
+      showToast(`${props.skillName || props.skill.name} 内容翻译完成`, 'success')
+      unwatch()
+    } else if (!isTranslatingInQueue(ch, 'content')) {
+      isTranslating.value = false
+      isPendingInQueue.value = false
+      showToast('内容翻译失败', 'error')
+      unwatch()
+    }
+  })
+}
 </script>
 
 <template>
@@ -547,29 +572,29 @@ function handleReTranslateDesc() {
           <!-- Left column: shared -->
           <div class="preview-main space-y-8">
             <!-- Description -->
-            <section class="space-y-4">
-              <h3 class="section-heading">SKILL 描述</h3>
-              <div class="panel-card desc-panel">
-                <p class="desc-text">{{ descTranslationDone && showDescTranslation ? translatedDesc : (skillDesc || skill.description || '暂无描述') }}</p>
-                <div class="desc-footer">
+            <section class="content-section">
+              <div class="section-header-row">
+                <h3 class="section-heading mb-0">SKILL 描述</h3>
+                <div class="section-actions">
                   <template v-if="isDescChinese && descTranslationDone">
                     <span class="already-chinese-hint">此描述已是中文</span>
                   </template>
                   <template v-else>
-                    <div class="desc-actions">
-                      <span v-if="descTranslationDone && !isDescChinese" class="translation-success-badge">翻译成功</span>
-                      <button v-if="descTranslationDone" class="heading-btn" @click="handleReTranslateDesc" :disabled="isTranslatingDesc || isPendingDescInQueue">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/><path d="M21 3v9h-9"/></svg>
-                        重新翻译
-                      </button>
-                      <button class="heading-btn" :class="{ active: descTranslationDone && showDescTranslation }" @click="handleTranslateDesc" :disabled="isTranslatingDesc || isPendingDescInQueue">
-                        <svg v-if="isTranslatingDesc || isPendingDescInQueue" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-                        <svg v-else width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>
-                        {{ isPendingDescInQueue ? '排队中...' : isTranslatingDesc ? '翻译中...' : descTranslationDone ? (showDescTranslation ? '显示原文' : '显示译文') : '翻译描述' }}
-                      </button>
-                    </div>
+                    <span v-if="descTranslationDone && !isDescChinese" class="translation-success-badge">翻译成功</span>
+                    <button v-if="descTranslationDone" class="heading-btn" @click="handleReTranslateDesc" :disabled="isTranslatingDesc || isPendingDescInQueue">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/><path d="M21 3v9h-9"/></svg>
+                      重新翻译
+                    </button>
+                    <button class="heading-btn" :class="{ active: descTranslationDone && showDescTranslation }" @click="handleTranslateDesc" :disabled="isTranslatingDesc || isPendingDescInQueue">
+                      <svg v-if="isTranslatingDesc || isPendingDescInQueue" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                      <svg v-else width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>
+                      {{ isPendingDescInQueue ? '排队中...' : isTranslatingDesc ? '翻译中...' : descTranslationDone ? (showDescTranslation ? '显示原文' : '显示译文') : '翻译描述' }}
+                    </button>
                   </template>
                 </div>
+              </div>
+              <div class="panel-card desc-panel">
+                <p class="desc-text">{{ descTranslationDone && showDescTranslation ? translatedDesc : (skillDesc || skill.description || '暂无描述') }}</p>
               </div>
             </section>
 
@@ -586,20 +611,23 @@ function handleReTranslateDesc() {
                   </template>
                   <template v-else>
                     <span v-if="translatedContent && !isContentChinese" class="translation-success-badge">翻译成功</span>
+                    <button v-if="translatedContent" class="heading-btn" @click="handleReTranslate" :disabled="isTranslating || isPendingInQueue">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/><path d="M21 3v9h-9"/></svg>
+                      重新翻译
+                    </button>
                     <button class="heading-btn" :class="{ active: showTranslation && translatedContent }" @click="handleTranslate" :disabled="isTranslating || isPendingInQueue">
                       <svg v-if="isTranslating || isPendingInQueue" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
                       <svg v-else width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>
                       {{ isPendingInQueue ? '排队中...' : isTranslating ? '翻译中...' : showTranslation && translatedContent ? '显示原文' : translatedContent ? '显示译文' : '翻译内容' }}
                     </button>
                   </template>
-                  <button class="heading-btn" @click="emit('copy-content', isEditing ? editedContent : skillContent, 'instr')">
-                    <svg v-if="copyStatus['instr']" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                    <svg v-else width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                    {{ copyStatus['instr'] ? '已复制' : '复制 MD' }}
-                  </button>
                 </div>
               </div>
               <div class="panel-card content-panel">
+                <button class="copy-md-btn" @click="emit('copy-content', isEditing ? editedContent : skillContent, 'instr')" :title="copyStatus['instr'] ? '已复制' : '复制 MD'">
+                  <svg v-if="copyStatus['instr']" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  <svg v-else width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                </button>
                 <template v-if="isEditing">
                   <textarea :value="editedContent" @input="emit('update:editedContent', ($event.target as HTMLTextAreaElement).value)" class="content-editor" />
                   <div class="editor-toolbar">
@@ -611,12 +639,12 @@ function handleReTranslateDesc() {
                   <div v-if="getVisibleContent()" class="skill-markdown-body p-6">
                     <template v-if="showTranslation && translatedContent && translationMode === 'immersive'">
                       <div v-for="(seg, i) in renderImmersiveSegments(stripFrontmatter(translatedContent))" :key="i">
-                        <div v-if="seg.type === 'translation'" class="translation-segment" v-html="renderMarkdown(seg.text)"></div>
-                        <div v-else v-html="renderMarkdown(seg.text)"></div>
+                        <div v-if="seg.type === 'translation'" class="translation-segment"><MarkdownRenderer :content="seg.text" /></div>
+                        <div v-else><MarkdownRenderer :content="seg.text" /></div>
                       </div>
                     </template>
                     <template v-else>
-                      <div v-html="renderMarkdown(getVisibleContent())"></div>
+                      <MarkdownRenderer :content="getVisibleContent()" />
                     </template>
                   </div>
                   <div v-else class="empty-content">
@@ -978,7 +1006,10 @@ function handleReTranslateDesc() {
 /* ═══ Panel cards (element block feel) ═══ */
 .panel-card { border-radius: 16px; border: 1px solid hsl(var(--border)); padding: 20px; }
 .desc-panel { background: hsl(var(--card)); }
-.content-panel { background: hsl(var(--card)); box-shadow: 0 1px 3px hsl(0 0% 0% / 0.04); overflow: hidden; min-height: 200px; display: flex; flex-direction: column; }
+.content-panel { background: hsl(var(--card)); box-shadow: 0 1px 3px hsl(0 0% 0% / 0.04); overflow: hidden; min-height: 200px; display: flex; flex-direction: column; position: relative; }
+.copy-md-btn { position: absolute; top: 12px; right: 12px; z-index: 2; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 8px; border: 1px solid hsl(var(--border)); background: hsl(var(--card)); color: hsl(var(--muted-foreground)); cursor: pointer; transition: all var(--duration-base) var(--ease-standard); opacity: 0; }
+.content-panel:hover .copy-md-btn { opacity: 1; }
+.copy-md-btn:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
 .content-section { display: flex; flex-direction: column; gap: 16px; }
 
 /* Description */
@@ -1021,18 +1052,6 @@ function handleReTranslateDesc() {
 
 /* Content / Markdown */
 .skill-markdown-body { flex: 1; }
-.skill-markdown-body :deep(h1) { font-size: 20px; font-weight: 700; margin: 20px 0 10px; color: hsl(var(--foreground)); }
-.skill-markdown-body :deep(h2) { font-size: 17px; font-weight: 700; margin: 16px 0 8px; color: hsl(var(--foreground)); }
-.skill-markdown-body :deep(h3) { font-size: 15px; font-weight: 600; margin: 14px 0 6px; color: hsl(var(--foreground)); }
-.skill-markdown-body :deep(p) { font-size: 14px; line-height: 1.7; margin: 10px 0; color: hsl(var(--foreground) / 0.9); }
-.skill-markdown-body :deep(ul), .skill-markdown-body :deep(ol) { padding-left: 22px; margin: 10px 0; }
-.skill-markdown-body :deep(li) { font-size: 14px; line-height: 1.7; margin: 4px 0; color: hsl(var(--foreground) / 0.9); }
-.skill-markdown-body :deep(code) { background: hsl(var(--muted)); padding: 2px 6px; border-radius: 5px; font-size: 13px; font-family: 'SF Mono', Consolas, monospace; }
-.skill-markdown-body :deep(pre) { background: hsl(var(--muted)); border: 1px solid hsl(var(--border)); border-radius: 10px; padding: 16px; overflow-x: auto; margin: 12px 0; }
-.skill-markdown-body :deep(pre code) { background: none; padding: 0; font-size: 13px; line-height: 1.6; }
-.skill-markdown-body :deep(hr) { border: none; border-top: 1px solid hsl(var(--border)); margin: 16px 0; }
-.skill-markdown-body :deep(strong) { font-weight: 600; color: hsl(var(--foreground)); }
-.skill-markdown-body :deep(blockquote) { border-left: 3px solid hsl(var(--primary)); padding-left: 16px; margin: 12px 0; color: hsl(var(--muted-foreground)); }
 
 .content-editor { width: 100%; min-height: 300px; padding: 20px; background: transparent; border: none; font-family: 'SF Mono', Consolas, monospace; font-size: 13px; line-height: 1.6; color: hsl(var(--foreground)); resize: vertical; outline: none; flex: 1; }
 .editor-toolbar { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 16px; border-top: 1px solid hsl(var(--border)); background: hsl(var(--accent) / 0.3); }

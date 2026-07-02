@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, inject, watch, nextTick, reactive } from 'vue'
+import { ref, computed, onMounted, onActivated, onUnmounted, inject, watch, nextTick, reactive } from 'vue'
 import { storage, cleanDescription } from '../../utils/storage'
 import type { Skill, SkillIdentity } from '../../types'
 import { defaultPlatforms } from '../../data/platforms'
@@ -39,6 +39,11 @@ const downloadedIds = ref<string[]>([])
 const registry = ref<Map<string, SkillIdentity>>(new Map())
 
 onMounted(() => {
+  refreshData()
+  enrichLocalDescriptions()
+})
+
+onActivated(() => {
   refreshData()
   enrichLocalDescriptions()
 })
@@ -579,7 +584,7 @@ function batchSyncToPlatform() {
 
     <div v-else class="skill-grid" :class="viewMode">
       <div
-        v-for="skill in filteredSkills"
+        v-for="(skill, idx) in filteredSkills"
         :key="skill.id"
         class="skill-card"
         :class="{ selected: selectedIds.has(skill.id) }"

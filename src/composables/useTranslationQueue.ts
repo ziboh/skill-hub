@@ -43,17 +43,8 @@ function cleanStaleItems() {
   const stale = queue.value.filter(i => i.status === 'translating' && (now - i.startedAt) > STALE_MS)
   if (stale.length === 0) return
   for (const item of stale) {
-    const idx = queue.value.indexOf(item)
-    if (idx >= 0) queue.value.splice(idx, 1)
     processingHashes.delete(`${item.hash}:${item.type}`)
-    storage.addFailureRecord({
-      type: 'translation',
-      skillId: item.hash,
-      skillName: item.skillName || '',
-      error: `翻译超时 (已超过 ${Math.round(STALE_MS / 60000)} 分钟)`,
-      details: `队列项在 "翻译中" 状态停留超过 ${Math.round(STALE_MS / 60000)} 分钟，已自动清理`,
-      errorCategory: 'network',
-    })
+    item.status = 'pending'
   }
   saveQueue(queue.value)
   promoteNext()
@@ -87,15 +78,17 @@ document.addEventListener('visibilitychange', () => {
 })
 
 function promoteNext() {
-  const translatingCount = queue.value.filter(i => i.status === 'translating').length
-  if (translatingCount >= MAX_CONCURRENT) return
-  const pendingItems = queue.value
-    .filter(i => i.status === 'pending')
-    .sort((a, b) => a.startedAt - b.startedAt)
-  if (pendingItems.length === 0) return
-  pendingItems[0].status = 'translating'
+  while (true) {
+    const translatingCount = queue.value.filter(i => i.status === 'translating').length
+    if (translatingCount >= MAX_CONCURRENT) break
+    const pendingItems = queue.value
+      .filter(i => i.status === 'pending')
+      .sort((a, b) => a.startedAt - b.startedAt)
+    if (pendingItems.length === 0) break
+    pendingItems[0].status = 'translating'
+    cacheVersion.value++
+  }
   saveQueue(queue.value)
-  cacheVersion.value++
 }
 
 // ─── 队列操作 ─────────────────────────────────────────
@@ -143,14 +136,14 @@ function getTranslationModel(): ModelConfig | null {
     const providerId = modelId.substring(0, sepIdx)
     const mId = modelId.substring(sepIdx + 2)
     const provider = providers.find(m => m.id === providerId)
-    if (provider && provider.models?.some(m => m.id === mId)) {
+    if (provider && provider.enabled !== false && provider.models?.some(m => m.id === mId && m.enabled)) {
       return { ...provider, model: mId } as ModelConfig
     }
   } else {
     for (const provider of providers) {
       if (provider.models) {
-        const model = provider.models.find(m => m.id === modelId)
-        if (model) return { ...provider, model: model.id } as ModelConfig
+        const model = provider.models.find(m => m.id === modelId && m.enabled)
+        if (model && provider.enabled !== false) return { ...provider, model: model.id } as ModelConfig
       }
     }
   }
@@ -200,7 +193,7 @@ function findSkillByHash(skills: Skill[], hash: string, type: 'content' | 'desc'
 }
 
 async function processQueueItem(item: TranslationQueueItem, model: ModelConfig | null) {
-  if (!model) return
+  if (!model) throw new Error('翻译模型不可用，对应的供应商或模型已关闭')
 
   const cachedSkills = storage.getCachedSkills()
   const skill = findSkillByHash(cachedSkills, item.hash, item.type)
@@ -225,11 +218,11 @@ async function processQueueItem(item: TranslationQueueItem, model: ModelConfig |
     if (storage.getTranslationByHash(item.hash)) return
     const contentText = skill ? readSkillContent(skill) : (item.text || '')
     if (contentText && !isChineseContent(contentText)) {
-      const translatedContent = await translateContent(contentText, model, 'immersive')
+      const translatedContent = await translateContent(contentText, model, 'full')
       storage.saveTranslationByHash(item.hash, {
         sourceContent: contentText,
         translatedContent,
-        mode: 'immersive',
+        mode: 'full',
         skillName: skill?.name || item.skillName || '',
       })
     }
@@ -332,7 +325,10 @@ export function useTranslationQueue() {
       })
       if (!skill) {
         processingHashes.delete(key)
-        removeTranslation(item.hash, item.type)
+        // 找不到技能时保留项目，状态改回 pending
+        item.status = 'pending'
+        saveQueue(queue.value)
+        cacheVersion.value++
         continue
       }
       try {
@@ -358,11 +354,11 @@ export function useTranslationQueue() {
           if (skillFile) {
             const content = window.services.readFile(window.services.pathJoin(skillDir, skillFile))
             if (content && !isChineseContent(content)) {
-              const translatedContent = await translateContent(content, model, 'immersive')
+              const translatedContent = await translateContent(content, model, 'full')
               storage.saveTranslationByHash(item.hash, {
                 sourceContent: content,
                 translatedContent,
-                mode: 'immersive',
+                mode: 'full',
                 skillName: skill.name,
               })
             }

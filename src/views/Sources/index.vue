@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onActivated } from 'vue'
 import { storage } from '../../utils/storage'
 import { useSettings } from '../../composables/useSettings'
 import type { StoreSource, StoreSourceType } from '../../types'
@@ -57,6 +57,11 @@ function loadLocalIcons(sources: StoreSource[]) {
 }
 
 onMounted(() => {
+  sources.value = storage.getStoreSources().filter((s) => s.type !== 'builtin')
+  loadLocalIcons(sources.value)
+})
+
+onActivated(() => {
   sources.value = storage.getStoreSources().filter((s) => s.type !== 'builtin')
   loadLocalIcons(sources.value)
 })

@@ -126,6 +126,7 @@ async function importSelected() {
         if (!window.services.pathExists(skillSourceDir)) continue
         const targetDir = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', skill.id)
         window.services.removeFile(targetDir); window.services.mkdir(targetDir); window.services.copyFile(skillSourceDir, targetDir)
+        window.services.saveSkillMetaAfterDownload(skill.repo || '', 'main', storage.getSettings().githubToken || undefined, targetDir)
         window.services.removeFile(extractDir)
         const skillFile = ['SKILL.md', 'skill.md'].find((f) => window.services.pathExists(window.services.pathJoin(targetDir, f)))
         if (skillFile) {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, inject, watch, nextTick } from 'vue'
+import { ref, onMounted, onActivated, computed, inject, watch, nextTick } from 'vue'
 import { KeyShowToast } from '../../inject-keys'
 import { defaultPlatforms } from '../../data/platforms'
 import { BUILTIN_PROVIDERS, getProviderInfo } from '../../data/ai-providers'
@@ -146,6 +146,12 @@ onMounted(() => {
   if (isCustomColor()) {
     customColorInput.value = settings.themeColor.startsWith('#') ? settings.themeColor : '#58a4f6'
   }
+  translationExtraBodyText.value = objectToJsonString(settings.translationExtraBody)
+  scrollToAnchor()
+})
+
+onActivated(() => {
+  loadPlatforms()
   scrollToAnchor()
 })
 
@@ -392,51 +398,6 @@ function getPlatformOsPath(platform: PlatformInfo): string {
   return rootDir.replace(/~/g, '%USERPROFILE%').replace(/\//g, '\\')
 }
 
-function onBgOpacity(e: Event) {
-  const val = Number((e.target as HTMLInputElement).value)
-  const el = document.querySelector('.app-background') as HTMLElement | null
-  if (el) el.style.opacity = String(val / 100)
-  updateSettings({ backgroundOpacity: val })
-}
-
-function onBgBlur(e: Event) {
-  const val = Number((e.target as HTMLInputElement).value)
-  const el = document.querySelector('.app-background') as HTMLElement | null
-  if (el) el.style.filter = val > 0 ? `blur(${val}px)` : ''
-  updateSettings({ backgroundBlur: val })
-}
-
-async function uploadBackground() {
-  const input = document.createElement('input')
-  input.type = 'file'
-  input.accept = 'image/*'
-  input.onchange = async () => {
-    const file = input.files?.[0]
-    if (!file) return
-    if (file.size > 5 * 1024 * 1024) {
-      return
-    }
-    const reader = new FileReader()
-    reader.onload = () => {
-      updateSettings({
-        backgroundImage: reader.result as string,
-        backgroundImageEnabled: true,
-      })
-    }
-    reader.onerror = () => { }
-    reader.readAsDataURL(file)
-  }
-  input.click()
-}
-
-function clearBackground() {
-  updateSettings({ backgroundImage: '', backgroundImageEnabled: false })
-}
-
-function handleToggleBackground() {
-  updateSettings({ backgroundImageEnabled: !settings.backgroundImageEnabled })
-}
-
 // === AI Model Management ===
 const showAddModelModal = ref(false)
 const addModelTargetIndex = ref<number | null>(null)
@@ -448,6 +409,114 @@ const editingModelIndex = ref<number | null>(null)
 const modelForm = ref<ModelConfig>({
   id: '', name: '', provider: 'openai', baseUrl: '', apiPath: '', apiKeys: [], model: '', isDefault: false, isBuiltin: false, enabled: true, models: [], icon: '',
 })
+const modelExtraBodyText = ref('')
+const modelExtraBodyError = ref('')
+const translationExtraBodyText = ref('')
+const translationExtraBodyError = ref('')
+const translationTimeoutError = ref('')
+const providerExtraBodyTexts = ref<Record<string, string>>({})
+const providerExtraBodyErrors = ref<Record<string, string>>({})
+
+function objectToJsonString(obj: Record<string, any> | undefined | null): string {
+  if (!obj || !Object.keys(obj).length) return ''
+  try { return JSON.stringify(obj, null, 2) } catch { return '' }
+}
+
+function tryParseJson(text: string): Record<string, any> | null {
+  if (!text.trim()) return {}
+  try {
+    const parsed = JSON.parse(text.trim())
+    if (typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null
+    }
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+function getProviderExtraBodyText(providerId: string): string {
+  if (providerExtraBodyTexts.value[providerId] !== undefined) {
+    return providerExtraBodyTexts.value[providerId]
+  }
+  const provider = settings.aiModels.find(m => m.id === providerId)
+  return objectToJsonString(provider?.extraBody)
+}
+
+function onProviderExtraBodyInput(providerId: string, e: Event) {
+  const text = (e.target as HTMLTextAreaElement).value
+  providerExtraBodyTexts.value = { ...providerExtraBodyTexts.value, [providerId]: text }
+  if (!text.trim()) {
+    providerExtraBodyErrors.value = { ...providerExtraBodyErrors.value, [providerId]: '' }
+    const models = [...settings.aiModels]
+    const idx = models.findIndex(m => m.id === providerId)
+    if (idx >= 0) {
+      const updated = { ...models[idx] }
+      delete updated.extraBody
+      models[idx] = updated
+      updateSettings({ aiModels: models })
+    }
+    return
+  }
+  const parsed = tryParseJson(text)
+  if (parsed === null) {
+    providerExtraBodyErrors.value = { ...providerExtraBodyErrors.value, [providerId]: 'JSON 格式无效' }
+  } else {
+    providerExtraBodyErrors.value = { ...providerExtraBodyErrors.value, [providerId]: '' }
+    const models = [...settings.aiModels]
+    const idx = models.findIndex(m => m.id === providerId)
+    if (idx >= 0) {
+      models[idx] = { ...models[idx], extraBody: parsed }
+      updateSettings({ aiModels: models })
+    }
+  }
+}
+
+function onModelExtraBodyInput(e: Event) {
+  const text = (e.target as HTMLTextAreaElement).value
+  modelExtraBodyText.value = text
+  if (!text.trim()) {
+    modelExtraBodyError.value = ''
+    modelForm.value.extraBody = undefined
+    delete modelForm.value.extraBody
+    return
+  }
+  const parsed = tryParseJson(text)
+  if (parsed === null) {
+    modelExtraBodyError.value = 'JSON 格式无效'
+  } else {
+    modelExtraBodyError.value = ''
+    modelForm.value.extraBody = parsed
+  }
+}
+
+function onTranslationExtraBodyInput(e: Event) {
+  const text = (e.target as HTMLTextAreaElement).value
+  translationExtraBodyText.value = text
+  if (!text.trim()) {
+    translationExtraBodyError.value = ''
+    updateSettings({ translationExtraBody: undefined })
+    return
+  }
+  const parsed = tryParseJson(text)
+  if (parsed === null) {
+    translationExtraBodyError.value = 'JSON 格式无效'
+  } else {
+    translationExtraBodyError.value = ''
+    updateSettings({ translationExtraBody: parsed })
+  }
+}
+
+function onTranslationTimeoutChange(e: Event) {
+  const val = parseInt((e.target as HTMLInputElement).value)
+  if (isNaN(val) || val < 10 || val > 3600) {
+    translationTimeoutError.value = '请输入 10-3600 之间的数值'
+    return
+  }
+  translationTimeoutError.value = ''
+  updateSettings({ translationTimeout: val })
+}
+
 const showIconPicker = ref(false)
 const editingIconProviderId = ref<string | null>(null)
 const defaultProviderIcon = computed(() => {
@@ -683,6 +752,8 @@ function openAddModel() {
     models: [],
     icon: '',
   }
+  modelExtraBodyText.value = ''
+  modelExtraBodyError.value = ''
   applyProviderPreset()
   showModelModal.value = true
 }
@@ -691,6 +762,8 @@ function openEditModel(index: number) {
   editingModelIndex.value = index
   const m = settings.aiModels[index]
   modelForm.value = { ...m, models: m.models ? [...m.models] : [], apiKeys: m.apiKeys ? [...m.apiKeys] : [] }
+  modelExtraBodyText.value = objectToJsonString(m.extraBody)
+  modelExtraBodyError.value = ''
   showModelModal.value = true
 }
 
@@ -1369,71 +1442,6 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
             </div>
           </div>
 
-          <!-- Background Image -->
-          <div class="setting-section">
-            <h3 class="setting-section-title">背景图片</h3>
-            <div class="setting-card">
-              <div class="bg-header">
-                <div class="bg-header-left">
-                  <div class="bg-header-title">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="bg-header-icon">
-                      <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                      <circle cx="8.5" cy="8.5" r="1.5"/>
-                      <polyline points="21 15 16 10 5 21"/>
-                    </svg>
-                    {{ settings.backgroundImage ? '桌面背景' : '桌面背景' }}
-                  </div>
-                  <p class="bg-header-desc">选择一张本地图片作为应用背景。文件将保存在插件存储中，设置中仅保存引用。</p>
-                </div>
-                <div class="bg-header-actions">
-                  <button class="bg-choose-btn" @click="uploadBackground">
-                    {{ settings.backgroundImage ? '更换图片' : '选择图片' }}
-                  </button>
-                  <button
-                    class="bg-toggle-btn"
-                    :disabled="!settings.backgroundImage"
-                    @click="handleToggleBackground"
-                  >
-                    {{ settings.backgroundImageEnabled ? '禁用' : '启用' }}
-                  </button>
-                </div>
-              </div>
-
-              <p v-if="settings.backgroundImage" class="bg-status-hint">
-                {{ settings.backgroundImageEnabled ? '背景图片已启用。' : '背景图片已保存但当前已禁用。' }}
-              </p>
-
-              <div class="bg-preview-box">
-                <div class="bg-preview-stage" :style="{ backgroundImage: `url(${settings.backgroundImage})`, opacity: settings.backgroundOpacity / 100, filter: settings.backgroundBlur > 0 ? `blur(${settings.backgroundBlur}px)` : '' }">
-                  <div v-if="!settings.backgroundImage" class="bg-preview-empty">
-                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="bg-empty-icon">
-                      <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                      <circle cx="8.5" cy="8.5" r="1.5"/>
-                      <polyline points="21 15 16 10 5 21"/>
-                    </svg>
-                    <span>未选择背景图片</span>
-                  </div>
-                </div>
-              </div>
-
-              <div v-if="settings.backgroundImage" class="bg-sliders-box">
-                <div class="bg-slider-group">
-                  <div class="slider-header">
-                    <label>背景可见度</label>
-                    <span>{{ settings.backgroundOpacity }}%</span>
-                  </div>
-                  <input type="range" min="0" max="100" :value="settings.backgroundOpacity" @input="onBgOpacity($event)" class="slider" />
-                </div>
-                <div class="bg-slider-group">
-                  <div class="slider-header">
-                    <label>模糊强度</label>
-                    <span>{{ settings.backgroundBlur }}px</span>
-                  </div>
-                  <input type="range" min="0" max="50" step="0.5" :value="settings.backgroundBlur" @input="onBgBlur($event)" class="slider" />
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </template>
 
@@ -1554,7 +1562,7 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                     <button v-if="!m.isBuiltin" class="provider-delete-btn" @click.stop="confirmDeleteProviderId = m.id; confirmDeleteProviderName = m.name || getProviderInfo(m.provider)?.name || ''" title="删除供应商">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
                     </button>
-                    <label class="provider-toggle on" @click.stop>
+                    <label class="provider-toggle" :class="{ on: m.enabled }" @click.stop>
                       <input type="checkbox" :checked="m.enabled" @change="toggleProviderEnabled(m)" />
                       <span class="provider-toggle-slider"></span>
                     </label>
@@ -1674,6 +1682,23 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                       </div>
                     </div>
                   </div>
+                  <!-- Extra Body -->
+                  <div class="provider-section">
+                    <div class="provider-section-header">
+                      <span class="provider-section-title">额外请求参数 (extra_body)</span>
+                    </div>
+                    <div style="padding: 8px 16px 16px;">
+                      <textarea
+                        class="json-textarea"
+                        :value="getProviderExtraBodyText(m.id)"
+                        @input="onProviderExtraBodyInput(m.id, $event)"
+                        placeholder='{"thinking": {"enabled": false}}'
+                        rows="3"
+                        spellcheck="false"
+                      ></textarea>
+                      <span v-if="providerExtraBodyErrors[m.id]" class="json-error">{{ providerExtraBodyErrors[m.id] }}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1683,18 +1708,21 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
               <div class="provider-group-title">待配置</div>
               <div v-for="m in pendingProviders" :key="m.id" class="ai-model-provider-card pending">
                 <div class="provider-card-header" @click="toggleExpandedSection(m.id, 'apiInfo')">
-                  <div class="provider-card-left">
-                    <span class="provider-card-icon clickable" @click.stop="openIconPickerForProvider(m.id)"><ProviderIcon :icon="m.icon || getProviderInfo(m.provider)?.icon" :size="20" /></span>
-                    <span class="provider-card-name">{{ m.name || getProviderInfo(m.provider)?.name }}</span>
-                    <span class="provider-pending-badge">需要配置</span>
-                  </div>
-                  <div class="provider-card-right">
-                    <button v-if="!m.isBuiltin" class="provider-delete-btn" @click.stop="confirmDeleteProviderId = m.id; confirmDeleteProviderName = m.name || getProviderInfo(m.provider)?.name || ''" title="删除供应商">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
-                    </button>
-                    <label class="provider-toggle on" @click.stop>
-                      <input type="checkbox" :checked="m.enabled" @change="toggleProviderEnabled(m)" />
-                      <span class="provider-toggle-slider"></span>
+                   <div class="provider-card-left">
+                     <span class="provider-card-icon clickable" @click.stop="openIconPickerForProvider(m.id)"><ProviderIcon :icon="m.icon || getProviderInfo(m.provider)?.icon" :size="20" /></span>
+                     <span class="provider-card-name">{{ m.name || getProviderInfo(m.provider)?.name }}</span>
+                     <span class="provider-pending-badge">需要配置</span>
+                   </div>
+                   <div class="provider-card-right">
+                     <button class="provider-edit-btn" @click.stop="openEditModel(getModelIndex(m.id))" title="编辑供应商">
+                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                     </button>
+                     <button v-if="!m.isBuiltin" class="provider-delete-btn" @click.stop="confirmDeleteProviderId = m.id; confirmDeleteProviderName = m.name || getProviderInfo(m.provider)?.name || ''" title="删除供应商">
+                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                     </button>
+                     <label class="provider-toggle" :class="{ on: m.enabled }" @click.stop>
+                       <input type="checkbox" :checked="m.enabled" @change="toggleProviderEnabled(m)" />
+                       <span class="provider-toggle-slider"></span>
                     </label>
                   </div>
                 </div>
@@ -1809,6 +1837,23 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                       </div>
                     </div>
                   </div>
+                  <!-- Extra Body -->
+                  <div class="provider-section">
+                    <div class="provider-section-header">
+                      <span class="provider-section-title">额外请求参数 (extra_body)</span>
+                    </div>
+                    <div style="padding: 8px 16px 16px;">
+                      <textarea
+                        class="json-textarea"
+                        :value="getProviderExtraBodyText(m.id)"
+                        @input="onProviderExtraBodyInput(m.id, $event)"
+                        placeholder='{"thinking": {"enabled": false}}'
+                        rows="3"
+                        spellcheck="false"
+                      ></textarea>
+                      <span v-if="providerExtraBodyErrors[m.id]" class="json-error">{{ providerExtraBodyErrors[m.id] }}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1823,10 +1868,13 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                     <span class="provider-card-name">{{ m.name || getProviderInfo(m.provider)?.name }}</span>
                   </div>
                   <div class="provider-card-right">
+                    <button class="provider-edit-btn" @click.stop="openEditModel(getModelIndex(m.id))" title="编辑供应商">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    </button>
                     <button v-if="!m.isBuiltin" class="provider-delete-btn" @click.stop="confirmDeleteProviderId = m.id; confirmDeleteProviderName = m.name || getProviderInfo(m.provider)?.name || ''" title="删除供应商">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
                     </button>
-                    <label class="provider-toggle" @click.stop>
+                    <label class="provider-toggle" :class="{ on: m.enabled }" @click.stop>
                       <input type="checkbox" :checked="m.enabled" @change="toggleProviderEnabled(m)" />
                       <span class="provider-toggle-slider"></span>
                     </label>
@@ -1944,13 +1992,31 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                       </div>
                     </div>
                   </div>
+                  <!-- Extra Body -->
+                  <div class="provider-section">
+                    <div class="provider-section-header">
+                      <span class="provider-section-title">额外请求参数 (extra_body)</span>
+                    </div>
+                    <div style="padding: 8px 16px 16px;">
+                      <textarea
+                        class="json-textarea"
+                        :value="getProviderExtraBodyText(m.id)"
+                        @input="onProviderExtraBodyInput(m.id, $event)"
+                        placeholder='{"thinking": {"enabled": false}}'
+                        rows="3"
+                        spellcheck="false"
+                      ></textarea>
+                      <span v-if="providerExtraBodyErrors[m.id]" class="json-error">{{ providerExtraBodyErrors[m.id] }}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
+      </template>
 
-        <!-- Add/Edit Model Modal -->
+      <!-- Add/Edit Model Modal -->
         <div v-if="showModelModal" class="modal-overlay">
           <div class="modal modal-sm">
             <div class="modal-header">
@@ -2117,7 +2183,6 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
             </div>
           </div>
         </div>
-      </template>
 
       <!-- ===== TRANSLATION SETTINGS ===== -->
       <template v-if="activeSection === 'default-model'">
@@ -2139,6 +2204,7 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                     :items="translationModelItems"
                     :selectedId="hasValidTranslationModel ? settings.translationModelId : null"
                     placeholder="选择翻译模型"
+                    emptyText="暂无可用模型"
                     @select="setTranslationModel($event)"
                   />
               </div>
@@ -2183,17 +2249,41 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                   <div class="setting-row-desc">单次翻译请求的最大等待时间（秒），超过将视为失败</div>
                 </div>
                 <div class="setting-row-control">
-                  <input
-                    type="number"
-                    class="number-input"
-                    :value="settings.translationTimeout"
-                    min="10"
-                    max="300"
-                    step="10"
-                    @change="updateSettings({ translationTimeout: Math.max(10, Math.min(300, parseInt(($event.target as HTMLInputElement).value) || 60)) })"
-                  />
-                  <span class="input-suffix">秒</span>
+                  <div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <input
+                        type="number"
+                        class="number-input"
+                        :class="{ 'input-error': translationTimeoutError }"
+                        :value="settings.translationTimeout"
+                        min="10"
+                        max="3600"
+                        step="10"
+                        @change="onTranslationTimeoutChange($event)"
+                      />
+                      <span class="input-suffix">秒</span>
+                    </div>
+                    <span v-if="translationTimeoutError" class="input-error-text">{{ translationTimeoutError }}</span>
+                  </div>
                 </div>
+              </div>
+            </div>
+
+            <div class="setting-card" style="margin-top: 16px;">
+              <div class="setting-card-header">
+                <div class="setting-row-label">额外请求参数 (extra_body)</div>
+                <div class="setting-row-desc">以 JSON 格式指定附加到翻译请求体的额外字段，会覆盖供应商级别的同名配置。例如关闭 DeepSeek 思考模式：</div>
+              </div>
+              <div style="padding: 0 16px 16px;">
+                <textarea
+                  class="json-textarea"
+                  :value="translationExtraBodyText"
+                  @input="onTranslationExtraBodyInput"
+                  placeholder='{"thinking": {"enabled": false}}'
+                  rows="3"
+                  spellcheck="false"
+                ></textarea>
+                <span v-if="translationExtraBodyError" class="json-error">{{ translationExtraBodyError }}</span>
               </div>
             </div>
           </div>
@@ -2854,6 +2944,21 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
   box-shadow: 0 0 0 3px hsl(var(--ring) / 0.12);
 }
 
+.number-input.input-error {
+  border-color: hsl(var(--destructive));
+}
+
+.number-input.input-error:focus {
+  box-shadow: 0 0 0 3px hsl(var(--destructive) / 0.12);
+}
+
+.input-error-text {
+  display: block;
+  font-size: 11px;
+  color: hsl(var(--destructive));
+  margin-top: 4px;
+}
+
 .input-suffix {
   font-size: 12px;
   color: hsl(var(--muted-foreground));
@@ -3194,177 +3299,6 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
 
 .tag-add-btn:hover {
   opacity: 0.9;
-}
-
-/* Background Image */
-.bg-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.bg-header-left {
-  min-width: 0;
-}
-
-.bg-header-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 600;
-  color: hsl(var(--foreground));
-}
-
-.bg-header-icon {
-  color: hsl(var(--muted-foreground));
-  flex-shrink: 0;
-}
-
-.bg-header-desc {
-  margin-top: 4px;
-  font-size: 12px;
-  color: hsl(var(--muted-foreground));
-  line-height: 1.6;
-}
-
-.bg-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.bg-choose-btn {
-  height: 36px;
-  padding: 0 16px;
-  border-radius: 8px;
-  border: none;
-  background: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background var(--duration-base) var(--ease-standard);
-  white-space: nowrap;
-}
-
-.bg-choose-btn:hover {
-  background: hsl(var(--primary) / 0.9);
-}
-
-.bg-toggle-btn {
-  height: 36px;
-  padding: 0 12px;
-  border-radius: 8px;
-  border: 1px solid hsl(var(--border));
-  background: hsl(var(--card));
-  color: hsl(var(--foreground));
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all var(--duration-base) var(--ease-standard);
-  white-space: nowrap;
-}
-
-.bg-toggle-btn:hover:not(:disabled) {
-  background: hsl(var(--accent));
-}
-
-.bg-toggle-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-.bg-status-hint {
-  margin-top: 12px;
-  font-size: 12px;
-  color: hsl(var(--muted-foreground));
-}
-
-.bg-preview-box {
-  margin-top: 16px;
-  border-radius: 12px;
-  background: hsl(var(--app-settings-subtle-bg));
-  padding: 12px;
-}
-
-.bg-preview-stage {
-  aspect-ratio: 16 / 9;
-  width: 100%;
-  border-radius: 10px;
-  background-size: cover;
-  background-position: center;
-  border: 1px solid hsl(var(--border));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-}
-
-.bg-preview-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  color: hsl(var(--muted-foreground));
-  font-size: 13px;
-}
-
-.bg-empty-icon {
-  opacity: 0.5;
-}
-
-.bg-sliders-box {
-  margin-top: 16px;
-  border-radius: 12px;
-  background: hsl(var(--app-settings-subtle-bg));
-  padding: 12px;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-
-.bg-slider-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.slider-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 12px;
-  color: hsl(var(--muted-foreground));
-}
-
-.slider-header label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.slider {
-  width: 100%;
-  -webkit-appearance: none;
-  appearance: none;
-  height: 4px;
-  border-radius: 2px;
-  background: hsl(var(--muted));
-  outline: none;
-}
-
-.slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: hsl(var(--primary));
-  cursor: pointer;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.15);
 }
 
 /* ═══ AI Model Management ═══ */
@@ -4855,5 +4789,42 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
   text-overflow: ellipsis;
   max-width: 52px;
   white-space: nowrap;
+}
+
+.json-textarea {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  outline: none;
+  resize: vertical;
+  min-height: 60px;
+  transition: all var(--duration-base) var(--ease-standard);
+  box-sizing: border-box;
+  line-height: 1.5;
+}
+
+.json-textarea:focus {
+  border-color: hsl(var(--ring));
+  box-shadow: 0 0 0 3px hsl(var(--ring) / 0.12);
+}
+
+.json-textarea::placeholder {
+  color: hsl(var(--muted-foreground));
+}
+
+.json-error {
+  display: block;
+  font-size: 11px;
+  color: hsl(var(--destructive));
+  margin-top: 4px;
+}
+
+.setting-card-header {
+  padding: 16px 16px 8px;
 }
 </style>

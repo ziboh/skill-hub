@@ -72,6 +72,35 @@ function _fetchGitHubTextInternal(url, token, redirectCount) {
   })
 }
 
+function _fetchGitHubJSONInternal(url, token, redirectCount) {
+  return new Promise((resolve, reject) => {
+    if (redirectCount > 5) {
+      return reject(new Error('Too many redirects'))
+    }
+    const headers = {
+      Accept: 'application/vnd.github.v3+json',
+      'User-Agent': 'skill-hub',
+    }
+    if (token) headers['Authorization'] = `Bearer ${token}`
+    const client = url.startsWith('https') ? https : http
+    client.get(url, { headers }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        return resolve(_fetchGitHubJSONInternal(res.headers.location, token, redirectCount + 1))
+      }
+      let data = ''
+      res.on('data', (c) => (data += c))
+      res.on('end', () => {
+        if (res.statusCode !== 200) reject(new Error(`GitHub API: ${res.statusCode}`))
+        else {
+          try { resolve(JSON.parse(data)) }
+          catch (e) { reject(new Error(`GitHub API JSON parse error: ${e.message}`)) }
+        }
+      })
+      res.on('error', reject)
+    }).on('error', reject)
+  })
+}
+
 window.services = {
   hashContent(content) {
     return crypto.createHash('sha256').update(content, 'utf-8').digest('hex')
@@ -299,6 +328,11 @@ window.services = {
     return { content, manifest: parseSkillFrontmatter(content) }
   },
 
+  // === GitHub JSON API ===
+  fetchGitHubJSON(url, token) {
+    return _fetchGitHubJSONInternal(url, token, 0)
+  },
+
   // === Skill Update Check ===
   async checkSkillUpdate(repo, skillPath, token, branch) {
     const pathCandidates = [
@@ -325,6 +359,166 @@ window.services = {
     }
     return null
   },
+
+  // === Full Skill Update Check (all files) ===
+  async getLatestCommitSha(repo, branch, token) {
+    const branches = branch ? [branch, 'main', 'master'] : ['main', 'master']
+    const tried = new Set()
+    for (const b of branches) {
+      if (tried.has(b)) continue
+      tried.add(b)
+      try {
+        const data = await this.fetchGitHubJSON(`https://api.github.com/repos/${repo}/commits/${b}`, token)
+        return data.sha
+      } catch (err) {
+        if (err.message?.includes('404') && b !== branches[branches.length - 1]) continue
+        throw err
+      }
+    }
+    return null
+  },
+
+  async getRemoteSkillTree(repo, skillPath, branch, token) {
+    const branches = branch ? [branch, 'main', 'master'] : ['main', 'master']
+    const pathCandidates = skillPath
+      ? [skillPath, `skills/${skillPath}`, `agent-skills/${skillPath}`]
+      : ['']
+    const tried = new Set()
+    for (const b of branches) {
+      if (tried.has(b)) continue
+      tried.add(b)
+      // Get commit to find tree SHA
+      let treeSha
+      try {
+        const commit = await this.fetchGitHubJSON(`https://api.github.com/repos/${repo}/commits/${b}`, token)
+        treeSha = commit.commit?.tree?.sha || commit.sha
+      } catch (err) {
+        if (err.message?.includes('404') && b !== branches[branches.length - 1]) continue
+        throw err
+      }
+      // Try each path candidate against the tree
+      for (const p of pathCandidates) {
+        try {
+          const data = await this.fetchGitHubJSON(
+            `https://api.github.com/repos/${repo}/git/trees/${treeSha}?recursive=1`,
+            token
+          )
+          if (data && data.tree) {
+            const prefix = p ? `${p}/` : ''
+            const files = data.tree
+              .filter((item) => item.type === 'blob' && item.path.startsWith(prefix))
+              .map((item) => ({
+                path: prefix ? item.path.slice(prefix.length) : item.path,
+                size: item.size || 0,
+              }))
+            if (files.length > 0) return files
+          }
+        } catch (err) {
+          if (err.message?.includes('404')) continue
+          throw err
+        }
+      }
+    }
+    return null
+  },
+
+  saveSkillMeta(skillDir, meta) {
+    const metaPath = path.join(expandPath(skillDir), '.skill-meta.json')
+    try {
+      fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), { encoding: 'utf-8' })
+    } catch {}
+  },
+
+  loadSkillMeta(skillDir) {
+    const metaPath = path.join(expandPath(skillDir), '.skill-meta.json')
+    try {
+      const content = fs.readFileSync(metaPath, { encoding: 'utf-8' })
+      return JSON.parse(content)
+    } catch {
+      return null
+    }
+  },
+
+  async saveSkillMetaAfterDownload(repo, branch, token, targetDir) {
+    try {
+      const commitSha = await this.getLatestCommitSha(repo, branch, token)
+      const files = this.buildLocalFileManifest(targetDir)
+      this.saveSkillMeta(targetDir, { commitSha, checkedAt: new Date().toISOString(), files })
+    } catch {}
+  },
+
+  buildLocalFileManifest(skillDir) {
+    const fullDir = expandPath(skillDir)
+    const files = []
+    function walk(dir, relative) {
+      let entries
+      try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
+      for (const entry of entries) {
+        const rel = relative ? `${relative}/${entry.name}` : entry.name
+        const fullPath = path.join(dir, entry.name)
+        if (entry.isDirectory()) {
+          if (entry.name === '.git' || entry.name === 'node_modules') continue
+          walk(fullPath, rel)
+        } else if (entry.isFile()) {
+          try {
+            const stat = fs.statSync(fullPath)
+            files.push({ path: rel, size: stat.size })
+          } catch {}
+        }
+      }
+    }
+    walk(fullDir, '')
+    return files
+  },
+
+  async checkSkillUpdateFull(repo, skillPath, token, branch, skillId) {
+    // Find the skill directory by skillId
+    const stateDir = path.join(window.ztools.getPath('userData'), 'skills-repo')
+    const skillDir = path.join(stateDir, skillId || '')
+    if (!fs.existsSync(skillDir)) return null
+
+    // Load local meta
+    const localMeta = this.loadSkillMeta(skillDir)
+
+    // Get latest commit SHA
+    const remoteSha = await this.getLatestCommitSha(repo, branch, token)
+    if (!remoteSha) return null
+
+    // Quick check: compare commit SHA
+    if (localMeta && localMeta.commitSha === remoteSha) {
+      return { hasUpdate: false, changedFiles: [] }
+    }
+
+    // Detailed check: compare file trees
+    const remoteFiles = await this.getRemoteSkillTree(repo, skillPath, branch, token)
+    if (!remoteFiles) return null
+
+    const localFiles = this.buildLocalFileManifest(skillDir)
+
+    // Compare file lists
+    const remoteMap = new Map(remoteFiles.map((f) => [f.path, f.size]))
+    const localMap = new Map(localFiles.map((f) => [f.path, f.size]))
+
+    const changedFiles = []
+
+    // Check for new or modified files
+    for (const [filePath, remoteSize] of remoteMap) {
+      const localSize = localMap.get(filePath)
+      if (localSize === undefined || localSize !== remoteSize) {
+        changedFiles.push(filePath)
+      }
+    }
+
+    // Check for deleted files
+    for (const filePath of localMap.keys()) {
+      if (!remoteMap.has(filePath)) {
+        changedFiles.push(filePath)
+      }
+    }
+
+    return { hasUpdate: changedFiles.length > 0, changedFiles }
+  },
+
   async updateSkillFromGitHub(repo, skillPath, targetDir, token, branch) {
     let buffer
     const branches = branch ? [branch, 'main', 'master'] : ['main', 'master']
@@ -362,6 +556,14 @@ window.services = {
     fs.mkdirSync(targetDir, { recursive: true })
     this.copyFile(skillSourceDir, targetDir)
     fs.rmSync(extractDir, { recursive: true })
+
+    // Save skill meta for future update checks
+    try {
+      const commitSha = await this.getLatestCommitSha(repo, branch, token)
+      const files = this.buildLocalFileManifest(targetDir)
+      this.saveSkillMeta(targetDir, { commitSha, checkedAt: new Date().toISOString(), files })
+    } catch {}
+
     return true
   },
 

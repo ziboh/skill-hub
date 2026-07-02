@@ -120,15 +120,12 @@ export interface AppSettings {
   fontSize: FontSize
   motionPreference: MotionPreference
   compactMode: boolean
-  backgroundImage: string
-  backgroundImageEnabled: boolean
-  backgroundOpacity: number
-  backgroundBlur: number
   aiModels: ModelConfig[]
   translationModelId: string
   autoTranslate: boolean
   translationTimeout: number
   resumeTranslation: boolean
+  translationExtraBody?: Record<string, any>
 }
 
 export interface SkillManifest {
@@ -247,6 +244,7 @@ export interface ModelConfig {
   translationModelId?: string
   icon?: string
   models?: Array<{ id: string; name: string; enabled: boolean; owned_by?: string; capabilities?: string[] }>
+  extraBody?: Record<string, any>
 }
 
 export interface TranslationResult {

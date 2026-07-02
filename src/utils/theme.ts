@@ -70,31 +70,11 @@ export function applyTheme(settings: AppSettings): void {
   }
 
   applyMotion(settings.motionPreference)
-  applyBackground(settings)
 }
 
 export function applyMotion(pref: MotionPreference): void {
   const root = document.documentElement
   root.setAttribute('data-motion', pref)
-}
-
-export function applyBackground(settings: AppSettings): void {
-  const root = document.documentElement
-  const el = document.querySelector('.app-background') as HTMLElement | null
-  if (!el) return
-  if (settings.backgroundImage && settings.backgroundImageEnabled) {
-    root.setAttribute('data-has-bg', '')
-    el.style.backgroundImage = `url("${settings.backgroundImage.replace(/"/g, '\\"')}")`
-    el.style.opacity = String(settings.backgroundOpacity / 100)
-    el.style.filter = settings.backgroundBlur > 0 ? `blur(${settings.backgroundBlur}px)` : ''
-    el.style.display = 'block'
-  } else {
-    root.removeAttribute('data-has-bg')
-    el.style.display = 'none'
-    el.style.backgroundImage = ''
-    el.style.opacity = ''
-    el.style.filter = ''
-  }
 }
 
 export function getMandiThemes(): MorandiTheme[] {

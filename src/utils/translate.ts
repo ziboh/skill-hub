@@ -3,7 +3,7 @@ import { chatCompletion } from './ai'
 import { storage } from './storage'
 
 function getTranslationTimeout(): number {
-  return storage.getSettings().translationTimeout || 60
+  return storage.getSettings().translationTimeout || 300
 }
 
 export type TranslationMode = 'immersive' | 'full'
@@ -36,7 +36,7 @@ Return a valid SKILL.md document in {targetLang}.
 
 Rules:
 1. The input may begin with YAML frontmatter between --- delimiters. Preserve the delimiters, key order, and valid YAML syntax.
-2. In frontmatter, do NOT insert <t>...</t> lines. Keep YAML keys unchanged. Translate only human-readable text values such as description when appropriate. Leave identifiers, slug-like names, versions, URLs, file paths, and code-like values unchanged.
+2. In frontmatter, do NOT insert <t>...</t> lines. Keep ALL frontmatter values unchanged (including description, name, etc.) — they are handled by separate translation logic.
 3. After the frontmatter, translate the markdown body in immersive mode: for each heading, paragraph, or list block, output the original block first, then output the translated block wrapped in <t>...</t>.
 4. Do NOT translate fenced code blocks, inline code, command names, file paths, URLs, or YAML keys.
 5. Preserve markdown structure. Output only the final SKILL.md document with no commentary.
@@ -53,7 +53,7 @@ This skill helps you write tests.
 Example output:
 ---
 name: write
-description: 帮助用户更好地写作。
+description: Help users write better.
 ---
 
 ## Overview
@@ -67,7 +67,7 @@ Return a valid translated SKILL.md document in {targetLang}.
 
 Rules:
 1. Preserve YAML frontmatter delimiters, key order, and valid YAML syntax.
-2. Keep YAML keys unchanged. Translate human-readable text values such as description when appropriate, but leave identifiers, slug-like names, versions, URLs, file paths, and code-like values unchanged.
+2. In frontmatter, keep ALL values unchanged (including description, name, etc.) — they are handled by separate translation logic. Only keep YAML keys unchanged.
 3. Translate the markdown body fully while preserving markdown structure.
 4. Do NOT translate fenced code blocks, inline code, command names, file paths, URLs, or YAML keys.
 5. Output only the translated SKILL.md document with no commentary.`
@@ -141,13 +141,15 @@ export async function translateContent(
 
   const systemPrompt = (mode === 'immersive' ? IMMERSIVE_SYSTEM_PROMPT : FULL_SYSTEM_PROMPT).replace('{targetLang}', lang)
 
+  const extraBody = storage.getSettings().translationExtraBody || {}
+
   const result = await chatCompletion(
     model,
     [
       { role: 'system', content: systemPrompt },
       { role: 'user', content },
     ],
-    { temperature: 0.3, maxTokens: 8192, timeout: getTranslationTimeout() },
+    { temperature: 0.3, maxTokens: 8192, timeout: getTranslationTimeout(), extraBody },
   )
 
   return result.content
@@ -166,13 +168,15 @@ export async function translateDescription(
 
   const systemPrompt = DESCRIPTION_SYSTEM_PROMPT.replace(/{targetLang}/g, lang)
 
+  const extraBody = storage.getSettings().translationExtraBody || {}
+
   const result = await chatCompletion(
     model,
     [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: description },
     ],
-    { temperature: 0.3, maxTokens: 1024, timeout: getTranslationTimeout() },
+    { temperature: 0.3, maxTokens: 1024, timeout: getTranslationTimeout(), extraBody },
   )
 
   return result.content
@@ -203,6 +207,7 @@ export async function translateTags(
   }
 
   const systemPrompt = TAGS_SYSTEM_PROMPT.replace(/{targetLang}/g, lang)
+  const extraBody = storage.getSettings().translationExtraBody || {}
 
   const result = await chatCompletion(
     model,
@@ -210,7 +215,7 @@ export async function translateTags(
       { role: 'system', content: systemPrompt },
       { role: 'user', content: JSON.stringify(tags) },
     ],
-    { temperature: 0.3, maxTokens: 512, timeout: getTranslationTimeout() },
+    { temperature: 0.3, maxTokens: 512, timeout: getTranslationTimeout(), extraBody },
   )
 
   try {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, inject, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onActivated, onDeactivated, watch, inject, onUnmounted, nextTick } from 'vue'
 import { KeyRefreshCounts, KeyShowToast } from '../../inject-keys'
 import { storage } from '../../utils/storage'
 import { parseGitHubUrl, fetchGitHubRepoTree, fetchGitHubFile, detectSkillDirectories, getRateLimitState } from '../../utils/github'
@@ -84,6 +84,12 @@ const showPickModal = ref(false)
 const pickSkills = ref<{ name: string; description: string; dir: string }[]>([])
 let pickSkillResolve: ((dir: string | null) => void) | null = null
 const searchQuery = ref('')
+const debouncedSearchQuery = ref('')
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
+watch(searchQuery, (val) => {
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+  searchDebounceTimer = setTimeout(() => { debouncedSearchQuery.value = val }, 300)
+})
 const filterTab = ref('all')
 const leaderboardFilter = ref('all')
 const searchActive = ref(false)
@@ -102,6 +108,14 @@ const storeScrollRef = ref<HTMLElement | null>(null)
 const skillsCache = ref<Record<string, Skill[]>>({})
 const totalCountCache = ref<Record<string, number>>({})
 const selectedSkill = ref<Skill | null>(null)
+
+// 虚拟滚动
+const CARD_HEIGHT = 80
+const GRID_CARD_HEIGHT = 180
+const BUFFER_ROWS = 3
+const scrollTop = ref(0)
+const viewportHeight = ref(600)
+const containerWidth = ref(800)
 
 const showConfirmDelete = ref(false)
 const skillToDelete = ref<Skill | null>(null)
@@ -139,13 +153,35 @@ watch(storeSources, (list) => {
     activePresetId.value = fallback
     storage.savePageState('skill-store', { presetId: fallback })
     fetchCurrentSkills()
+    emit('navigate', 'store', { sub: fallback })
   }
 }, { immediate: true })
 
+watch(viewMode, () => { scrollTop.value = 0 })
+watch(filterTab, () => { scrollTop.value = 0 })
+
 let scrollObserver: IntersectionObserver | null = null
 function onKeydown(e: KeyboardEvent) { if (e.key === 'Escape' && (searchActive.value || isLocalSearchActive.value)) { searchQuery.value = ''; exitSearch() } }
-onMounted(() => { downloadedIds.value = storage.getDownloadedIds(); fetchCurrentSkills(); setupScrollObserver(); loadLocalIcons(); window.addEventListener('keydown', onKeydown) })
-onUnmounted(() => { scrollObserver?.disconnect(); stopLoadingDots(); window.removeEventListener('keydown', onKeydown) })
+function onScroll(e: Event) { scrollTop.value = (e.target as HTMLElement).scrollTop }
+let viewportRo: ResizeObserver | null = null
+function initViewport() {
+  nextTick(() => {
+    if (storeScrollRef.value) {
+      viewportHeight.value = storeScrollRef.value.clientHeight
+      containerWidth.value = storeScrollRef.value.clientWidth
+      viewportRo?.disconnect()
+      viewportRo = new ResizeObserver(entries => {
+        viewportHeight.value = entries[0]?.contentRect.height ?? 600
+        containerWidth.value = entries[0]?.contentRect.width ?? 800
+      })
+      viewportRo.observe(storeScrollRef.value)
+    }
+  })
+}
+onMounted(() => { downloadedIds.value = storage.getDownloadedIds(); fetchCurrentSkills(); setupScrollObserver(); loadLocalIcons(); initViewport(); window.addEventListener('keydown', onKeydown) })
+onActivated(() => { downloadedIds.value = storage.getDownloadedIds(); if (props.storeId !== activePresetId.value) { activePresetId.value = props.storeId; storage.savePageState('skill-store', { presetId: props.storeId }); } fetchCurrentSkills(); nextTick(() => { reobserveScroll(); if (storeScrollRef.value) { scrollTop.value = storeScrollRef.value.scrollTop } }); initViewport(); window.addEventListener('keydown', onKeydown) })
+onDeactivated(() => { scrollObserver?.disconnect(); stopLoadingDots(); window.removeEventListener('keydown', onKeydown); if (searchDebounceTimer) { clearTimeout(searchDebounceTimer); searchDebounceTimer = null } })
+onUnmounted(() => { scrollObserver?.disconnect(); stopLoadingDots(); window.removeEventListener('keydown', onKeydown); if (searchDebounceTimer) { clearTimeout(searchDebounceTimer); searchDebounceTimer = null } })
 
 function setupScrollObserver() {
   scrollObserver = new IntersectionObserver((entries) => {
@@ -465,11 +501,11 @@ async function fetchLocalDirSkills(source: StoreSource) {
   } catch (err: any) { error.value = err.message || '扫描本地目录失败'; loading.value = false; stopLoadingDots(); loadingMore.value = false }
 }
 
-const isLocalSearchActive = computed(() => searchQuery.value.trim() !== '' && activePresetId.value !== 'skills-sh')
+const isLocalSearchActive = computed(() => debouncedSearchQuery.value.trim() !== '' && activePresetId.value !== 'skills-sh')
 
 const localSearchResults = computed(() => {
   if (!isLocalSearchActive.value) return []
-  const q = searchQuery.value.trim().toLowerCase()
+  const q = debouncedSearchQuery.value.trim().toLowerCase()
   return allEntries.value.filter(s => {
     const nameMatch = s.name.toLowerCase().includes(q)
     const descMatch = (s.description || '').toLowerCase().includes(q)
@@ -515,17 +551,60 @@ function getPresetOwnerRepo(storeId: string): string | null {
   return null
 }
 
+const downloadedIdSet = computed(() => new Set(downloadedIds.value))
+const cachedSkillMap = computed(() => {
+  const map = new Map<string, Skill>()
+  for (const s of storage.getCachedSkills()) map.set(s.id, s)
+  return map
+})
+
 const availableSkills = computed(() => {
   let list = sourceSkills.value.filter((s) => {
-    if (!downloadedIds.value.includes(s.id)) return true
-    const cs = storage.getCachedSkills().find(c => c.id === s.id)
+    if (!downloadedIdSet.value.has(s.id)) return true
+    const cs = cachedSkillMap.value.get(s.id)
     return !cs || cs.storeSourceId !== activePresetId.value
   })
   if (filterTab.value !== 'all') list = list.filter((s) => s.category === filterTab.value)
   return list
 })
 
-function isDownloading(id: string) { return downloading.value.has(id) }
+const categoryCounts = computed(() => {
+  const counts: Record<string, number> = { all: sourceSkills.value.length }
+  for (const s of sourceSkills.value) {
+    const cat = s.category || 'other'
+    counts[cat] = (counts[cat] || 0) + 1
+  }
+  return counts
+})
+
+// 虚拟滚动 — grid 和 list 模式统一使用虚拟滚动
+const GRID_MIN_WIDTH = 280
+const gridColumns = computed(() => Math.max(1, Math.floor(containerWidth.value / GRID_MIN_WIDTH)))
+
+const virtualItems = computed(() => {
+  const cols = viewMode.value === 'grid' ? gridColumns.value : 1
+  const rowH = viewMode.value === 'grid' ? GRID_CARD_HEIGHT : CARD_HEIGHT
+  const startRow = Math.max(0, Math.floor(scrollTop.value / rowH) - BUFFER_ROWS)
+  const visibleRows = Math.ceil(viewportHeight.value / rowH)
+  const totalRows = Math.ceil(availableSkills.value.length / cols)
+  const endRow = Math.min(totalRows, startRow + visibleRows + BUFFER_ROWS * 2)
+  const startIdx = startRow * cols
+  const endIdx = Math.min(availableSkills.value.length, endRow * cols)
+  return availableSkills.value.slice(startIdx, endIdx).map((skill, i) => ({
+    skill,
+    row: Math.floor((startIdx + i) / cols),
+    col: (startIdx + i) % cols,
+  }))
+})
+
+const virtualTotalHeight = computed(() => {
+  const rowH = viewMode.value === 'grid' ? GRID_CARD_HEIGHT : CARD_HEIGHT
+  const cols = viewMode.value === 'grid' ? gridColumns.value : 1
+  return Math.ceil(availableSkills.value.length / cols) * rowH
+})
+
+const downloadingSet = computed(() => new Set(downloading.value))
+function isDownloading(id: string) { return downloadingSet.value.has(id) }
 
 async function onSearch() {
   if (activePresetId.value !== 'skills-sh') return
@@ -690,6 +769,7 @@ async function downloadSkill(skill: Skill) {
     }
     const targetDir = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', skill.id)
     window.services.removeFile(targetDir); window.services.mkdir(targetDir); window.services.copyFile(skillSourceDir, targetDir)
+    window.services.saveSkillMetaAfterDownload(skill.repo || '', skill.branch || 'main', storage.getSettings().githubToken || undefined, targetDir)
     window.services.removeFile(extractDir)
     const skillFile = ['SKILL.md', 'skill.md'].find((f) => window.services.pathExists(window.services.pathJoin(targetDir, f)))
     if (skillFile) {
@@ -832,6 +912,7 @@ function onStoreConfigSaved() {
       activePresetId.value = latest.id
       storage.savePageState('skill-store', { presetId: latest.id })
       fetchCurrentSkills()
+      emit('navigate', 'store', { sub: latest.id })
     }
   }
 }
@@ -913,7 +994,7 @@ function confirmDeleteStore() {
         placeholder="搜索商店..."
         add-label="添加商店"
         :show-add="true"
-        @select="(id) => { activePresetId = id; searchQuery = ''; filterTab = 'all'; leaderboardFilter = 'all'; sourceSkills = []; error = ''; storage.savePageState('skill-store', { presetId: id }); fetchCurrentSkills() }"
+        @select="(id) => { activePresetId = id; searchQuery = ''; filterTab = 'all'; leaderboardFilter = 'all'; sourceSkills = []; error = ''; storage.savePageState('skill-store', { presetId: id }); fetchCurrentSkills(); emit('navigate', 'store', { sub: id }) }"
         @add="openAddStoreModal"
         @delete="onDeleteStore"
       >
@@ -955,15 +1036,15 @@ function confirmDeleteStore() {
           <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
         </svg>
         全部
-        <span class="tab-count">{{ sourceSkills.length }}</span>
+        <span class="tab-count">{{ categoryCounts.all }}</span>
       </button>
       <button v-for="cat in ALL_CATEGORIES" :key="cat" class="tab-btn" :class="{ active: filterTab === cat }" @click="filterTab = cat">
         {{ CATEGORY_ICONS[cat] }} {{ SKILL_CATEGORIES[cat].label }}
-        <span class="tab-count">{{ sourceSkills.filter(s => s.category === cat).length }}</span>
+        <span class="tab-count">{{ categoryCounts[cat] || 0 }}</span>
       </button>
     </div>
 
-    <div ref="storeScrollRef" class="ss-scroll">
+    <div ref="storeScrollRef" class="ss-scroll" @scroll="onScroll">
       <template v-if="searchActive">
         <div v-if="loading" class="section">
           <div class="section-header"><h3>搜索结果</h3><span class="section-count loading-dots">{{ loadingDots }}</span></div>
@@ -986,7 +1067,7 @@ function confirmDeleteStore() {
             <p class="empty-desc">尝试其他关键词搜索。</p>
           </div>
           <div v-else class="skill-grid" :class="viewMode">
-            <div v-for="skill in searchResults" :key="skill.id" class="skill-card" @click="selectedSkill = skill">
+            <div v-for="(skill, idx) in searchResults" :key="skill.id" class="skill-card" @click="selectedSkill = skill">
               <a v-if="getSkillUrl(skill)" :href="getSkillUrl(skill)" target="_blank" class="card-link-btn" title="打开链接" @click.stop>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
               </a>
@@ -1029,7 +1110,7 @@ function confirmDeleteStore() {
             <p class="empty-desc">尝试其他关键词搜索。</p>
           </div>
           <div v-else class="skill-grid" :class="viewMode">
-            <div v-for="skill in localSearchResults" :key="skill.id" class="skill-card" @click="selectedSkill = skill">
+            <div v-for="(skill, idx) in localSearchResults" :key="skill.id" class="skill-card" @click="selectedSkill = skill">
               <a v-if="getSkillUrl(skill)" :href="getSkillUrl(skill)" target="_blank" class="card-link-btn" title="打开链接" @click.stop>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
               </a>
@@ -1061,7 +1142,7 @@ function confirmDeleteStore() {
         <div v-if="importedSkills.length" class="section">
           <div class="section-header"><h3>已导入</h3><span class="section-count">{{ importedSkills.length }}</span></div>
           <div class="skill-grid" :class="viewMode">
-            <div v-for="skill in importedSkills" :key="skill.id" class="skill-card imported" @click="selectedSkill = skill">
+            <div v-for="(skill, idx) in importedSkills" :key="skill.id" class="skill-card imported" @click="selectedSkill = skill">
               <a v-if="getSkillUrl(skill)" :href="getSkillUrl(skill)" target="_blank" class="card-link-btn" title="打开链接" @click.stop>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
               </a>
@@ -1104,8 +1185,8 @@ function confirmDeleteStore() {
         <template v-else>
           <div class="section">
             <div class="section-header"><h3>可用</h3><span class="section-count">{{ availableSkills.length }}</span></div>
-            <div class="skill-grid" :class="viewMode">
-              <div v-for="skill in availableSkills" :key="skill.id" class="skill-card" @click="selectedSkill = skill">
+            <div class="skill-grid-virtual" :class="viewMode" :style="{ height: virtualTotalHeight + 'px', position: 'relative' }">
+              <div v-for="{ skill, row, col } in virtualItems" :key="skill.id" class="skill-card" :style="viewMode === 'grid' ? { position: 'absolute', top: row * GRID_CARD_HEIGHT + 'px', left: (col / gridColumns * 100) + '%', width: (1 / gridColumns * 100) + '%' } : { transform: `translateY(${row * CARD_HEIGHT}px)` }" @click="selectedSkill = skill">
                 <a v-if="getSkillUrl(skill)" :href="getSkillUrl(skill)" target="_blank" class="card-link-btn" title="打开链接" @click.stop>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                 </a>
@@ -1120,10 +1201,10 @@ function confirmDeleteStore() {
                 <p class="card-desc">{{ skill.description || '暂无描述' }}</p>
                 <div class="card-badges">
                   <span class="card-badge source-badge">
-                  <img v-if="currentSource && currentSource.icon && !isSvgIcon(currentSource.icon)" :src="currentSource.icon" width="12" height="12" alt="" class="badge-icon" />
-                  <span v-else-if="currentSource?.icon" v-html="currentSource.icon" class="badge-icon-svg"></span>
-                  {{ currentSource?.label || getActivePreset()?.name }}
-                </span>
+                    <img v-if="currentSource && currentSource.icon && !isSvgIcon(currentSource.icon)" :src="currentSource.icon" width="12" height="12" alt="" class="badge-icon" />
+                    <span v-else-if="currentSource?.icon" v-html="currentSource.icon" class="badge-icon-svg"></span>
+                    {{ currentSource?.label || getActivePreset()?.name }}
+                  </span>
                 </div>
               </div>
             </div>
@@ -1533,6 +1614,9 @@ function confirmDeleteStore() {
 .skill-grid { display: grid; }
 .skill-grid.grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
 .skill-grid.list { grid-template-columns: 1fr; gap: 10px; }
+.skill-grid-virtual { display: block; }
+.skill-grid-virtual.list .skill-card { position: absolute; left: 0; right: 0; }
+.skill-grid-virtual.grid .skill-card { box-sizing: border-box; padding-right: 10px; }
 
 .skill-card {
   display: flex;
@@ -1542,7 +1626,8 @@ function confirmDeleteStore() {
   border: 1px solid hsl(var(--border));
   border-radius: 12px;
   cursor: pointer;
-  transition: all var(--duration-base) var(--ease-standard);
+  transition: border-color var(--duration-base) var(--ease-standard),
+              box-shadow var(--duration-base) var(--ease-standard);
   position: relative;
 }
 
