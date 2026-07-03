@@ -410,6 +410,7 @@ function executeBatchRemove() {
     for (const r of projectInstalls) {
       storage.removeInstallRecord(r.skillId, r.platformId, r.scope)
     }
+    try { window.services.removeFile(dir) } catch {}
     removedDirs.add(dir)
   }
   if (selectedProject.value && removedDirs.size > 0) {
