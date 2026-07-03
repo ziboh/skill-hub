@@ -123,8 +123,10 @@ function executeBatchDelete() {
       storage.removeInstallRecord(skillId, platformId, scope || undefined)
     } else if (type === 'content') {
       storage.removeTranslationByHash(rest[0])
+      removeTranslation(rest[0], 'content')
     } else if (type === 'desc') {
       storage.removeDescTranslationByHash(rest[0])
+      removeTranslation(rest[0], 'desc')
     } else if (type === 'failure') {
       storage.removeFailureRecord(rest[0])
     }
@@ -195,8 +197,13 @@ function executeDelete() {
     storage.removeFailureRecord(r.id)
   } else {
     const item = deleteTarget.value.data
-    if (item.type === 'content') storage.removeTranslationByHash(item.skillId)
-    else storage.removeDescTranslationByHash(item.skillId)
+    if (item.type === 'content') {
+      storage.removeTranslationByHash(item.skillId)
+      removeTranslation(item.skillId, 'content')
+    } else {
+      storage.removeDescTranslationByHash(item.skillId)
+      removeTranslation(item.skillId, 'desc')
+    }
   }
   loadData()
   showDeleteConfirm.value = false
