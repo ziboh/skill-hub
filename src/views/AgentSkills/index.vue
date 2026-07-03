@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onActivated, watch, inject, unref } from 'vue'
+import { ref, computed, onMounted, onActivated, watch, inject, unref, onDeactivated } from 'vue'
 import { KeyShowToast, KeyDetectedPlatforms, KeyPlatformSkillCounts, KeyRefreshCounts, KeyAgentSkills, KeyUpdateAgentPlatformSkills, KeySelectedAgentPlatformId } from '../../inject-keys'
 import { detectPlatforms, getPlatformPath, defaultPlatforms } from '../../data/platforms'
 import { storage } from '../../utils/storage'
@@ -172,6 +172,11 @@ watch(selectedId, (id) => {
   if (injectSelectedAgentPlatformId) injectSelectedAgentPlatformId.value = id
 })
 
+onDeactivated(() => {
+  batchMode.value = false
+  selectedIds.value.clear()
+})
+
 const selectedPlatform = computed(() => detectedPlatforms.value.find((p) => p.id === selectedId.value))
 const selectedSkills = computed(() => selectedId.value ? (platformSkills.value[selectedId.value] || []) : [])
 
@@ -281,6 +286,7 @@ const batchMode = ref(false)
 const selectedIds = ref<Set<string>>(new Set())
 const confirmDeleteDir = ref<string | null>(null)
 const confirmDeleteSkillName = ref('')
+const showBatchDeleteConfirm = ref(false)
 
 const uninstallScopeDir = ref<string | null>(null)
 const uninstallScopeSkillName = ref('')
@@ -321,6 +327,10 @@ function toggleSelect(dir: string) {
 const isAllSelected = computed(() => filteredSkills.value.length > 0 && selectedIds.value.size === filteredSkills.value.length)
 
 function batchDelete() {
+  showBatchDeleteConfirm.value = true
+}
+
+function executeBatchDelete() {
   for (const dir of selectedIds.value) {
     try { window.services.removeFile(dir) } catch {}
     const records = storage.getInstallRecords().filter(
@@ -332,6 +342,7 @@ function batchDelete() {
   refreshCounts()
   selectedIds.value.clear()
   batchMode.value = false
+  showBatchDeleteConfirm.value = false
 }
 
 const showImportModal = ref(false)
@@ -666,6 +677,30 @@ function confirmImportFromMy() {
     </div>
 
     <ConfirmModal v-if="confirmDeleteDir" title="删除 Skill" :message="`确定要删除 <strong>${confirmDeleteSkillName}</strong> 吗？此操作不可撤销。`" @confirm="uninstallSkill({ dir: confirmDeleteDir, manifest: { name: confirmDeleteSkillName } })" @cancel="confirmDeleteDir = null" />
+
+    <div v-if="showBatchDeleteConfirm" class="confirm-overlay" @click.self="showBatchDeleteConfirm = false">
+      <div class="confirm-modal">
+        <div class="confirm-header">
+          <div class="confirm-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+          </div>
+          <h3 class="confirm-title">批量删除 Skill</h3>
+          <button class="confirm-close" @click="showBatchDeleteConfirm = false">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="confirm-body">
+          <p class="confirm-desc">确定要删除选中的 <strong>{{ selectedIds.size }}</strong> 个 Skill 吗？此操作不可撤销。</p>
+        </div>
+        <div class="confirm-footer">
+          <button class="confirm-btn cancel" @click="showBatchDeleteConfirm = false">取消</button>
+          <button class="confirm-btn delete" @click="executeBatchDelete">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+            删除 {{ selectedIds.size }} 个 Skill
+          </button>
+        </div>
+      </div>
+    </div>
 
     <div v-if="uninstallScopeDir" class="confirm-overlay" @click.self="uninstallScopeDir = null">
       <div class="confirm-modal">

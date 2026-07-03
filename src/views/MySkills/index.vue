@@ -52,7 +52,13 @@ onActivated(() => {
 const refreshKey = inject(KeyRefreshKey, ref(0))
 watch(refreshKey, () => { if (currentRoute.value === 'my') refreshData() })
 
-watch(currentRoute, (r) => { if (r === 'my') refreshData() })
+watch(currentRoute, (r) => {
+  if (r === 'my') refreshData()
+  else {
+    batchMode.value = false
+    selectedIds.value.clear()
+  }
+})
 
 function refreshData() {
   allSkills.value = storage.getCachedSkills()

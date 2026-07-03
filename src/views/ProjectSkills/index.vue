@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { inject, ref, computed, unref } from 'vue'
+import { inject, ref, computed, unref, onDeactivated } from 'vue'
 import { KeyShowToast, KeySelectedProject, KeyScanProject, KeyProjectScanning, KeySelectProject, KeyOpenAddProjectModal, KeyDetectedPlatforms, KeyRefreshCounts } from '../../inject-keys'
 import { storage } from '../../utils/storage'
 import { useSettings } from '../../composables/useSettings'
@@ -34,6 +34,8 @@ const confirmDeleteProjectName = ref('')
 const confirmUninstallSkillDir = ref<string | null>(null)
 const confirmUninstallSkillName = ref('')
 const uninstalling = ref(false)
+
+const showBatchRemoveConfirm = ref(false)
 
 const downloadedIds = ref<string[]>(storage.getDownloadedIds())
 
@@ -320,6 +322,11 @@ function openImportModal() {
 const batchMode = ref(false)
 const selectedIds = ref<Set<string>>(new Set())
 
+onDeactivated(() => {
+  batchMode.value = false
+  selectedIds.value.clear()
+})
+
 function toggleBatchMode() {
   batchMode.value = !batchMode.value
   selectedIds.value.clear()
@@ -379,6 +386,10 @@ async function batchImportToMySkills() {
 }
 
 function batchRemoveFromLibrary() {
+  showBatchRemoveConfirm.value = true
+}
+
+function executeBatchRemove() {
   const registry = loadRegistry()
   const removedDirs = new Set<string>()
   for (const dir of selectedIds.value) {
@@ -413,6 +424,7 @@ function batchRemoveFromLibrary() {
   refreshCounts()
   selectedIds.value.clear()
   batchMode.value = false
+  showBatchRemoveConfirm.value = false
 }
 
 const allProjectSkills = computed(() => selectedProject.value?.skills || [])
@@ -980,6 +992,30 @@ async function confirmImportFromMy() {
 
     <ConfirmModal v-if="confirmUninstallSkillDir" title="卸载 Skill" :message="`确定要卸载 <strong>${confirmUninstallSkillName}</strong> 吗？将删除项目目录中的文件及分发记录。`" confirm-text="卸载" @confirm="uninstallSkillFromProject({ dir: confirmUninstallSkillDir!, manifest: { name: confirmUninstallSkillName } } as any)" @cancel="confirmUninstallSkillDir = null" />
     <ConfirmModal v-if="confirmDeleteProjectId" title="删除项目" :message="`确定要删除项目 <strong>${confirmDeleteProjectName}</strong> 吗？此操作不可撤销。`" confirm-text="删除项目" @confirm="doDeleteProject" @cancel="confirmDeleteProjectId = null" />
+
+    <div v-if="showBatchRemoveConfirm" class="confirm-overlay" @click.self="showBatchRemoveConfirm = false">
+      <div class="confirm-modal">
+        <div class="confirm-header">
+          <div class="confirm-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+          </div>
+          <h3 class="confirm-title">批量移除 Skill</h3>
+          <button class="confirm-close" @click="showBatchRemoveConfirm = false">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="confirm-body">
+          <p class="confirm-desc">确定要移除选中的 <strong>{{ selectedIds.size }}</strong> 个 Skill 吗？此操作将从项目中移除相关文件和分发记录。</p>
+        </div>
+        <div class="confirm-footer">
+          <button class="confirm-btn cancel" @click="showBatchRemoveConfirm = false">取消</button>
+          <button class="confirm-btn delete" @click="executeBatchRemove">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+            移除 {{ selectedIds.size }} 个 Skill
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -1679,4 +1715,21 @@ async function confirmImportFromMy() {
 
 @keyframes spin { to { transform: rotate(360deg); } }
 .spin { animation: spin 0.7s linear infinite; }
+
+.confirm-overlay { position: fixed; inset: 0; background: hsl(0 0% 0% / 0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; backdrop-filter: blur(4px); }
+.confirm-modal { width: 420px; max-width: 90vw; background: hsl(var(--card)); border: 1px solid hsl(var(--border)); border-radius: 16px; overflow: hidden; box-shadow: 0 24px 64px hsl(0 0% 0% / 0.2); }
+.confirm-header { display: flex; align-items: center; gap: 10px; padding: 18px 20px; border-bottom: 1px solid hsl(var(--border)); }
+.confirm-icon { width: 32px; height: 32px; border-radius: 8px; background: hsl(var(--destructive) / 0.1); color: hsl(var(--destructive)); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.confirm-title { font-size: 15px; font-weight: 600; color: hsl(var(--foreground)); margin: 0; flex: 1; }
+.confirm-close { width: 28px; height: 28px; border-radius: 6px; border: none; background: transparent; color: hsl(var(--muted-foreground)); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all var(--duration-base) var(--ease-standard); }
+.confirm-close:hover { background: hsl(var(--muted)); color: hsl(var(--foreground)); }
+.confirm-body { padding: 18px 20px; }
+.confirm-desc { font-size: 13px; line-height: 1.6; color: hsl(var(--muted-foreground)); margin: 0; }
+.confirm-desc :deep(strong) { color: hsl(var(--foreground)); font-weight: 600; }
+.confirm-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 20px; border-top: 1px solid hsl(var(--border)); }
+.confirm-btn { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 16px; font-size: 13px; font-weight: 600; border-radius: 8px; border: none; cursor: pointer; transition: all var(--duration-base) var(--ease-standard); }
+.confirm-btn.cancel { background: hsl(var(--muted)); color: hsl(var(--muted-foreground)); }
+.confirm-btn.cancel:hover { background: hsl(var(--muted) / 0.8); }
+.confirm-btn.delete { background: hsl(var(--destructive)); color: #fff; }
+.confirm-btn.delete:hover { opacity: 0.9; }
 </style>

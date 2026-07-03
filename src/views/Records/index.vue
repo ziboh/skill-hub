@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onActivated, inject, watch } from 'vue'
+import { ref, computed, onMounted, onActivated, onDeactivated, inject, watch } from 'vue'
 import { storage } from '../../utils/storage'
 import { useSettings } from '../../composables/useSettings'
 import type { InstallRecord, ModelConfig, FailureRecord, FailureType, ErrorCategory } from '../../types'
@@ -78,6 +78,10 @@ const selectedItems = ref<Set<string>>(new Set())
 const showBatchDeleteConfirm = ref(false)
 const selectedFailureRecord = ref<FailureRecord | null>(null)
 const showFailureDetail = ref(false)
+
+onDeactivated(() => {
+  selectedItems.value.clear()
+})
 
 function toggleSelect(key: string) {
   if (selectedItems.value.has(key)) {
