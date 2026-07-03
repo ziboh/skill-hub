@@ -119,7 +119,7 @@ const sections = [
   { id: 'appearance', label: '显示设置', icon: '🎨' },
   { id: 'ai', label: '模型设置', icon: '🧠' },
   { id: 'default-model', label: '翻译设置', icon: '🌐' },
-  { id: 'agent', label: 'Agent 配置', icon: '🤖' },
+  { id: 'agent', label: 'Agent 设置', icon: '🤖' },
 ]
 
 const themeModes: { id: ThemeMode; label: string; icon: string }[] = [
@@ -2304,7 +2304,7 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
       <!-- ===== AGENT ===== -->
       <template v-if="activeSection === 'agent'">
         <div class="settings-scroll">
-          <h1 class="settings-page-title">Agent 配置</h1>
+          <h1 class="settings-page-title">Agent 设置</h1>
           <p class="settings-page-desc">控制整个 Agent 平台是否启用，以及它们在 Skills 和 Rules 中的显示顺序。</p>
 
           <div class="setting-section">
