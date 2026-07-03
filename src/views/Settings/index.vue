@@ -1703,7 +1703,7 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                         class="json-textarea"
                         :value="getProviderExtraBodyText(m.id)"
                         @input="onProviderExtraBodyInput(m.id, $event)"
-                        placeholder='{"thinking": {"enabled": false}}'
+                        placeholder='{"thinking": {"type": "disabled"}}'
                         rows="3"
                         spellcheck="false"
                       ></textarea>
@@ -1858,7 +1858,7 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                         class="json-textarea"
                         :value="getProviderExtraBodyText(m.id)"
                         @input="onProviderExtraBodyInput(m.id, $event)"
-                        placeholder='{"thinking": {"enabled": false}}'
+                        placeholder='{"thinking": {"type": "disabled"}}'
                         rows="3"
                         spellcheck="false"
                       ></textarea>
@@ -2013,7 +2013,7 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                         class="json-textarea"
                         :value="getProviderExtraBodyText(m.id)"
                         @input="onProviderExtraBodyInput(m.id, $event)"
-                        placeholder='{"thinking": {"enabled": false}}'
+                        placeholder='{"thinking": {"type": "disabled"}}'
                         rows="3"
                         spellcheck="false"
                       ></textarea>
@@ -2290,7 +2290,7 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                   class="json-textarea"
                   :value="translationExtraBodyText"
                   @input="onTranslationExtraBodyInput"
-                  placeholder='{"thinking": {"enabled": false}}'
+                  placeholder='{"thinking": {"type": "disabled"}}'
                   rows="3"
                   spellcheck="false"
                 ></textarea>
@@ -4840,7 +4840,7 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
   outline: none;
   resize: vertical;
   min-height: 60px;
-  transition: all var(--duration-base) var(--ease-standard);
+  transition: border-color var(--duration-base) var(--ease-standard), box-shadow var(--duration-base) var(--ease-standard);
   box-sizing: border-box;
   line-height: 1.5;
 }
