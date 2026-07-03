@@ -7,7 +7,7 @@ import { useSettings } from '../../composables/useSettings'
 import { getSourceInfo } from '../../utils/source-info'
 import { normalizePath } from '../../utils/path'
 import type { PlatformInfo, Skill, SkillScanResult } from '../../types'
-import PlatformIcon from '../../components/PlatformIcon.vue'
+import ProviderIcon from '../../components/ProviderIcon.vue'
 import QuickSwitcher from '../../components/QuickSwitcher.vue'
 import ConfirmModal from '../../components/ConfirmModal.vue'
 
@@ -512,10 +512,10 @@ function confirmImportFromMy() {
         @select="selectPlatform(detectedPlatforms.find(p => p.id === $event)!)"
       >
         <template #trigger-prefix="{ item }">
-          <PlatformIcon v-if="item" :platform-id="item.id" :size="22" />
+          <ProviderIcon v-if="item" :icon="item.id" :size="22" variant="mono" />
         </template>
         <template #item-prefix="{ item }">
-          <PlatformIcon :platform-id="item.id" :size="18" />
+          <ProviderIcon :icon="item.id" :size="18" variant="mono" />
         </template>
       </QuickSwitcher>
     </div>

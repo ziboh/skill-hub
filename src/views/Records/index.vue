@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onActivated, inject, watch } from 'vue'
 import { storage } from '../../utils/storage'
+import { useSettings } from '../../composables/useSettings'
 import type { InstallRecord, ModelConfig, FailureRecord, FailureType, ErrorCategory } from '../../types'
 import { defaultPlatforms } from '../../data/platforms'
 import { KeyCurrentRoute } from '../../inject-keys'
@@ -9,11 +10,25 @@ import { useTranslationQueue } from '../../composables/useTranslationQueue'
 import { getSourceInfo as getSourceInfoUtil, isSvgIcon, isImageUrl } from '../../utils/source-info'
 
 import type { Skill } from '../../types'
-import PlatformIcon from '../../components/PlatformIcon.vue'
+import ProviderIcon from '../../components/ProviderIcon.vue'
 
 const emit = defineEmits(['navigate'])
 
 const currentRoute = inject(KeyCurrentRoute, ref('my'))
+const { settings, updateSettings } = useSettings()
+
+const isDarkMode = computed(() => {
+  if (settings.themeMode === 'auto') {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches
+  }
+  return settings.themeMode === 'dark'
+})
+
+function toggleTheme() {
+  const next = isDarkMode.value ? 'light' : 'dark'
+  updateSettings({ themeMode: next })
+}
+
 const activeTab = ref<'downloads' | 'dist' | 'translations' | 'failures'>('downloads')
 
 const { queue, activeCount, clearCompleted } = useDownloadQueue()
@@ -501,6 +516,16 @@ watch(activeTab, () => {
         </div>
         <p class="page-subtitle">查看下载、分发与翻译的历史记录。</p>
       </div>
+      <div class="header-toolbar">
+        <button class="toolbar-icon-btn" @click="toggleTheme" :title="isDarkMode ? '切换亮色模式' : '切换暗色模式'">
+          <svg v-if="isDarkMode" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+          </svg>
+          <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+          </svg>
+        </button>
+      </div>
     </div>
 
     <div class="filter-tabs-row">
@@ -657,7 +682,7 @@ watch(activeTab, () => {
               </div>
               <div class="col-platform">
                 <div class="platform-info">
-                  <PlatformIcon :platform-id="getDistPlatformId(record)" :size="16" />
+                  <ProviderIcon :icon="getDistPlatformId(record)" :size="16" variant="mono" />
                   <span v-if="record.scope === 'project'" class="platform-label">{{ getProjectName(record.platformId) }}</span>
                   <span v-else class="platform-label">{{ platformMap.get(record.platformId) || record.platformId }}</span>
                 </div>
@@ -980,10 +1005,36 @@ watch(activeTab, () => {
   border-bottom: 1px solid hsl(var(--border));
 }
 
-.header-left { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.header-title-row { display: flex; align-items: center; gap: 12px; }
+.header-left { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.header-title-row { display: flex; align-items: center; gap: 10px; }
 .header-left h2 { font-size: 22px; font-weight: 600; color: hsl(var(--foreground)); margin: 0; }
 .page-subtitle { font-size: 13px; color: hsl(var(--muted-foreground)); margin: 0; white-space: nowrap; overflow: hidden; }
+
+.header-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.toolbar-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  background: hsl(var(--card));
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  transition: all var(--duration-base) var(--ease-standard);
+}
+
+.toolbar-icon-btn:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
+}
 
 .filter-tabs-row { display: flex; align-items: center; gap: 6px; padding: 10px 28px 0; }
 .filter-tabs { display: flex; align-items: center; gap: 4px; }
@@ -1146,6 +1197,11 @@ watch(activeTab, () => {
   background: hsl(var(--card)); display: flex; align-items: center; justify-content: center;
   transition: all var(--duration-base) var(--ease-standard);
 }
+
+[data-theme="dark"] .checkbox-custom {
+  border-color: hsl(250 15% 22%);
+  box-shadow: 0 0 0 1px hsl(250 15% 14%);
+}
 .checkbox-wrap input[type="checkbox"]:checked + .checkbox-custom {
   background: hsl(var(--primary)); border-color: hsl(var(--primary));
 }
@@ -1154,6 +1210,11 @@ watch(activeTab, () => {
   transform: rotate(-45deg) translateY(-1px);
 }
 .checkbox-wrap:hover .checkbox-custom { border-color: hsl(var(--primary) / 0.5); }
+
+[data-theme="dark"] .checkbox-wrap:hover .checkbox-custom {
+  border-color: hsl(var(--primary) / 0.6);
+  box-shadow: 0 0 0 1px hsl(var(--primary) / 0.2);
+}
 
 .batch-toolbar {
   display: flex; align-items: center; gap: 14px;

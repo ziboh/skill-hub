@@ -4,7 +4,7 @@ import { KeyShowToast } from '../inject-keys'
 import { detectPlatforms } from '../data/platforms'
 import { storage } from '../utils/storage'
 import type { Skill, InstallMode } from '../types'
-import PlatformIcon from './PlatformIcon.vue'
+import ProviderIcon from './ProviderIcon.vue'
 import { getAvatarColor } from '../utils/color'
 
 const props = defineProps<{
@@ -186,7 +186,7 @@ async function deploy() {
               @click="!deploying && togglePlatform(p.id)"
             >
               <div class="deploy-platform-icon">
-                <PlatformIcon :platform-id="p.id" :size="28" />
+                <ProviderIcon :icon="p.id" :size="28" variant="mono" />
               </div>
               <div class="deploy-platform-info">
                 <span class="deploy-platform-name">{{ p.name }}</span>

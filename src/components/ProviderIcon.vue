@@ -1,18 +1,22 @@
 <script setup lang="ts">
 /**
- * ProviderIcon — cherry-studio inspired inline SVG component
+ * ProviderIcon — unified icon component
  *
- * Renders provider/brand icons as inline SVGs so hardcoded brand colors
- * (e.g. Anthropic #CA9F7B) show properly, and `currentColor` fills inherit
- * from the parent element's CSS `color` property.
+ * Renders provider/platform/brand icons supporting all formats:
+ *   - SVG files (providers/*.svg, platforms/*.svg) as inline SVG
+ *   - PNG files (platforms/*.png) as img
+ *   - Inline SVG strings (<svg>...</svg>)
+ *   - Data URIs (data:image/...)
+ *   - URLs (http://..., https://...)
+ *   - Local file paths (read as data URI)
  *
- * Variants (matches cherry-studio CompoundIcon convention):
- *   avatar — circular container (like cherry-studio CompoundIcon.Avatar)
- *   mono   — standalone icon, inherits text color (like cherry-studio default)
+ * Variants:
+ *   avatar — circular themed container (default)
+ *   mono   — standalone icon, inherits text color
  *
  * Usage:
- *   <ProviderIcon icon="openai" />                — avatar circle (default)
- *   <ProviderIcon icon="openai" variant="mono" /> — standalone icon
+ *   <ProviderIcon icon="openai" />                — avatar circle
+ *   <ProviderIcon icon="cline" variant="mono" />  — standalone icon
  *   <ProviderIcon icon="openai" :size="32" />     — custom size
  *   <ProviderIcon icon="https://..." />           — URL image
  *   <ProviderIcon icon="data:image/..." />        — data URI
@@ -30,19 +34,26 @@ const props = withDefaults(defineProps<{
   variant: 'avatar',
 })
 
-/* ── SVG module registry ─────────────────────────────────────── */
+/* ── Icon module registry ────────────────────────────────────── */
 
 const providerModules = import.meta.glob<string>('/src/assets/providers/*.svg', {
   query: '?raw', eager: true, import: 'default',
 })
 
-const platformModules = import.meta.glob<string>('/src/assets/platforms/*.svg', {
+const platformSvgModules = import.meta.glob<string>('/src/assets/platforms/*.svg', {
   query: '?raw', eager: true, import: 'default',
+})
+
+const platformPngModules = import.meta.glob<string>('/src/assets/platforms/*.png', {
+  eager: true, import: 'default',
 })
 
 const ICON_ALIAS: Record<string, string> = {
   siliconcloud: 'silicon',
   chatglm: 'zhipu',
+  kilo: 'kilo-light',
+  codebuddy: 'codebuddy-light',
+  'trae-cn': 'trae',
 }
 
 function resolveName(icon: string): string {
@@ -85,9 +96,21 @@ const iconSvg = computed(() => {
   const name = resolveName(props.icon)
   const raw = (
     providerModules[`/src/assets/providers/${name}.svg`]
-    ?? platformModules[`/src/assets/platforms/${name}.svg`]
     ?? ''
   )
+  return raw ? injectSvg(raw) : ''
+})
+
+const iconPng = computed(() => {
+  if (!props.icon || iconType.value !== 'provider-icon') return ''
+  const name = resolveName(props.icon)
+  return platformPngModules[`/src/assets/platforms/${name}.png`] ?? ''
+})
+
+const iconPlatformSvg = computed(() => {
+  if (!props.icon || iconType.value !== 'provider-icon') return ''
+  const name = resolveName(props.icon)
+  const raw = platformSvgModules[`/src/assets/platforms/${name}.svg`] ?? ''
   return raw ? injectSvg(raw) : ''
 })
 
@@ -128,6 +151,8 @@ const isSvgInline = computed(() => iconType.value === 'svg' && iconSvg.value ===
   >
     <span v-if="iconSvg" v-html="iconSvg" class="pi-avatar-icon" />
     <span v-else-if="iconType === 'svg'" v-html="icon" class="pi-avatar-icon" />
+    <img v-else-if="iconPng" :src="iconPng" class="pi-avatar-img" />
+    <span v-else-if="iconPlatformSvg" v-html="iconPlatformSvg" class="pi-avatar-icon" />
     <img v-else-if="iconType === 'url' || iconType === 'data-uri'" :src="icon" class="pi-avatar-img" />
     <img v-else-if="localFileDataUri" :src="localFileDataUri" class="pi-avatar-img" />
     <span v-else class="pi-fallback">&#x2699;</span>
@@ -143,6 +168,18 @@ const isSvgInline = computed(() => iconType.value === 'svg' && iconSvg.value ===
   <span
     v-else-if="iconType === 'svg'"
     v-html="icon"
+    class="pi-mono"
+    :style="{ width: size + 'px', height: size + 'px' }"
+  />
+  <img
+    v-else-if="iconPng"
+    :src="iconPng"
+    class="pi-mono-img"
+    :style="{ width: size + 'px', height: size + 'px' }"
+  />
+  <span
+    v-else-if="iconPlatformSvg"
+    v-html="iconPlatformSvg"
     class="pi-mono"
     :style="{ width: size + 'px', height: size + 'px' }"
   />
@@ -169,6 +206,7 @@ const isSvgInline = computed(() => iconType.value === 'svg' && iconSvg.value ===
   flex-shrink: 0;
   overflow: hidden;
   border-radius: 50%;
+  background: hsl(var(--muted));
 }
 
 .pi-avatar-icon {
@@ -217,5 +255,24 @@ const isSvgInline = computed(() => iconType.value === 'svg' && iconSvg.value ===
   font-size: 16px;
   line-height: 1;
   flex-shrink: 0;
+}
+
+/* Dark mode: make dark fills/strokes visible without affecting brand colors */
+[data-theme="dark"] .pi-avatar-icon :deep(svg [fill="black"]) {
+  fill: hsl(var(--foreground));
+}
+[data-theme="dark"] .pi-avatar-icon :deep(svg [fill="#1A1A1A"]),
+[data-theme="dark"] .pi-avatar-icon :deep(svg [fill="#222222"]),
+[data-theme="dark"] .pi-avatar-icon :deep(svg [fill="#24292F"]) {
+  fill: hsl(var(--foreground));
+}
+[data-theme="dark"] .pi-avatar-icon :deep(svg [stroke="#1A1A1A"]),
+[data-theme="dark"] .pi-avatar-icon :deep(svg [stroke="#222222"]),
+[data-theme="dark"] .pi-avatar-icon :deep(svg [stroke="#24292F"]) {
+  stroke: hsl(var(--foreground));
+}
+/* Cline icon: dark stroke needs light foreground in dark mode */
+[data-theme="dark"] .pi-mono :deep(svg [stroke="#24292F"]) {
+  stroke: hsl(var(--foreground));
 }
 </style>

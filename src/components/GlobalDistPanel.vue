@@ -5,7 +5,7 @@ import { detectPlatforms } from '../data/platforms'
 import { storage } from '../utils/storage'
 import { normalizePath } from '../utils/path'
 import type { Skill, InstallMode, InstallRecord } from '../types'
-import PlatformIcon from './PlatformIcon.vue'
+import ProviderIcon from './ProviderIcon.vue'
 import ConfirmModal from './ConfirmModal.vue'
 import { useDownloadQueue } from '../composables/useDownloadQueue'
 
@@ -256,7 +256,7 @@ loadInstallStatus()
         @click="!isInstalled(p.id) && !sourcePlatformIds.has(p.id) && !installing && togglePlatform(p.id)"
       >
         <div class="platform-card-row">
-          <PlatformIcon :platform-id="p.id" :size="22" />
+          <ProviderIcon :icon="p.id" :size="22" variant="mono" />
           <div class="platform-card-info">
             <h4 class="platform-card-name">{{ p.name }}</h4>
             <span v-if="isInstalled(p.id)" class="platform-status-badge installed">已分发</span>

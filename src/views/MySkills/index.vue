@@ -7,7 +7,7 @@ import { useSettings } from '../../composables/useSettings'
 import { useTheme } from '../../composables/useTheme'
 import { useFilteredSkills, SKILL_CATEGORIES, CATEGORY_ICONS } from '../../composables/useFilteredSkills'
 import { STORE_ICONS } from '../../data/store-icons'
-import PlatformIcon from '../../components/PlatformIcon.vue'
+import ProviderIcon from '../../components/ProviderIcon.vue'
 import DeployModal from '../../components/DeployModal.vue'
 import BatchSyncModal from '../../components/BatchSyncModal.vue'
 import ConfirmDeleteModal from '../../components/ConfirmDeleteModal.vue'
@@ -316,6 +316,24 @@ const sourceFilterCount = computed(() => {
   return entry ? entry[1] : 0
 })
 
+const emptyMessage = computed(() => {
+  switch (filterCategory.value) {
+    case 'favorites': return '暂无收藏的技能'
+    case 'distributed': return '暂无已分发的技能'
+    case 'pending': return '暂无待分发的技能'
+    default: return '暂无已下载的技能'
+  }
+})
+
+const emptyHint = computed(() => {
+  switch (filterCategory.value) {
+    case 'favorites': return '在技能卡片上点击星标即可收藏'
+    case 'distributed': return '在技能卡片上点击分发按钮即可分发到平台'
+    case 'pending': return '所有已下载的技能均已分发'
+    default: return null
+  }
+})
+
 function toggleBatchMode() {
   batchMode.value = !batchMode.value
   selectedIds.value.clear()
@@ -578,8 +596,11 @@ function batchSyncToPlatform() {
     </div>
 
     <div v-if="!filteredSkills.length" class="empty">
-      <p>暂无已下载的技能</p>
-      <button class="btn-primary" @click="emit('navigate', 'store')">浏览商店</button>
+      <p>{{ emptyMessage }}</p>
+      <p v-if="emptyHint" class="empty-hint">{{ emptyHint }}</p>
+      <button v-if="filterCategory === 'all'" class="btn-primary" @click="emit('navigate', 'store')">浏览商店</button>
+      <button v-else-if="filterCategory === 'favorites' && downloadedSkills.length" class="btn-primary" @click="filterCategory = 'all'">查看已下载技能</button>
+      <button v-else-if="filterCategory === 'distributed'" class="btn-primary" @click="filterCategory = 'all'">查看已下载技能</button>
     </div>
 
     <div v-else class="skill-grid" :class="viewMode">
@@ -603,10 +624,10 @@ function batchSyncToPlatform() {
             :ref="(el) => observeIconContainer(skill.id, el)"
           >
             <div class="icons-row icons-row-reverse">
-              <PlatformIcon v-for="p in getFirstRowIcons(skill.id)" :key="p" :platform-id="p" :size="16" />
+              <ProviderIcon v-for="p in getFirstRowIcons(skill.id)" :key="p" :icon="p" :size="16" variant="mono" />
             </div>
             <div v-if="hasSecondRow(skill.id)" class="icons-row" :style="{ paddingLeft: getSecondRowOffset(skill.id) + 'px' }">
-              <PlatformIcon v-for="p in getSecondRowIcons(skill.id)" :key="p" :platform-id="p" :size="16" />
+              <ProviderIcon v-for="p in getSecondRowIcons(skill.id)" :key="p" :icon="p" :size="16" variant="mono" />
             </div>
           </div>
           <div class="card-top-right">
@@ -1412,5 +1433,11 @@ function batchSyncToPlatform() {
   flex-direction: column;
   align-items: center;
   gap: 12px;
+}
+.empty-hint {
+  color: hsl(var(--muted-foreground));
+  font-size: 13px;
+  opacity: 0.7;
+  margin-top: -8px;
 }
 </style>

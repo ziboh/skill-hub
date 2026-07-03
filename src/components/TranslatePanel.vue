@@ -5,7 +5,7 @@ import { useTranslationQueue } from '../composables/useTranslationQueue'
 import { isChineseContent, stripFrontmatter } from '../utils/translate'
 import type { ModelConfig, Skill } from '../types'
 import QuickSwitcher, { type QuickSwitcherItem } from './QuickSwitcher.vue'
-import PlatformIcon from './PlatformIcon.vue'
+import ProviderIcon from './ProviderIcon.vue'
 
 const emit = defineEmits<{
   close: []
@@ -500,7 +500,7 @@ function getStatusLabel(status: string) {
               :class="{ active: translateScope === 'agent' }"
               @click="translateScope = 'agent'"
             >
-              <PlatformIcon v-if="selectedAgentPlatform" :platform-id="selectedAgentPlatform.id" :size="14" />
+              <ProviderIcon v-if="selectedAgentPlatform" :icon="selectedAgentPlatform.id" :size="14" variant="mono" />
               <span>{{ agentPlatformName }}</span>
             </button>
           </div>

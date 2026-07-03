@@ -3,7 +3,7 @@ import { ref, computed, watch } from 'vue'
 import { storage } from '../utils/storage'
 import type { Skill } from '../types'
 import { defaultPlatforms } from '../data/platforms'
-import PlatformIcon from './PlatformIcon.vue'
+import ProviderIcon from './ProviderIcon.vue'
 import { loadRegistry, removeFromRegistry } from '../utils/skill-registry'
 
 const props = defineProps<{
@@ -133,7 +133,7 @@ function deleteSkills() {
                   @change="togglePlatform(p.platformId)"
                   class="platform-checkbox"
                 />
-                <PlatformIcon :platform-id="p.platformId" :size="18" />
+                <ProviderIcon :icon="p.platformId" :size="18" variant="mono" />
                 <span class="platform-name">{{ p.name }}</span>
                 <span class="platform-count">{{ p.count }} 个 Skill</span>
               </label>

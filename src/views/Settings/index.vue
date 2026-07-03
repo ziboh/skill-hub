@@ -8,8 +8,8 @@ import { getMandiThemes, hexToHsl } from '../../utils/theme'
 import type { AppSettings, PlatformInfo, ThemeMode, FontSize, MotionPreference, ModelConfig } from '../../types'
 import { MORANDI_THEMES } from '../../types'
 import { useSettings } from '../../composables/useSettings'
+import { useTheme } from '../../composables/useTheme'
 import { fetchAvailableModels, chatCompletion } from '../../utils/ai'
-import PlatformIcon from '../../components/PlatformIcon.vue'
 import ProviderIcon from '../../components/ProviderIcon.vue'
 import StoreIconPicker from '../../components/StoreIconPicker.vue'
 import ConfirmModal from '../../components/ConfirmModal.vue'
@@ -19,6 +19,7 @@ import { loadRegistry } from '../../utils/skill-registry'
 
 const props = defineProps<{ anchor?: string }>()
 const { settings, updateSettings } = useSettings()
+const { isDarkMode, toggleTheme } = useTheme()
 const showToast = inject(KeyShowToast, () => {})
 
 const activeSection = ref('general')
@@ -1264,6 +1265,16 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
     <aside class="settings-sidebar" :style="{ width: sidebarWidth + 'px' }">
       <div class="settings-sidebar-header">
         <h2>设置</h2>
+        <div class="settings-header-actions">
+          <button class="settings-theme-toggle" @click="toggleTheme" :title="isDarkMode ? '切换亮色模式' : '切换暗色模式'">
+            <svg v-if="isDarkMode" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+            </svg>
+            <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+            </svg>
+          </button>
+        </div>
       </div>
       <nav class="settings-nav">
         <button
@@ -2334,7 +2345,7 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                   </svg>
                 </div>
                 <div class="platform-icon-wrapper">
-                  <PlatformIcon :platform-id="p.id" :size="32" />
+                  <ProviderIcon :icon="p.id" :size="32" variant="mono" />
                 </div>
                 <div class="platform-info">
                   <div class="platform-name-row">
@@ -2413,6 +2424,32 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
   align-items: center;
   padding: 0 16px;
   border-bottom: 1px solid hsl(var(--border));
+}
+
+.settings-header-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.settings-theme-toggle {
+  width: 32px;
+  height: 32px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  background: hsl(var(--card));
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--duration-base) var(--ease-standard);
+}
+
+.settings-theme-toggle:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
 }
 
 .settings-sidebar-header h2 {

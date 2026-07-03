@@ -3,7 +3,7 @@ import { ref, computed, watch } from 'vue'
 import { storage } from '../utils/storage'
 import type { Skill, InstallRecord } from '../types'
 import { defaultPlatforms } from '../data/platforms'
-import PlatformIcon from './PlatformIcon.vue'
+import ProviderIcon from './ProviderIcon.vue'
 import { loadRegistry, removeFromRegistry } from '../utils/skill-registry'
 
 const props = defineProps<{
@@ -127,7 +127,7 @@ function deleteSkill() {
                   @change="togglePlatform(p.platformId)"
                   class="platform-checkbox"
                 />
-                <PlatformIcon :platform-id="p.platformId" :size="18" />
+                <ProviderIcon :icon="p.platformId" :size="18" variant="mono" />
                 <span class="platform-name">{{ p.name }}</span>
                 <span class="platform-mode">{{ p.mode === 'symlink' ? '软链接' : '复制' }}</span>
               </label>

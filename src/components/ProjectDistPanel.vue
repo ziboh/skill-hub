@@ -5,7 +5,7 @@ import { detectPlatforms } from '../data/platforms'
 import { storage } from '../utils/storage'
 import { normalizePath } from '../utils/path'
 import type { Skill, InstallMode, InstallRecord, RegisteredProject } from '../types'
-import PlatformIcon from './PlatformIcon.vue'
+import ProviderIcon from './ProviderIcon.vue'
 import ConfirmModal from './ConfirmModal.vue'
 
 const props = defineProps<{
@@ -412,7 +412,7 @@ loadInstallStatus()
         @click="!installing && (showStatusBadges ? (!isInstalled(a.path) && !sourceAgentDirs.has(a.path)) : true) && toggleAgentDir(a.path)"
       >
         <div class="platform-card-row">
-          <PlatformIcon :platform-id="a.type === 'generic' ? '_generic' : a.id" :size="22" />
+          <ProviderIcon :icon="a.type === 'generic' ? '_generic' : a.id" :size="22" variant="mono" />
           <div class="platform-card-info">
             <h4 class="platform-card-name">{{ a.name }} <span class="platform-dir-path">/{{ a.path }}</span></h4>
             <template v-if="showStatusBadges">

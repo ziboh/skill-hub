@@ -8,7 +8,7 @@ import { useProjectState } from '../../composables/useProjectState'
 import { normalizePath } from '../../utils/path'
 import type { Skill, SkillScanResult, PlatformInfo } from '../../types'
 import { defaultPlatforms, getPlatformPath } from '../../data/platforms'
-import PlatformIcon from '../../components/PlatformIcon.vue'
+import ProviderIcon from '../../components/ProviderIcon.vue'
 import DeployModal from '../../components/DeployModal.vue'
 import QuickSwitcher from '../../components/QuickSwitcher.vue'
 import ConfirmModal from '../../components/ConfirmModal.vue'
@@ -820,11 +820,12 @@ async function confirmImportFromMy() {
               <div class="card-avatar" :style="{ background: getAvatarColor(skill.name) }">{{ skill.name.charAt(0).toUpperCase() }}</div>
               <div class="card-top-right">
                 <div class="card-badges-row">
-                  <PlatformIcon
+                  <ProviderIcon
                     v-for="pid in getSkillPlatformIds(skill)"
                     :key="'platform-' + pid"
-                    :platform-id="pid"
+                    :icon="pid"
                     :size="16"
+                    variant="mono"
                   />
                   <span v-if="skill.isDuplicate" class="badge duplicate">x{{ skill.duplicateCount }}</span>
                   <span v-if="skill.isSymlink" class="badge symlink">软链接</span>

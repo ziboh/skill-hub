@@ -5,7 +5,7 @@ import { defaultPlatforms, getPlatformPath } from '../../data/platforms'
 import { storage } from '../../utils/storage'
 import { normalizePath } from '../../utils/path'
 import SkillDetailBase from '../../components/SkillDetailBase.vue'
-import PlatformIcon from '../../components/PlatformIcon.vue'
+import ProviderIcon from '../../components/ProviderIcon.vue'
 import ConfirmModal from '../../components/ConfirmModal.vue'
 import type { SkillScanResult, PlatformInfo, Skill } from '../../types'
 
@@ -365,7 +365,7 @@ function selectPath(index: number) {
       <template #tab-bar-actions>
         <div v-if="duplicateCount > 1" class="dup-switcher">
           <button ref="pathBtnRef" class="dup-trigger" @click="togglePathDropdown">
-            <PlatformIcon :platform-id="detectedPlatformId" :size="14" />
+            <ProviderIcon :icon="detectedPlatformId" :size="14" variant="mono" />
             <span class="dup-trigger-label">{{ getDirLabel(duplicatesForDropdown[selectedDuplicateIndex], selectedDuplicateIndex) }}</span>
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
@@ -400,7 +400,7 @@ function selectPath(index: number) {
 
           <div class="agent-source-card" :class="{ source: isSourceFile }">
             <div class="agent-source-icon">
-              <PlatformIcon :platform-id="props.platformId" :size="24" />
+              <ProviderIcon :icon="props.platformId" :size="24" variant="mono" />
             </div>
             <div class="agent-source-info">
               <div class="agent-source-name">{{ platform?.name || '未知' }}</div>
@@ -445,7 +445,7 @@ function selectPath(index: number) {
           :class="{ active: i === selectedDuplicateIndex }"
           @click="selectPath(i)"
         >
-          <PlatformIcon :platform-id="getPlatformIdFromDir(d.dir || '')" :size="16" />
+          <ProviderIcon :icon="getPlatformIdFromDir(d.dir || '')" :size="16" variant="mono" />
           <span class="dup-dropdown-label">{{ getDirLabel(d, i) }}</span>
           <svg v-if="i === selectedDuplicateIndex" class="dup-dropdown-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
         </button>

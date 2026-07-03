@@ -231,7 +231,7 @@ function getSourceLabel(type: string): string { return { 'marketplace-json': 'Ma
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  padding: 24px 32px 18px;
+  padding: 22px 28px 16px;
   background: hsl(var(--card));
   border-bottom: 1px solid hsl(var(--border));
 }
@@ -246,15 +246,14 @@ function getSourceLabel(type: string): string { return { 'marketplace-json': 'Ma
 .header-title-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .header-left h2 {
   font-size: 22px;
-  font-weight: 700;
+  font-weight: 600;
   color: hsl(var(--foreground));
   margin: 0;
-  letter-spacing: -0.3px;
 }
 
 .page-subtitle {
@@ -297,10 +296,10 @@ function getSourceLabel(type: string): string { return { 'marketplace-json': 'Ma
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   border: 1px solid hsl(var(--border));
-  border-radius: 9px;
+  border-radius: 8px;
   background: hsl(var(--card));
   color: hsl(var(--muted-foreground));
   cursor: pointer;

@@ -1647,6 +1647,7 @@ function confirmDeleteStore() {
 .card-avatar { width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; color: #fff; flex-shrink: 0; }
 .card-avatar-icon { width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; background: hsl(var(--muted)); overflow: hidden; }
 .card-avatar-icon img { width: 22px; height: 22px; object-fit: contain; }
+[data-theme="dark"] .card-avatar-icon img { filter: invert(1); }
 
 .card-name {
   font-size: 14px;
