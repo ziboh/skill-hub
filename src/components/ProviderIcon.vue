@@ -34,19 +34,30 @@ const props = withDefaults(defineProps<{
   variant: 'avatar',
 })
 
-/* ── Icon module registry ────────────────────────────────────── */
+/* ── Icon module registry (lazy) ─────────────────────────────── */
 
 const providerModules = import.meta.glob<string>('/src/assets/providers/*.svg', {
-  query: '?raw', eager: true, import: 'default',
+  query: '?raw', import: 'default',
 })
 
 const platformSvgModules = import.meta.glob<string>('/src/assets/platforms/*.svg', {
-  query: '?raw', eager: true, import: 'default',
+  query: '?raw', import: 'default',
 })
 
 const platformPngModules = import.meta.glob<string>('/src/assets/platforms/*.png', {
-  eager: true, import: 'default',
+  import: 'default',
 })
+
+const iconCache = new Map<string, string>()
+
+async function loadIconModule(path: string, loader?: () => Promise<any>): Promise<string> {
+  if (iconCache.has(path)) return iconCache.get(path)!
+  if (!loader) return ''
+  const mod = await loader()
+  const value = (mod as any).default ?? mod
+  iconCache.set(path, value as string)
+  return value as string
+}
 
 const ICON_ALIAS: Record<string, string> = {
   siliconcloud: 'silicon',
@@ -84,34 +95,47 @@ function injectSvg(raw: string): string {
     .replace(/\shref="#/g,            ` href="#${uid}-`)
 }
 
+/* ── Reactive icon data (lazy loaded) ─────────────────────────── */
+
+const iconSvg = ref('')
+const iconPng = ref('')
+const iconPlatformSvg = ref('')
+
+async function loadIconData(icon: string) {
+  const t = detectIconType(icon)
+  if (t !== 'provider-icon') {
+    iconSvg.value = ''
+    iconPng.value = ''
+    iconPlatformSvg.value = ''
+    return
+  }
+  const name = resolveName(icon)
+
+  const [svg, png, platformSvg] = await Promise.all([
+    loadIconModule(
+      `/src/assets/providers/${name}.svg`,
+      providerModules[`/src/assets/providers/${name}.svg`],
+    ),
+    loadIconModule(
+      `/src/assets/platforms/${name}.png`,
+      platformPngModules[`/src/assets/platforms/${name}.png`],
+    ),
+    loadIconModule(
+      `/src/assets/platforms/${name}.svg`,
+      platformSvgModules[`/src/assets/platforms/${name}.svg`],
+    ),
+  ])
+
+  iconSvg.value = svg ? injectSvg(svg) : ''
+  iconPng.value = png
+  iconPlatformSvg.value = platformSvg ? injectSvg(platformSvg) : ''
+}
+
 /* ── Computed icon data ───────────────────────────────────────── */
 
 const iconType = computed<IconType | null>(() => {
   if (!props.icon) return null
   return detectIconType(props.icon)
-})
-
-const iconSvg = computed(() => {
-  if (!props.icon || iconType.value !== 'provider-icon') return ''
-  const name = resolveName(props.icon)
-  const raw = (
-    providerModules[`/src/assets/providers/${name}.svg`]
-    ?? ''
-  )
-  return raw ? injectSvg(raw) : ''
-})
-
-const iconPng = computed(() => {
-  if (!props.icon || iconType.value !== 'provider-icon') return ''
-  const name = resolveName(props.icon)
-  return platformPngModules[`/src/assets/platforms/${name}.png`] ?? ''
-})
-
-const iconPlatformSvg = computed(() => {
-  if (!props.icon || iconType.value !== 'provider-icon') return ''
-  const name = resolveName(props.icon)
-  const raw = platformSvgModules[`/src/assets/platforms/${name}.svg`] ?? ''
-  return raw ? injectSvg(raw) : ''
 })
 
 const iconSrc = computed(() => {
@@ -125,9 +149,23 @@ const iconSrc = computed(() => {
 const localFileDataUri = ref('')
 
 watch(() => props.icon, (icon) => {
-  if (!icon) { localFileDataUri.value = ''; return }
+  if (!icon) {
+    iconSvg.value = ''
+    iconPng.value = ''
+    iconPlatformSvg.value = ''
+    localFileDataUri.value = ''
+    return
+  }
   const t = detectIconType(icon)
-  if (t === 'provider-icon' || t === 'svg' || t === 'data-uri' || t === 'url') {
+  if (t === 'provider-icon') {
+    loadIconData(icon)
+    localFileDataUri.value = ''
+    return
+  }
+  iconSvg.value = ''
+  iconPng.value = ''
+  iconPlatformSvg.value = ''
+  if (t === 'svg' || t === 'data-uri' || t === 'url') {
     localFileDataUri.value = ''
     return
   }
