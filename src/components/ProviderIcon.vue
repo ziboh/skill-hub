@@ -61,6 +61,7 @@ async function loadIconModule(path: string, loader?: () => Promise<any>): Promis
 }
 
 const ICON_ALIAS: Record<string, string> = {
+  _generic: 'generic',
   siliconcloud: 'silicon',
   chatglm: 'zhipu',
   kilo: 'kilo-light',

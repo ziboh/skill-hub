@@ -88,10 +88,18 @@ async function browseLocalFile() {
 }
 
 function clearIcon() {
+  const oldValue = props.modelValue
   emit('update:modelValue', '')
   urlInput.value = ''
   localFilePath.value = ''
   localFileDataUri.value = ''
+  // 删除本地导入的图标文件（存储在 store-icons 目录下的文件）
+  if (oldValue && window.services?.removeFile) {
+    const iconsDir = window.ztools?.getPath?.('userData')
+    if (iconsDir && oldValue.startsWith(iconsDir)) {
+      window.services.removeFile(oldValue)
+    }
+  }
 }
 </script>
 
