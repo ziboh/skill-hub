@@ -365,7 +365,7 @@ async function fetchGitHubSkills(url: string, directory?: string, branch?: strin
         const builtinCategory = lookupBuiltinCategory(`${info.owner}/${info.repo}`, dirName)
         const category = builtinCategory || inferCategory(dirName, fm.description || '')
         const iconUrl = lookupBuiltinIcon(`${info.owner}/${info.repo}`, dirName)
-        const skill: Skill = { id: `${info.owner}/${info.repo}/${sd.dir}`, name: fm.name || dirName, description: fm.description || '', author: fm.author || '', tags, format: 'generic', source: 'github', repo: `${info.owner}/${info.repo}`, path: sd.dir, category, iconUrl, readme: content, storeSourceId: presetId, branch: effectiveBranch }
+        const skill: Skill = { id: `${info.owner}/${info.repo}/${dirName}`, name: fm.name || dirName, description: fm.description || '', author: fm.author || '', tags, format: 'generic', source: 'github', repo: `${info.owner}/${info.repo}`, path: sd.dir, category, iconUrl, readme: content, storeSourceId: presetId, branch: effectiveBranch }
         return skill
       }))
       if (activePresetId.value !== presetId) { loadingMore.value = false; return }

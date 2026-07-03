@@ -40,7 +40,7 @@ async function scanGit() {
         const fm = parseFrontmatter(content)
         const dirName = sd.dir === '.' ? info.repo : sd.dir.split('/').pop() || sd.dir
         const tags = fm.tags ? fm.tags.split(',').map((t) => t.trim()).filter(Boolean) : []
-        skills.push({ id: `${info.owner}/${info.repo}/${sd.dir}`, name: fm.name || dirName, description: fm.description || '', author: fm.author || '', tags, format: 'generic', source: 'github', repo: `${info.owner}/${info.repo}`, path: sd.dir })
+        skills.push({ id: `${info.owner}/${info.repo}/${dirName}`, name: fm.name || dirName, description: fm.description || '', author: fm.author || '', tags, format: 'generic', source: 'github', repo: `${info.owner}/${info.repo}`, path: sd.dir })
       } catch {}
     }
     if (!skills.length) { scanError.value = '未找到可安装的技能'; scanning.value = false; return }
@@ -199,7 +199,7 @@ async function importSelected() {
       <div v-if="step === 'git-scan'" class="modal-footer">
         <div class="scan-actions">
           <button class="back-link" @click="step = 'git-input'">← 返回</button>
-          <button class="import-btn" :disabled="!selectedIds.size || importing" @click="importSelected">{{ importing ? '分发中...' : `分发 (${selectedIds.size})` }}</button>
+          <button class="import-btn" :disabled="!selectedIds.size || importing" @click="importSelected">{{ importing ? '安装中...' : `安装 (${selectedIds.size})` }}</button>
         </div>
       </div>
     </div>
