@@ -4,6 +4,7 @@ import { KeyRefreshCounts } from '../inject-keys'
 import { storage } from '../utils/storage'
 import { parseGitHubUrl, fetchGitHubRepoTree, fetchGitHubFile, detectSkillDirectories } from '../utils/github'
 import { parseFrontmatter } from '../utils/frontmatter'
+import { loadRegistry, registerSkillFromStore } from '../utils/skill-registry'
 import type { Skill } from '../types'
 import { getAvatarColor } from '../utils/color'
 
@@ -131,8 +132,17 @@ async function importSelected() {
         const skillFile = ['SKILL.md', 'skill.md'].find((f) => window.services.pathExists(window.services.pathJoin(targetDir, f)))
         if (skillFile) {
           const parsed = window.services.parseSkillFile(window.services.pathJoin(targetDir, skillFile))
-          if (parsed?.manifest?.description) {
-            skill.description = parsed.manifest.description
+          if (parsed?.manifest) {
+            if (parsed.manifest.name) skill.name = parsed.manifest.name
+            if (parsed.manifest.description) skill.description = parsed.manifest.description
+            const registry = loadRegistry()
+            registerSkillFromStore(registry, skill.id, {
+              name: skill.name,
+              dir: targetDir,
+              skillFile: window.services.pathJoin(targetDir, skillFile),
+              content: '',
+              manifest: parsed.manifest,
+            }, 'github', skill.repo || '')
           }
         }
         storage.saveCachedSkills([skill])

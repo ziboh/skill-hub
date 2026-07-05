@@ -4,6 +4,7 @@ import { KeyShowToast } from '../../inject-keys'
 import { defaultPlatforms, getPlatformPath } from '../../data/platforms'
 import { storage } from '../../utils/storage'
 import { normalizePath } from '../../utils/path'
+import { loadRegistry, registerSkillFromStore } from '../../utils/skill-registry'
 import SkillDetailBase from '../../components/SkillDetailBase.vue'
 import ProviderIcon from '../../components/ProviderIcon.vue'
 import ConfirmModal from '../../components/ConfirmModal.vue'
@@ -279,6 +280,20 @@ async function importToMySkills() {
       cached.push({ ...skill.value, id: importId, source: 'local', storeSourceId: (s as any)?.storeSourceId })
     }
     storage.saveCachedSkills(cached)
+    const skillFile = ['SKILL.md', 'skill.md'].find((f) => window.services.pathExists(window.services.pathJoin(targetDir, f)))
+    if (skillFile) {
+      const parsed = window.services.parseSkillFile(window.services.pathJoin(targetDir, skillFile))
+      if (parsed?.manifest) {
+        const registry = loadRegistry()
+        registerSkillFromStore(registry, importId, {
+          name: parsed.manifest.name || skill.value.name,
+          dir: targetDir,
+          skillFile: window.services.pathJoin(targetDir, skillFile),
+          content: '',
+          manifest: parsed.manifest,
+        }, 'local', s.dir || props.platformId)
+      }
+    }
     storage.addDownloadedId(importId)
     storage.addSessionDownload(importId, skill.value.name, 'agent')
     isInMySkills.value = true

@@ -36,12 +36,9 @@ function getSkillId(skill: SkillScanResult): string {
   return skill.manifest?.name || skill.name
 }
 
-const _cachedSkillsForAgent = ref<Skill[]>([])
-function refreshCachedSkills() { _cachedSkillsForAgent.value = storage.getCachedSkills() }
-
 function findCachedSkill(skill: any): Skill | null {
   const id = getSkillId(skill)
-  const cached = _cachedSkillsForAgent.value
+  const cached = storage.getCachedSkills()
   const downloadedSet = storage.getDownloadedSet()
   const found = cached.find((s) => s.id === id && downloadedSet.has(s.id))
   if (found) return found
