@@ -171,8 +171,15 @@ window.services = {
     const full = expandPath(filePath)
     try {
       fs.lstatSync(full)
-      fs.rmSync(full, { recursive: true })
-    } catch {}
+      fs.rmSync(full, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })
+    } catch (e) {
+      // On Windows junction symlinks, rmSync removes the link but not the target — force:true helps.
+      // If the directory still exists after rmSync, log the failure for debugging.
+      if (fs.existsSync(full)) {
+        console.error('[services] removeFile failed for', full, e)
+        throw e
+      }
+    }
   },
   copyFile(src, dest) {
     const fullSrc = expandPath(src)
@@ -181,11 +188,13 @@ window.services = {
     const tempDest = fullDest + `.tmp.${Date.now()}`
     try {
       fs.cpSync(fullSrc, tempDest, { recursive: true, dereference: true })
+      try { fs.rmSync(fullDest, { recursive: true, force: true }) } catch {}
       try {
-        fs.lstatSync(fullDest)
-        fs.rmSync(fullDest, { recursive: true })
-      } catch {}
-      fs.renameSync(tempDest, fullDest)
+        fs.renameSync(tempDest, fullDest)
+      } catch {
+        fs.cpSync(tempDest, fullDest, { recursive: true, dereference: true })
+        fs.rmSync(tempDest, { recursive: true, force: true })
+      }
     } catch (err) {
       try { fs.rmSync(tempDest, { recursive: true, force: true }) } catch {}
       throw err

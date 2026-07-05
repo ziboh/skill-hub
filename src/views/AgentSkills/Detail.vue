@@ -150,6 +150,7 @@ onMounted(() => {
 })
 
 watch(() => props.skill, () => {
+  activeTab.value = 'preview'
   selectedDuplicateIndex.value = 0
   selectedDir.value = ''
   loadSkillContentForActive()

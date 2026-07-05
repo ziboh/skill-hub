@@ -250,10 +250,11 @@ function executeUninstallByScope() {
   }
 
   if (selected.includes('global')) {
-    try { window.services.removeFile(dir); refreshCurrent() } catch {}
+    try { window.services.removeFile(dir) } catch { showToast('删除失败，请检查文件权限', 'error') }
+    refreshCurrent()
   }
   if (selected.includes('project')) {
-    try { window.services.removeFile(dir) } catch {}
+    try { window.services.removeFile(dir) } catch { showToast('删除失败，请检查文件权限', 'error') }
     refreshCurrent()
   }
   refreshCounts()
@@ -276,7 +277,8 @@ function uninstallSkill(skill: any) {
     return
   }
 
-  try { window.services.removeFile(dir); refreshCurrent() } catch {}
+  try { window.services.removeFile(dir) } catch { showToast('删除失败，请检查文件权限', 'error') }
+  refreshCurrent()
   for (const r of allRecords) storage.removeInstallRecord(r.skillId, r.platformId, r.scope)
   refreshCounts()
   confirmDeleteDir.value = null
@@ -331,13 +333,15 @@ function batchDelete() {
 }
 
 function executeBatchDelete() {
+  let failCount = 0
   for (const dir of selectedIds.value) {
-    try { window.services.removeFile(dir) } catch {}
+    try { window.services.removeFile(dir) } catch { failCount++; continue }
     const records = storage.getInstallRecords().filter(
       (r) => r.targetPath.replace(/\\/g, '/') === dir.replace(/\\/g, '/')
     )
     for (const r of records) storage.removeInstallRecord(r.skillId, r.platformId, r.scope)
   }
+  if (failCount > 0) showToast(`${failCount} 个技能删除失败，请检查文件权限`, 'warning')
   refreshCurrent()
   refreshCounts()
   selectedIds.value.clear()

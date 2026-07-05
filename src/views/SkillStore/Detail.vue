@@ -144,6 +144,7 @@ const isFavorited = computed(() => props.skill ? favorites.value.includes(props.
 
 onMounted(() => { loadFavorites(); loadSkillContent() })
 watch(() => props.skill?.id, () => {
+  activeTab.value = 'preview'
   loadFavorites(); loadSkillContent()
   isEditing.value = false
   copyStatus.value = {}

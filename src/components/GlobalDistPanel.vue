@@ -166,7 +166,9 @@ async function install() {
     emit('install-finished')
     return
   }
-  const skillDir = props.skill.path ? props.skill.path.split('/').pop()! : props.skill.name
+  const skillDir = (props.skill.path && props.skill.path !== '.') 
+    ? normalizePath(props.skill.path).split('/').pop()! 
+    : props.skill.name
   const installedNames: string[] = []
 
   const platformNames = selectedPlatforms.value.map(pid => {

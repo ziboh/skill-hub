@@ -58,7 +58,9 @@ const agentDirOptions = computed(() => {
 })
 
 const skillDirName = computed(() => {
-  return props.skill.path ? props.skill.path.split('/').pop() || props.skill.name : props.skill.name
+  return (props.skill.path && props.skill.path !== '.') 
+    ? normalizePath(props.skill.path).split('/').pop() || props.skill.name 
+    : props.skill.name
 })
 
 const primaryProject = computed(() => selectedProjects.value[0] || null)
