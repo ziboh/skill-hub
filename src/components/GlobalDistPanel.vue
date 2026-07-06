@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, inject, watch } from 'vue'
-import { KeyShowToast } from '../inject-keys'
+import { KeyShowToast, KeyMarkAgentSkillsDirty } from '../inject-keys'
 import { detectPlatforms } from '../data/platforms'
 import { storage } from '../utils/storage'
 import { normalizePath } from '../utils/path'
@@ -23,6 +23,7 @@ const emit = defineEmits<{
 }>()
 
 const showToast = inject(KeyShowToast, () => {})
+const markAgentSkillsDirty = inject(KeyMarkAgentSkillsDirty, () => {})
 const { addInstall, updateItem } = useDownloadQueue()
 
 const selectedPlatforms = ref<string[]>([])
@@ -207,6 +208,7 @@ async function install() {
   loadInstallStatus()
   refreshTick.value++
   selectedPlatforms.value = []
+  markAgentSkillsDirty()
   emit('install-finished')
 }
 

@@ -9,7 +9,6 @@ function makeSkill(overrides: Partial<Skill> & { name: string }): Skill {
     description: overrides.description || '',
     author: overrides.author || '',
     tags: overrides.tags || [],
-    format: overrides.format || 'markdown',
     source: overrides.source || 'local',
     ...overrides,
   }

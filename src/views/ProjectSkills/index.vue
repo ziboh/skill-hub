@@ -2,18 +2,20 @@
 import { inject, ref, computed, unref, onDeactivated } from 'vue'
 import { KeyShowToast, KeySelectedProject, KeyScanProject, KeyProjectScanning, KeySelectProject, KeyOpenAddProjectModal, KeyDetectedPlatforms, KeyRefreshCounts } from '../../inject-keys'
 import { storage } from '../../utils/storage'
+import { isChineseContent } from '../../utils/translate'
 import { useSettings } from '../../composables/useSettings'
 import { useTheme } from '../../composables/useTheme'
 import { useProjectState } from '../../composables/useProjectState'
 import { normalizePath } from '../../utils/path'
 import type { Skill, SkillScanResult, PlatformInfo } from '../../types'
 import { defaultPlatforms, getPlatformPath } from '../../data/platforms'
-import ProviderIcon from '../../components/ProviderIcon.vue'
+import SkillCard from '../../components/SkillCard.vue'
 import DeployModal from '../../components/DeployModal.vue'
 import QuickSwitcher from '../../components/QuickSwitcher.vue'
 import ConfirmModal from '../../components/ConfirmModal.vue'
 import { loadRegistry, registerSkillFromProject, removeFromRegistry } from '../../utils/skill-registry'
 import { getAvatarColor } from '../../utils/color'
+import { cacheVersion as translationCacheVersion } from '../../composables/useTranslationQueue'
 
 const emit = defineEmits(['navigate', 'edit-project', 'delete-project'])
 
@@ -115,6 +117,22 @@ function getBadge(skill: any): { text: string; type: string } {
   return { text: labels[t] || t, type: t }
 }
 
+function getLanguageTags(skill: any): { showChineseTag: boolean; showTranslatedTag: boolean } {
+  void translationCacheVersion.value
+  const desc = skill.manifest?.description || ''
+  const isChinese = isChineseContent(desc)
+  if (isChinese) return { showChineseTag: true, showTranslatedTag: false }
+  try {
+    const raw = skill.content || ''
+    const normalized = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+    const fh = window.services.hashContent(normalized)
+    const hasTranslation = !!(storage.getDescTranslationByHash(fh) && storage.getTranslationByHash(fh))
+    return { showChineseTag: false, showTranslatedTag: hasTranslation }
+  } catch {
+    return { showChineseTag: false, showTranslatedTag: false }
+  }
+}
+
 const projectItems = computed(() =>
   unref(registeredProjects).map((p: any) => ({
     id: p.id,
@@ -208,7 +226,6 @@ function skillToSkill(skill: SkillScanResult): any {
     description: skill.manifest?.description || '',
     author: skill.manifest?.author || '',
     tags: skill.manifest?.tags || [],
-    format: skill.manifest?.format || 'opencode',
     source: 'local',
     readme: skill.content || '',
     skillDir: skill.dir || '',
@@ -230,11 +247,11 @@ async function importSkill(skill: SkillScanResult) {
     try {
       const cached = storage.getCachedSkills()
       if (!cached.some((s) => s.id === id)) {
-        const manifest = skill.manifest || { name: id, description: '', author: '', tags: [], format: 'opencode', language: 'en' }
+        const manifest = skill.manifest || { name: id, description: '', author: '', tags: [], language: 'en' }
         cached.push({
           id, name: manifest.name || id, description: manifest.description || '',
           author: manifest.author || '',
-          tags: manifest.tags || [], format: (manifest.format as any) || 'opencode',
+          tags: manifest.tags || [],
           source: 'local',
           path: skill.dir || '',
         })
@@ -366,7 +383,7 @@ async function batchImportToMySkills() {
       window.services.copyFile(skill.dir, targetDir)
       const cached = storage.getCachedSkills()
       if (!cached.some((s) => s.id === id)) {
-        cached.push({ id, name: skill.manifest?.name || id, description: skill.manifest?.description || '', author: '', tags: [], format: 'opencode', source: 'local' })
+        cached.push({ id, name: skill.manifest?.name || id, description: skill.manifest?.description || '', author: '', tags: [], source: 'local' })
         storage.saveCachedSkills(cached)
       }
       storage.addDownloadedId(id)
@@ -816,67 +833,54 @@ async function confirmImportFromMy() {
           <p class="empty-desc">{{ skillFilter ? '尝试切换筛选条件。' : '该项目中未扫描到 SKILL.md 文件。点击重新扫描或检查项目目录结构。' }}</p>
         </div>
         <div v-else class="skill-grid" :class="viewMode">
-          <div
+          <SkillCard
             v-for="skill in filteredProjectSkills"
             :key="skill.dir"
-            class="skill-card"
-            :class="{ selected: selectedIds.has(skill.dir) }"
+            :name="skill.manifest?.name || skill.name"
+            :description="skill.manifest?.description || '暂无描述'"
+            :selected="selectedIds.has(skill.dir)"
+            :show-batch-checkbox="batchMode"
+            :show-platform-icons="true"
+            :installed-platforms="getSkillPlatformIds(skill)"
+            :show-chinese-tag="getLanguageTags(skill).showChineseTag"
+            :show-translated-tag="getLanguageTags(skill).showTranslatedTag"
+            :badges="getBadge(skill).text ? [{ text: getBadge(skill).text, type: getBadge(skill).type }] : []"
+            :duplicate-badge="skill.isDuplicate ? { count: skill.duplicateCount } : null"
+            :show-symlink-badge="!!skill.isSymlink"
             @click="batchMode ? toggleSelect(skill.dir) : viewDetail(skill)"
+            @select="toggleSelect(skill.dir)"
           >
-            <div v-if="batchMode" class="card-checkbox" @click.stop="toggleSelect(skill.dir)">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" :fill="selectedIds.has(skill.dir) ? 'currentColor' : 'none'"/>
-                <polyline v-if="selectedIds.has(skill.dir)" points="9 11 12 14 22 4"/>
-              </svg>
-            </div>
-            <div class="card-top-row">
-              <div class="card-avatar" :style="{ background: getAvatarColor(skill.name) }">{{ skill.name.charAt(0).toUpperCase() }}</div>
-              <div class="card-top-right">
-                <div class="card-badges-row">
-                  <ProviderIcon
-                    v-for="pid in getSkillPlatformIds(skill)"
-                    :key="'platform-' + pid"
-                    :icon="pid"
-                    :size="16"
-                    variant="mono"
-                  />
-                  <span v-if="skill.isDuplicate" class="badge duplicate">x{{ skill.duplicateCount }}</span>
-                  <span v-if="skill.isSymlink" class="badge symlink">软链接</span>
-                  <span class="badge" :class="getBadge(skill).type">{{ getBadge(skill).text }}</span>
-                </div>
-                <div v-if="!batchMode" class="card-actions">
-                  <button class="card-action-btn" title="打开文件夹" @click.stop="openFolder(skill)">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-                  </button>
-                  <button
-                    v-if="isInMySkills(skill)"
-                    class="card-action-btn primary"
-                    title="分发到平台"
-                    @click.stop="openDeploy(skill)"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-                  </button>
-                  <button
-                    v-else
-                    class="card-action-btn primary"
-                    :disabled="importing[getSkillId(skill)]"
-                    @click.stop="importSkill(skill)"
-                    title="导入到我的 Skill"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                  </button>
-                  <button class="card-action-btn danger" :disabled="uninstalling" @click.stop="confirmUninstallSkillDir = skill.dir; confirmUninstallSkillName = skill.manifest?.name || skill.name" title="卸载">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                  </button>
-                </div>
+            <template #actions>
+              <button class="card-action-btn" title="打开文件夹" @click.stop="openFolder(skill)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              </button>
+              <button
+                v-if="isInMySkills(skill)"
+                class="card-action-btn primary"
+                title="分发到平台"
+                @click.stop="openDeploy(skill)"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+              </button>
+              <button
+                v-else
+                class="card-action-btn primary"
+                :disabled="importing[getSkillId(skill)]"
+                @click.stop="importSkill(skill)"
+                title="导入到我的 Skill"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              </button>
+              <button class="card-action-btn danger" :disabled="uninstalling" @click.stop="confirmUninstallSkillDir = skill.dir; confirmUninstallSkillName = skill.manifest?.name || skill.name" title="卸载">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              </button>
+            </template>
+            <template #after-desc>
+              <div v-if="skill.manifest?.tags?.length" class="card-tags">
+                <span v-for="tag in skill.manifest.tags.slice(0, 5)" :key="tag" class="tag">{{ tag }}</span>
               </div>
-            </div>
-            <h3 class="card-name">{{ skill.manifest?.name || skill.name }}</h3>
-            <p class="card-desc">{{ skill.manifest?.description || '暂无描述' }}</p>
-            <div v-if="skill.manifest?.tags?.length" class="card-tags">
-              <span v-for="tag in skill.manifest.tags.slice(0, 5)" :key="tag" class="tag">{{ tag }}</span>
-            </div>
-          </div>
+            </template>
+          </SkillCard>
         </div>
       </div>
     </template>
@@ -1422,140 +1426,8 @@ async function confirmImportFromMy() {
 .skill-grid.grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
 .skill-grid.list { grid-template-columns: 1fr; gap: 10px; }
 
-.skill-card {
-  display: flex;
-  flex-direction: column;
-  padding: 16px;
-  background: hsl(var(--card));
-  border: 1px solid hsl(var(--border));
-  border-radius: 12px;
-  cursor: pointer;
-  transition: all var(--duration-base) var(--ease-standard);
-  position: relative;
-}
-
-.skill-card:hover {
-  border-color: hsl(var(--primary) / 0.4);
-  box-shadow: var(--shadow-sm);
-}
-
-.skill-card.selected { border-color: hsl(var(--primary)); background: hsl(var(--primary) / 0.03); }
-
-.card-checkbox {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  width: 22px;
-  height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 6px;
-  background: hsl(var(--card));
-  border: 1.5px solid hsl(var(--border));
-  color: hsl(var(--primary));
-  transition: all var(--duration-base) var(--ease-standard);
-  z-index: 2;
-}
-
-.card-checkbox:hover { border-color: hsl(var(--primary) / 0.5); }
-.skill-card.selected .card-checkbox { border-color: hsl(var(--primary)); }
-
-.card-top-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 4px;
-}
-
-.card-avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  font-weight: 700;
-  color: #fff;
-  flex-shrink: 0;
-}
-
-.card-top-right {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 8px;
-}
-
-.badge { font-size: 10px; font-weight: 500; padding: 2px 8px; border-radius: 6px; white-space: nowrap; }
-.badge.local { background: hsl(var(--muted)); color: hsl(var(--muted-foreground)); }
-.badge.managed { background: hsl(142 40% 92%); color: hsl(142 50% 35%); }
-.badge.source { background: hsl(var(--primary) / 0.12); color: hsl(var(--primary)); }
-.badge.symlink { background: hsl(200 60% 90%); color: hsl(200 70% 30%); }
-
-.card-badges-row { display: flex; flex-direction: row; align-items: center; gap: 4px; }
-.card-badges-row :deep(.platform-icon) { flex-shrink: 0; }
-
-.card-actions {
-  display: flex;
-  gap: 4px;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--duration-base) var(--ease-standard);
-}
-
-.skill-card:hover .card-actions {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.card-action-btn {
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
-  border: none;
-  background: transparent;
-  color: hsl(var(--muted-foreground));
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all var(--duration-base) var(--ease-standard);
-}
-
-.card-action-btn:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
-.card-action-btn.primary:hover { color: hsl(var(--primary)); }
-.card-action-btn.danger:hover { background: hsl(var(--destructive) / 0.1); color: hsl(var(--destructive)); }
-
-.card-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: hsl(var(--foreground));
-  margin: 0 0 6px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  transition: color var(--duration-base) var(--ease-standard);
-}
-
-.skill-card:hover .card-name { color: hsl(var(--primary)); }
-
-.card-desc {
-  font-size: 12px;
-  color: hsl(var(--muted-foreground));
-  line-height: 1.5;
-  margin: 0;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
 .card-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
 .tag { font-size: 10px; font-weight: 500; padding: 2px 8px; border-radius: 6px; background: hsl(var(--muted)); color: hsl(var(--muted-foreground)); }
-.badge.duplicate { background: hsl(38 80% 92%); color: hsl(38 80% 35%); }
 
 
 

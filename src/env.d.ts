@@ -35,7 +35,6 @@ interface SkillScanResult {
     description: string
     author: string
     tags: string[]
-    format: string
     language: string
   }
 }

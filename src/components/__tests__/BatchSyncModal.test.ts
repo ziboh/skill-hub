@@ -5,8 +5,8 @@ import { KeyShowToast } from '../../inject-keys'
 import type { Skill } from '../../types'
 
 const sampleSkills: Skill[] = [
-  { id: 'skill-1', name: 'Test Skill 1', description: '', tags: [], format: 'opencode' },
-  { id: 'skill-2', name: 'Test Skill 2', description: '', tags: [], format: 'opencode' },
+  { id: 'skill-1', name: 'Test Skill 1', description: '', tags: [] },
+  { id: 'skill-2', name: 'Test Skill 2', description: '', tags: [] },
 ]
 
 vi.mock('../../data/platforms', () => ({

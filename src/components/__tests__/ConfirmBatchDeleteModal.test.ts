@@ -5,8 +5,8 @@ import { storage } from '../../utils/storage'
 import type { Skill } from '../../types'
 
 const sampleSkills: Skill[] = [
-  { id: 'skill-1', name: 'Test Skill 1', description: 'First skill', tags: [], format: 'opencode' },
-  { id: 'skill-2', name: 'Test Skill 2', description: 'Second skill', tags: [], format: 'opencode' },
+  { id: 'skill-1', name: 'Test Skill 1', description: 'First skill', tags: [] },
+  { id: 'skill-2', name: 'Test Skill 2', description: 'Second skill', tags: [] },
 ]
 
 function createWrapper(skills: Skill[] = sampleSkills) {

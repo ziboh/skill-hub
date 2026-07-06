@@ -49,8 +49,10 @@ function getSkillNameByHash(hash: string): string {
   if (descCache[hash]?.skillName) return descCache[hash].skillName
   const skills = storage.getCachedSkills()
   for (const s of skills) {
-    if (s.contentHash === hash) return s.name
-    if (s.description && window.services.hashContent(s.description) === hash) return s.name
+    // 使用整个 SKILL.md 文件的哈希
+    if (s.readme) {
+      if (window.services.hashContent(s.readme.replace(/\r\n/g, '\n').replace(/\r/g, '\n')) === hash) return s.name
+    }
   }
   return hash.slice(0, 8) + '...'
 }
@@ -323,7 +325,7 @@ function formatTime(ts: number | string): string {
 }
 
 function getSourceInfoForDownload(source: string): { label: string; icon: string; color: string; bg: string } {
-  const skill: Skill = { id: '', name: '', description: '', author: '', tags: [], format: 'opencode', source: 'local' }
+  const skill: Skill = { id: '', name: '', description: '', author: '', tags: [], source: 'local' }
   if (source === 'skills-sh') { skill.source = 'skills-sh' }
   else if (source === 'claude') { skill.repo = 'anthropics/skills' }
   else if (source === 'codex') { skill.repo = 'openai/skills' }

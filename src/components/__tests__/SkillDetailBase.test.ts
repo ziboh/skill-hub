@@ -71,7 +71,7 @@ vi.mock('../SkillFileEditor.vue', () => ({
 function createSkill(overrides = {}) {
   return {
     id: 'test/skill', name: 'Test Skill', description: 'A test skill',
-    author: 'Test', tags: [], format: 'opencode', source: 'github',
+    author: 'Test', tags: [], source: 'github',
     repo: 'user/repo', path: 'skills/test',
     ...overrides,
   }

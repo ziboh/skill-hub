@@ -5,7 +5,7 @@ import { storage } from '../../utils/storage'
 import { parseGitHubUrl, fetchGitHubRepoTree, fetchGitHubFile, detectSkillDirectories, getRateLimitState } from '../../utils/github'
 import { parseFrontmatter } from '../../utils/frontmatter'
 import * as skillsSh from '../../utils/skills-sh'
-import type { Skill, SkillFormat, StoreSource } from '../../types'
+import type { Skill, StoreSource } from '../../types'
 
 import { SKILL_CATEGORIES, ALL_CATEGORIES, inferCategory, CATEGORY_ICONS } from '../../data/skill-categories'
 import type { SkillCategory } from '../../data/skill-categories'
@@ -16,7 +16,7 @@ import SkillPickModal from '../../components/SkillPickModal.vue'
 import ConfirmModal from '../../components/ConfirmModal.vue'
 import QuickSwitcher from '../../components/QuickSwitcher.vue'
 import StoreConfigModal from '../../components/StoreConfigModal.vue'
-import ProviderIcon from '../../components/ProviderIcon.vue'
+import SkillCard from '../../components/SkillCard.vue'
 import { getAvatarColor } from '../../utils/color'
 
 import { defaultPlatforms } from '../../data/platforms'
@@ -33,7 +33,7 @@ const refreshCounts = inject(KeyRefreshCounts)
 const showToast = inject(KeyShowToast, () => {})
 
 const { addDownload, updateItem } = useDownloadQueue()
-const { queue: transQueue, addTranslation } = useTranslationQueue()
+const { queue: transQueue, addTranslation, cacheVersion: translationCacheVersion } = useTranslationQueue()
 const { settings, updateSettings } = useSettings()
 const { isDarkMode, toggleTheme } = useTheme()
 const viewMode = ref<'grid' | 'list'>('grid')
@@ -109,14 +109,6 @@ const skillsCache = ref<Record<string, Skill[]>>({})
 const totalCountCache = ref<Record<string, number>>({})
 const selectedSkill = ref<Skill | null>(null)
 
-// 虚拟滚动
-const CARD_HEIGHT = 80
-const GRID_CARD_HEIGHT = 180
-const BUFFER_ROWS = 3
-const scrollTop = ref(0)
-const viewportHeight = ref(600)
-const containerWidth = ref(800)
-
 const showConfirmDelete = ref(false)
 const skillToDelete = ref<Skill | null>(null)
 const showDeleteStoreConfirm = ref(false)
@@ -157,29 +149,10 @@ watch(storeSources, (list) => {
   }
 }, { immediate: true })
 
-watch(viewMode, () => { scrollTop.value = 0 })
-watch(filterTab, () => { scrollTop.value = 0 })
-
 let scrollObserver: IntersectionObserver | null = null
 function onKeydown(e: KeyboardEvent) { if (e.key === 'Escape' && (searchActive.value || isLocalSearchActive.value)) { searchQuery.value = ''; exitSearch() } }
-function onScroll(e: Event) { scrollTop.value = (e.target as HTMLElement).scrollTop }
-let viewportRo: ResizeObserver | null = null
-function initViewport() {
-  nextTick(() => {
-    if (storeScrollRef.value) {
-      viewportHeight.value = storeScrollRef.value.clientHeight
-      containerWidth.value = storeScrollRef.value.clientWidth
-      viewportRo?.disconnect()
-      viewportRo = new ResizeObserver(entries => {
-        viewportHeight.value = entries[0]?.contentRect.height ?? 600
-        containerWidth.value = entries[0]?.contentRect.width ?? 800
-      })
-      viewportRo.observe(storeScrollRef.value)
-    }
-  })
-}
-onMounted(() => { downloadedIds.value = storage.getDownloadedIds(); fetchCurrentSkills(); setupScrollObserver(); loadLocalIcons(); initViewport(); window.addEventListener('keydown', onKeydown) })
-onActivated(() => { downloadedIds.value = storage.getDownloadedIds(); if (props.storeId !== activePresetId.value) { activePresetId.value = props.storeId; storage.savePageState('skill-store', { presetId: props.storeId }); } fetchCurrentSkills(); nextTick(() => { reobserveScroll(); if (storeScrollRef.value) { scrollTop.value = storeScrollRef.value.scrollTop } }); initViewport(); window.addEventListener('keydown', onKeydown) })
+onMounted(() => { downloadedIds.value = storage.getDownloadedIds(); fetchCurrentSkills(); setupScrollObserver(); loadLocalIcons(); window.addEventListener('keydown', onKeydown) })
+onActivated(() => { downloadedIds.value = storage.getDownloadedIds(); if (props.storeId !== activePresetId.value) { activePresetId.value = props.storeId; storage.savePageState('skill-store', { presetId: props.storeId }); } fetchCurrentSkills(); nextTick(() => { reobserveScroll() }); window.addEventListener('keydown', onKeydown) })
 onDeactivated(() => { scrollObserver?.disconnect(); stopLoadingDots(); window.removeEventListener('keydown', onKeydown); if (searchDebounceTimer) { clearTimeout(searchDebounceTimer); searchDebounceTimer = null } })
 onUnmounted(() => { scrollObserver?.disconnect(); stopLoadingDots(); window.removeEventListener('keydown', onKeydown); if (searchDebounceTimer) { clearTimeout(searchDebounceTimer); searchDebounceTimer = null } })
 
@@ -365,13 +338,17 @@ async function fetchGitHubSkills(url: string, directory?: string, branch?: strin
         const builtinCategory = lookupBuiltinCategory(`${info.owner}/${info.repo}`, dirName)
         const category = builtinCategory || inferCategory(dirName, fm.description || '')
         const iconUrl = lookupBuiltinIcon(`${info.owner}/${info.repo}`, dirName)
-        const skill: Skill = { id: `${info.owner}/${info.repo}/${dirName}`, name: fm.name || dirName, description: fm.description || '', author: fm.author || '', tags, format: 'generic', source: 'github', repo: `${info.owner}/${info.repo}`, path: sd.dir, category, iconUrl, readme: content, storeSourceId: presetId, branch: effectiveBranch }
+        const skill: Skill = { id: `${info.owner}/${info.repo}/${dirName}`, name: fm.name || dirName, description: fm.description || '', author: fm.author || '', tags, source: 'github', repo: `${info.owner}/${info.repo}`, path: sd.dir, category, iconUrl, readme: content, storeSourceId: presetId, branch: effectiveBranch }
         return skill
       }))
       if (activePresetId.value !== presetId) { loadingMore.value = false; return }
+      const seen = new Map(allEntries.value.map(s => [s.id, s]))
       for (const r of results) {
-        if (r.status === 'fulfilled') allEntries.value = [...allEntries.value, r.value]
+        if (r.status === 'fulfilled' && !seen.has(r.value.id)) {
+          seen.set(r.value.id, r.value)
+        }
       }
+      allEntries.value = Array.from(seen.values())
       sourceSkills.value = allEntries.value.slice(0, Math.max(sourceSkills.value.length, PAGE_SIZE))
       nextTick(reobserveScroll)
       i += batchSize
@@ -440,7 +417,7 @@ async function fetchMarketplaceSkills(source: StoreSource, force = false) {
       const skillId = repo ? `${repo}/${dirName}` : `${source.id}/${dirName}`
       return {
         id: skillId, name, description, author, tags,
-        format: 'generic', source: 'marketplace-json',
+        source: 'marketplace-json',
         repo: repo || undefined, path: skillPath,
         category, storeSourceId: presetId,
         sourceUrl: entry.url || entry.sourceUrl || entry.homepage || entry.downloadUrl || source.url,
@@ -484,7 +461,7 @@ async function fetchLocalDirSkills(source: StoreSource) {
           const category = inferCategory(dirName, fm.description || '')
           const skill: Skill = {
             id: `local/${dirName}`, name: fm.name || dirName, description: fm.description || '',
-            author: fm.author || '', tags, format: (fm.format as SkillFormat) || 'generic',
+            author: fm.author || '', tags,
             source: 'local', sourceUrl: source.url, path: r.dir,
             category, readme: r.content, storeSourceId: presetId,
           }
@@ -514,6 +491,21 @@ const localSearchResults = computed(() => {
     return nameMatch || descMatch || authorMatch || tagMatch
   })
 })
+
+function getLanguageTags(skill: any): { showChineseTag: boolean; showTranslatedTag: boolean } {
+  void translationCacheVersion.value
+  const desc = skill.description || ''
+  if (isChineseContent(desc)) return { showChineseTag: true, showTranslatedTag: false }
+  try {
+    const raw = skill.content || ''
+    const normalized = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+    const fh = window.services.hashContent(normalized)
+    const hasTranslation = !!(storage.getDescTranslationByHash(fh) && storage.getTranslationByHash(fh))
+    return { showChineseTag: false, showTranslatedTag: hasTranslation }
+  } catch {
+    return { showChineseTag: false, showTranslatedTag: false }
+  }
+}
 
 const importedSkills = computed(() => {
   const idMap = new Map<string, Skill>()
@@ -575,32 +567,6 @@ const categoryCounts = computed(() => {
     counts[cat] = (counts[cat] || 0) + 1
   }
   return counts
-})
-
-// 虚拟滚动 — grid 和 list 模式统一使用虚拟滚动
-const GRID_MIN_WIDTH = 280
-const gridColumns = computed(() => Math.max(1, Math.floor(containerWidth.value / GRID_MIN_WIDTH)))
-
-const virtualItems = computed(() => {
-  const cols = viewMode.value === 'grid' ? gridColumns.value : 1
-  const rowH = viewMode.value === 'grid' ? GRID_CARD_HEIGHT : CARD_HEIGHT
-  const startRow = Math.max(0, Math.floor(scrollTop.value / rowH) - BUFFER_ROWS)
-  const visibleRows = Math.ceil(viewportHeight.value / rowH)
-  const totalRows = Math.ceil(availableSkills.value.length / cols)
-  const endRow = Math.min(totalRows, startRow + visibleRows + BUFFER_ROWS * 2)
-  const startIdx = startRow * cols
-  const endIdx = Math.min(availableSkills.value.length, endRow * cols)
-  return availableSkills.value.slice(startIdx, endIdx).map((skill, i) => ({
-    skill,
-    row: Math.floor((startIdx + i) / cols),
-    col: (startIdx + i) % cols,
-  }))
-})
-
-const virtualTotalHeight = computed(() => {
-  const rowH = viewMode.value === 'grid' ? GRID_CARD_HEIGHT : CARD_HEIGHT
-  const cols = viewMode.value === 'grid' ? gridColumns.value : 1
-  return Math.ceil(availableSkills.value.length / cols) * rowH
 })
 
 const downloadingSet = computed(() => new Set(downloading.value))
@@ -777,8 +743,7 @@ async function downloadSkill(skill: Skill) {
       if (parsed?.manifest) {
         if (parsed.manifest.name) skill.name = parsed.manifest.name
         if (parsed.manifest.description) skill.description = parsed.manifest.description
-        const contentHash = computeContentHash(parsed.content)
-        storage.saveCachedSkills([{ ...skill, storeSourceId: activePresetId.value, contentHash }])
+        storage.saveCachedSkills([{ ...skill, storeSourceId: activePresetId.value }], { forceStoreSourceId: true })
         const registry = loadRegistry()
         registerSkillFromStore(registry, skill.id, {
           name: skill.name,
@@ -1044,7 +1009,7 @@ function confirmDeleteStore() {
       </button>
     </div>
 
-    <div ref="storeScrollRef" class="ss-scroll" @scroll="onScroll">
+    <div ref="storeScrollRef" class="ss-scroll">
       <template v-if="searchActive">
         <div v-if="loading" class="section">
           <div class="section-header"><h3>搜索结果</h3><span class="section-count loading-dots">{{ loadingDots }}</span></div>
@@ -1067,30 +1032,28 @@ function confirmDeleteStore() {
             <p class="empty-desc">尝试其他关键词搜索。</p>
           </div>
           <div v-else class="skill-grid" :class="viewMode">
-            <div v-for="(skill, idx) in searchResults" :key="skill.id" class="skill-card" @click="selectedSkill = skill">
-              <a v-if="getSkillUrl(skill)" :href="getSkillUrl(skill)" target="_blank" class="card-link-btn" title="打开链接" @click.stop>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-              </a>
-              <button v-if="isDownloaded(skill.id)" class="download-btn" title="删除" @click.stop="confirmDelete(skill)">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-              </button>
-              <button v-else class="download-btn" :disabled="isDownloading(skill.id)" @click.stop="downloadSkill(skill)">
-                {{ isDownloading(skill.id) ? '...' : '+' }}
-              </button>
-              <div class="card-top-row">
-                <div v-if="skill.iconUrl" class="card-avatar-icon"><img :src="skill.iconUrl" :alt="skill.name" /></div>
-                <div v-else class="card-avatar" :style="{ background: getAvatarColor(skill.name) }">{{ skill.name.charAt(0).toUpperCase() }}</div>
-              </div>
-              <h3 class="card-name">{{ skill.name }}</h3>
-              <p class="card-desc">{{ skill.description || '暂无描述' }}</p>
-              <div class="card-badges">
-                <span class="card-badge source-badge">
-                  <img v-if="currentSource && currentSource.icon && !isSvgIcon(currentSource.icon)" :src="currentSource.icon" width="12" height="12" alt="" class="badge-icon" />
-                  <span v-else-if="currentSource?.icon" v-html="currentSource.icon" class="badge-icon-svg"></span>
-                  {{ currentSource?.label || getActivePreset()?.name }}
-                </span>
-              </div>
-            </div>
+            <SkillCard
+              v-for="(skill, idx) in searchResults"
+              :key="skill.id"
+              :name="skill.name"
+              :description="skill.description || '暂无描述'"
+              :avatar-icon="skill.iconUrl"
+              :source-tag="currentSource ? { label: currentSource.label || getActivePreset()?.name || '', icon: currentSource.icon || '', color: 'hsl(var(--primary))', bg: 'hsl(var(--primary) / 0.1)' } : null"
+              @click="selectedSkill = skill"
+            >
+              <template #actions>
+                <a v-if="getSkillUrl(skill)" :href="getSkillUrl(skill)" target="_blank" class="card-action-btn" title="打开链接" @click.stop>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                </a>
+                <button v-if="isDownloaded(skill.id)" class="card-action-btn danger" title="删除" @click.stop="confirmDelete(skill)">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                </button>
+                <button v-else class="card-action-btn" :disabled="isDownloading(skill.id)" @click.stop="downloadSkill(skill)">
+                  <svg v-if="isDownloading(skill.id)" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                  <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                </button>
+              </template>
+            </SkillCard>
           </div>
         </div>
       </template>
@@ -1110,30 +1073,28 @@ function confirmDeleteStore() {
             <p class="empty-desc">尝试其他关键词搜索。</p>
           </div>
           <div v-else class="skill-grid" :class="viewMode">
-            <div v-for="(skill, idx) in localSearchResults" :key="skill.id" class="skill-card" @click="selectedSkill = skill">
-              <a v-if="getSkillUrl(skill)" :href="getSkillUrl(skill)" target="_blank" class="card-link-btn" title="打开链接" @click.stop>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-              </a>
-              <button v-if="isDownloaded(skill.id)" class="download-btn" title="删除" @click.stop="confirmDelete(skill)">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-              </button>
-              <button v-else class="download-btn" :disabled="isDownloading(skill.id)" @click.stop="downloadSkill(skill)">
-                {{ isDownloading(skill.id) ? '...' : '+' }}
-              </button>
-              <div class="card-top-row">
-                <div v-if="skill.iconUrl" class="card-avatar-icon"><img :src="skill.iconUrl" :alt="skill.name" /></div>
-                <div v-else class="card-avatar" :style="{ background: getAvatarColor(skill.name) }">{{ skill.name.charAt(0).toUpperCase() }}</div>
-              </div>
-              <h3 class="card-name">{{ skill.name }}</h3>
-              <p class="card-desc">{{ skill.description || '暂无描述' }}</p>
-              <div class="card-badges">
-                <span class="card-badge source-badge">
-                  <img v-if="currentSource && currentSource.icon && !isSvgIcon(currentSource.icon)" :src="currentSource.icon" width="12" height="12" alt="" class="badge-icon" />
-                  <span v-else-if="currentSource?.icon" v-html="currentSource.icon" class="badge-icon-svg"></span>
-                  {{ currentSource?.label || getActivePreset()?.name }}
-                </span>
-              </div>
-            </div>
+            <SkillCard
+              v-for="(skill, idx) in localSearchResults"
+              :key="skill.id"
+              :name="skill.name"
+              :description="skill.description || '暂无描述'"
+              :avatar-icon="skill.iconUrl"
+              :source-tag="currentSource ? { label: currentSource.label || getActivePreset()?.name || '', icon: currentSource.icon || '', color: 'hsl(var(--primary))', bg: 'hsl(var(--primary) / 0.1)' } : null"
+              @click="selectedSkill = skill"
+            >
+              <template #actions>
+                <a v-if="getSkillUrl(skill)" :href="getSkillUrl(skill)" target="_blank" class="card-action-btn" title="打开链接" @click.stop>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                </a>
+                <button v-if="isDownloaded(skill.id)" class="card-action-btn danger" title="删除" @click.stop="confirmDelete(skill)">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                </button>
+                <button v-else class="card-action-btn" :disabled="isDownloading(skill.id)" @click.stop="downloadSkill(skill)">
+                  <svg v-if="isDownloading(skill.id)" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                  <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                </button>
+              </template>
+            </SkillCard>
           </div>
         </div>
       </template>
@@ -1142,27 +1103,26 @@ function confirmDeleteStore() {
         <div v-if="importedSkills.length" class="section">
           <div class="section-header"><h3>已导入</h3><span class="section-count">{{ importedSkills.length }}</span></div>
           <div class="skill-grid" :class="viewMode">
-            <div v-for="(skill, idx) in importedSkills" :key="skill.id" class="skill-card imported" @click="selectedSkill = skill">
-              <a v-if="getSkillUrl(skill)" :href="getSkillUrl(skill)" target="_blank" class="card-link-btn" title="打开链接" @click.stop>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-              </a>
-              <button class="download-btn" title="删除" @click.stop="confirmDelete(skill)">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-              </button>
-              <div class="card-top-row">
-                <div v-if="skill.iconUrl" class="card-avatar-icon"><img :src="skill.iconUrl" :alt="skill.name" /></div>
-                <div v-else class="card-avatar" :style="{ background: getAvatarColor(skill.name) }">{{ skill.name.charAt(0).toUpperCase() }}</div>
-              </div>
-              <h3 class="card-name">{{ skill.name }}</h3>
-              <p class="card-desc">{{ skill.description || '暂无描述' }}</p>
-              <div class="card-badges">
-                <span class="card-badge source-badge">
-                  <img v-if="currentSource && currentSource.icon && !isSvgIcon(currentSource.icon)" :src="currentSource.icon" width="12" height="12" alt="" class="badge-icon" />
-                  <span v-else-if="currentSource?.icon" v-html="currentSource.icon" class="badge-icon-svg"></span>
-                  {{ currentSource?.label || getActivePreset()?.name }}
-                </span>
-              </div>
-            </div>
+            <SkillCard
+              v-for="(skill, idx) in importedSkills"
+              :key="skill.id"
+              :name="skill.name"
+              :description="skill.description || '暂无描述'"
+              :avatar-icon="skill.iconUrl"
+              :show-chinese-tag="isChineseContent(skill.description || '')"
+              :show-translated-tag="getLanguageTags(skill).showTranslatedTag"
+              :source-tag="currentSource ? { label: currentSource.label || getActivePreset()?.name || '', icon: currentSource.icon || '', color: 'hsl(142 50% 35%)', bg: 'hsl(142 50% 50% / 0.25)' } : null"
+              @click="selectedSkill = skill"
+            >
+              <template #actions>
+                <a v-if="getSkillUrl(skill)" :href="getSkillUrl(skill)" target="_blank" class="card-action-btn" title="打开链接" @click.stop>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                </a>
+                <button class="card-action-btn danger" title="删除" @click.stop="confirmDelete(skill)">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                </button>
+              </template>
+            </SkillCard>
           </div>
         </div>
 
@@ -1185,28 +1145,26 @@ function confirmDeleteStore() {
         <template v-else>
           <div class="section">
             <div class="section-header"><h3>可用</h3><span class="section-count">{{ availableSkills.length }}</span></div>
-            <div class="skill-grid-virtual" :class="viewMode" :style="{ height: virtualTotalHeight + 'px', position: 'relative' }">
-              <div v-for="{ skill, row, col } in virtualItems" :key="skill.id" class="skill-card" :style="viewMode === 'grid' ? { position: 'absolute', top: row * GRID_CARD_HEIGHT + 'px', left: (col / gridColumns * 100) + '%', width: (1 / gridColumns * 100) + '%' } : { transform: `translateY(${row * CARD_HEIGHT}px)` }" @click="selectedSkill = skill">
-                <a v-if="getSkillUrl(skill)" :href="getSkillUrl(skill)" target="_blank" class="card-link-btn" title="打开链接" @click.stop>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                </a>
-                <button class="download-btn" :disabled="isDownloading(skill.id)" @click.stop="downloadSkill(skill)">
-                  {{ isDownloading(skill.id) ? '...' : '+' }}
-                </button>
-                <div class="card-top-row">
-                  <div v-if="skill.iconUrl" class="card-avatar-icon"><img :src="skill.iconUrl" :alt="skill.name" /></div>
-                  <div v-else class="card-avatar" :style="{ background: getAvatarColor(skill.name) }">{{ skill.name.charAt(0).toUpperCase() }}</div>
-                </div>
-                <h3 class="card-name">{{ skill.name }}</h3>
-                <p class="card-desc">{{ skill.description || '暂无描述' }}</p>
-                <div class="card-badges">
-                  <span class="card-badge source-badge">
-                    <img v-if="currentSource && currentSource.icon && !isSvgIcon(currentSource.icon)" :src="currentSource.icon" width="12" height="12" alt="" class="badge-icon" />
-                    <span v-else-if="currentSource?.icon" v-html="currentSource.icon" class="badge-icon-svg"></span>
-                    {{ currentSource?.label || getActivePreset()?.name }}
-                  </span>
-                </div>
-              </div>
+            <div class="skill-grid" :class="viewMode">
+              <SkillCard
+                v-for="skill in availableSkills"
+                :key="skill.id"
+                :name="skill.name"
+                :description="skill.description || '暂无描述'"
+                :avatar-icon="skill.iconUrl"
+                :source-tag="currentSource ? { label: currentSource.label || getActivePreset()?.name || '', icon: currentSource.icon || '', color: 'hsl(var(--primary))', bg: 'hsl(var(--primary) / 0.1)' } : null"
+                @click="selectedSkill = skill"
+              >
+                <template #actions>
+                  <a v-if="getSkillUrl(skill)" :href="getSkillUrl(skill)" target="_blank" class="card-action-btn" title="打开链接" @click.stop>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                  </a>
+                  <button class="card-action-btn" :disabled="isDownloading(skill.id)" @click.stop="downloadSkill(skill)">
+                    <svg v-if="isDownloading(skill.id)" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                    <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  </button>
+                </template>
+              </SkillCard>
             </div>
           </div>
 
@@ -1614,101 +1572,12 @@ function confirmDeleteStore() {
 .skill-grid { display: grid; }
 .skill-grid.grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
 .skill-grid.list { grid-template-columns: 1fr; gap: 10px; }
-.skill-grid-virtual { display: block; }
-.skill-grid-virtual.list .skill-card { position: absolute; left: 0; right: 0; }
-.skill-grid-virtual.grid .skill-card { box-sizing: border-box; padding-right: 10px; }
-
-.skill-card {
-  display: flex;
-  flex-direction: column;
-  padding: 16px;
-  background: hsl(var(--card));
-  border: 1px solid hsl(var(--border));
-  border-radius: 12px;
-  cursor: pointer;
-  transition: border-color var(--duration-base) var(--ease-standard),
-              box-shadow var(--duration-base) var(--ease-standard);
-  position: relative;
-}
-
-.skill-card:hover {
-  border-color: hsl(var(--primary) / 0.4);
-  box-shadow: var(--shadow-sm);
-}
-.skill-card.imported { border-color: hsl(142 50% 50% / 0.25); }
-.skill-card.imported:hover { border-color: hsl(142 50% 50% / 0.5); }
-
-.card-top-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin-bottom: 4px;
-}
-.card-avatar { width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; color: #fff; flex-shrink: 0; }
-.card-avatar-icon { width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; background: hsl(var(--muted)); overflow: hidden; }
-.card-avatar-icon img { width: 22px; height: 22px; object-fit: contain; }
-[data-theme="dark"] .card-avatar-icon img { filter: invert(1); }
-
-.card-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: hsl(var(--foreground));
-  margin: 0 0 6px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  transition: color var(--duration-base) var(--ease-standard);
-}
-
-.skill-card:hover .card-name { color: hsl(var(--primary)); }
-
-.card-desc {
-  font-size: 12px;
-  color: hsl(var(--muted-foreground));
-  line-height: 1.5;
-  margin: 0 0 10px;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.card-badges { display: flex; gap: 4px; flex-wrap: wrap; }
-.card-badge { font-size: 10px; font-weight: 500; padding: 2px 8px; border-radius: 6px; white-space: nowrap; }
-.card-badge.source-badge { background: hsl(var(--primary) / 0.1); color: hsl(var(--primary)); display: inline-flex; align-items: center; gap: 4px; }
-.badge-icon { border-radius: 2px; flex-shrink: 0; }
-.badge-icon-svg { width: 12px; height: 12px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
-.badge-icon-svg svg { width: 12px; height: 12px; }
-.card-badge.installs-badge { background: hsl(var(--muted)); color: hsl(var(--muted-foreground)); font-variant-numeric: tabular-nums; }
-
-.download-btn {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  width: 26px; height: 26px; border-radius: 7px; background: hsl(var(--primary)); color: hsl(var(--primary-foreground));
-  border: none; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0; transition: all var(--duration-base) var(--ease-standard);
-  z-index: 1;
-}
-.download-btn:hover:not(:disabled) { opacity: 0.9; }
-.download-btn:disabled { background: hsl(var(--muted)); color: hsl(var(--muted-foreground)); cursor: default; }
-
-.card-link-btn {
-  position: absolute;
-  top: 16px;
-  right: 48px;
-  width: 26px; height: 26px; border-radius: 7px; background: hsl(var(--primary)); color: hsl(var(--primary-foreground));
-  border: none; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0; transition: all var(--duration-base) var(--ease-standard);
-  z-index: 1;
-  text-decoration: none;
-}
-.card-link-btn:hover { opacity: 0.9; }
 
 .loading { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 32px; color: hsl(var(--muted-foreground)); font-size: 13px; }
 .spinner { width: 16px; height: 16px; border: 2px solid hsl(var(--border)); border-top-color: hsl(var(--primary)); border-radius: 50%; animation: spin 0.7s linear infinite; }
 .spinner.small { width: 12px; height: 12px; }
 @keyframes spin { to { transform: rotate(360deg); } }
+.spin { animation: spin 0.7s linear infinite; }
 
 .scroll-sentinel { height: 1px; }
 .load-more-hint { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 16px; color: hsl(var(--muted-foreground)); font-size: 12px; }

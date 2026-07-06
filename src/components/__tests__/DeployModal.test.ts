@@ -6,7 +6,7 @@ import type { Skill } from '../../types'
 
 const sampleSkill: Skill = {
   id: 'skill-1', name: 'Test Skill', description: 'A test skill',
-  tags: [], format: 'opencode',
+  tags: [],
 }
 
 vi.mock('../../data/platforms', () => ({

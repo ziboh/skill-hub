@@ -35,7 +35,7 @@ function saveQueue(items: TranslationQueueItem[]): void {
 }
 
 const queue = ref<TranslationQueueItem[]>([])
-const cacheVersion = ref(0)
+export const cacheVersion = ref(0)
 export const processingHashes = new Set<string>()
 
 function cleanStaleItems() {
@@ -176,17 +176,14 @@ function readSkillContent(skill: Skill): string | null {
 
 function findSkillByHash(skills: Skill[], hash: string, type: 'content' | 'desc'): Skill | null {
   for (const s of skills) {
-    if (type === 'content') {
-      if (s.contentHash && s.contentHash === hash) return s
-      const dir = getSkillDir(s)
-      const content = readSkillFileContent(dir)
-      if (content) {
-        const computedHash = window.services.hashContent(stripFrontmatter(content))
-        if (computedHash === hash) return s
-      }
+    // 使用整个 SKILL.md 文件的哈希
+    if (s.readme) {
+      if (window.services.hashContent(s.readme.replace(/\r\n/g, '\n').replace(/\r/g, '\n')) === hash) return s
     }
-    if (type === 'desc' && s.description) {
-      if (window.services.hashContent(s.description) === hash) return s
+    const dir = getSkillDir(s)
+    const raw = readSkillFileContent(dir)
+    if (raw) {
+      if (window.services.hashContent(raw) === hash) return s
     }
   }
   return null
@@ -210,8 +207,7 @@ async function processQueueItem(item: TranslationQueueItem, model: ModelConfig |
       const tags = skill.tags || []
       if (tags.length > 0 && !tags.every(t => isChineseText(t))) {
         const translatedTags = await translateTags(tags, model)
-        const ch = skill.contentHash
-        if (ch) storage.saveTranslationTagsByHash(ch, translatedTags)
+        storage.saveTranslationTagsByHash(item.hash, translatedTags)
       }
     }
   } else {
@@ -312,16 +308,16 @@ export function useTranslationQueue() {
 
       const cachedSkills = storage.getCachedSkills()
       const skill = cachedSkills.find(s => {
-        if (item.type === 'content') {
-          if (s.contentHash && s.contentHash === item.hash) return true
-          const dir = getSkillDir(s)
-          const content = readSkillFileContent(dir)
-          if (content) {
-            return window.services.hashContent(stripFrontmatter(content)) === item.hash
-          }
-          return false
+        // 使用整个 SKILL.md 文件的哈希
+        if (s.readme) {
+          if (window.services.hashContent(s.readme.replace(/\r\n/g, '\n').replace(/\r/g, '\n')) === item.hash) return true
         }
-        return s.description && window.services.hashContent(s.description) === item.hash
+        const dir = getSkillDir(s)
+        const raw = readSkillFileContent(dir)
+        if (raw) {
+          return window.services.hashContent(raw) === item.hash
+        }
+        return false
       })
       if (!skill) {
         processingHashes.delete(key)
@@ -340,8 +336,7 @@ export function useTranslationQueue() {
           const tags = skill.tags || []
           if (tags.length > 0 && !tags.every(t => isChineseText(t))) {
             const translatedTags = await translateTags(tags, model)
-            const ch = skill.contentHash
-            if (ch) storage.saveTranslationTagsByHash(ch, translatedTags)
+            storage.saveTranslationTagsByHash(item.hash, translatedTags)
           }
         } else {
           const downloadedIds = storage.getDownloadedIds()

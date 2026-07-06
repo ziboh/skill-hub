@@ -133,10 +133,10 @@ const skill = computed<Skill | null>(() => {
     description: manifest?.description || '',
     author: manifest?.author || '未知',
     tags: manifest?.tags || [],
-    format: (manifest?.format as any) || 'generic',
     language: manifest?.language || 'en',
     source: 'local',
     path: s.dir,
+    readme: s.content || '',
     storeSourceId: props.platformId ? `agent:${props.platformId}` : undefined,
   }
 })

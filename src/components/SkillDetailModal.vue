@@ -27,6 +27,7 @@ const loading = ref(true)
 const skillName = ref('')
 const skillDesc = ref('')
 const skillContent = ref('')
+const rawContent = ref('')
 const importing = ref(false)
 
 const isDownloaded = computed(() => storage.getDownloadedIds().includes(props.skill.id))
@@ -81,6 +82,28 @@ const currentCategory = computed(() => {
 async function fetchContent() {
   loading.value = true
   try {
+    // 优先从本地磁盘读取（与 TranslatePanel 一致）
+    const isDownloaded = storage.getDownloadedIds().includes(props.skill.id)
+    if (isDownloaded) {
+      const dir = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', props.skill.id)
+      const skillFile = ['SKILL.md', 'skill.md'].find(f => window.services.pathExists(window.services.pathJoin(dir, f)))
+      if (skillFile) {
+        const raw = window.services.readFile(window.services.pathJoin(dir, skillFile))
+        if (raw) {
+          const normalized = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+          const fm = parseFrontmatter(normalized)
+          const bodyMatch = normalized.match(/^---\n[\s\S]*?\n---\n?([\s\S]*)$/)
+          skillName.value = props.skill.name
+          skillDesc.value = fm.description || extractChineseSummary(normalized) || props.skill.description || ''
+          rawContent.value = normalized
+          skillContent.value = bodyMatch ? bodyMatch[1].trim() : normalized
+          loading.value = false
+          initChineseDetection()
+          loadTranslationCache()
+          return
+        }
+      }
+    }
     // Use cached readme if available
     if (props.skill.readme) {
       const fm = parseFrontmatter(props.skill.readme)
@@ -88,20 +111,25 @@ async function fetchContent() {
       const bodyMatch = normalized.match(/^---\n[\s\S]*?\n---\n?([\s\S]*)$/)
       skillName.value = props.skill.name
       skillDesc.value = fm.description || extractChineseSummary(props.skill.readme) || ''
+      rawContent.value = normalized
       skillContent.value = bodyMatch ? bodyMatch[1].trim() : props.skill.readme
-      loading.value = false
-      initChineseDetection()
-      return
-    }
-    if (props.skill.repo) {
+    loading.value = false
+    initChineseDetection()
+    loadTranslationCache()
+    return
+  }
+  if (props.skill.repo) {
       const result = await fetchSkillDetailFromSkill(props.skill, storage.getSettings().githubToken || undefined)
       if (result) {
         skillName.value = props.skill.name
         skillDesc.value = result.description
-        const bodyMatch2 = result.content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').match(/^---\n[\s\S]*?\n---\n?([\s\S]*)$/)
+        const normalized2 = result.content.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+        const bodyMatch2 = normalized2.match(/^---\n[\s\S]*?\n---\n?([\s\S]*)$/)
+        rawContent.value = normalized2
         skillContent.value = bodyMatch2 ? bodyMatch2[1].trim() : result.content
         loading.value = false
         initChineseDetection()
+        loadTranslationCache()
         return
       }
     }
@@ -117,10 +145,13 @@ async function fetchContent() {
             const fm = parseFrontmatter(text)
             skillName.value = props.skill.name
             skillDesc.value = fm.description || props.skill.description || ''
-            const bodyMatch3 = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').match(/^---\n[\s\S]*?\n---\n?([\s\S]*)$/)
+            const normalized3 = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+            const bodyMatch3 = normalized3.match(/^---\n[\s\S]*?\n---\n?([\s\S]*)$/)
+            rawContent.value = normalized3
             skillContent.value = bodyMatch3 ? bodyMatch3[1].trim() : text
             loading.value = false
             initChineseDetection()
+            loadTranslationCache()
             return
           }
         }
@@ -128,14 +159,16 @@ async function fetchContent() {
     }
     skillName.value = props.skill.name
     skillDesc.value = props.skill.description || ''
+    rawContent.value = ''
     skillContent.value = ''
   } catch {}
   loading.value = false
   initChineseDetection()
+  loadTranslationCache()
 }
 
 function initChineseDetection() {
-  const desc = skillDesc.value || props.skill.description || ''
+  const desc = props.skill.description || ''
   isDescChinese.value = isChineseContent(desc)
   if (isDescChinese.value) {
     translatedDesc.value = desc
@@ -148,19 +181,50 @@ function initChineseDetection() {
   }
 }
 
+function loadTranslationCache() {
+  // 优先从磁盘读取原始文件做哈希（与 TranslatePanel/MySkills 一致）
+  let fh = ''
+  const isDownloaded = storage.getDownloadedIds().includes(props.skill.id)
+  if (isDownloaded) {
+    const dir = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', props.skill.id)
+    const skillFile = ['SKILL.md', 'skill.md'].find(f => window.services.pathExists(window.services.pathJoin(dir, f)))
+    if (skillFile) {
+      const raw = window.services.readFile(window.services.pathJoin(dir, skillFile))
+      if (raw) fh = window.services.hashContent(raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n'))
+    }
+  }
+  if (!fh) {
+    fh = props.skill.readme ? window.services.hashContent(props.skill.readme.replace(/\r\n/g, '\n').replace(/\r/g, '\n')) : ''
+  }
+
+  const cached = fh ? storage.getTranslationByHash(fh) : null
+  if (cached) {
+    translatedContent.value = cached.translatedContent
+    translationMode.value = cached.mode as TranslationMode
+    showTranslation.value = true
+  }
+
+  const cachedDesc = fh ? storage.getDescTranslationByHash(fh) : null
+  if (cachedDesc) {
+    translatedDesc.value = cachedDesc
+    descTranslationDone.value = true
+    showDescTranslation.value = true
+  }
+}
+
 onMounted(() => { fetchContent(); loadFavorites(); restoreTranslatingState() })
 watch(() => props.skill?.id, () => { fetchContent(); loadFavorites(); restoreTranslatingState() })
+watch(translationCacheVersion, () => { loadTranslationCache(); restoreTranslatingState() })
 
 function restoreTranslatingState() {
-  const ch = skillContent.value ? computeContentHash(skillContent.value) : ''
-  const dh = skillDesc.value || props.skill.description ? window.services.hashContent(skillDesc.value || props.skill.description) : ''
+  const fh = getFileHash()
   isTranslating.value = false
   isPendingInQueue.value = false
   isTranslatingDesc.value = false
   isPendingDescInQueue.value = false
 
-  if (ch && isTranslatingInQueue(ch, 'content')) {
-    const items = findInQueueByHash(ch)
+  if (fh && isTranslatingInQueue(fh, 'content')) {
+    const items = findInQueueByHash(fh)
     const contentItem = items.find(i => i.type === 'content')
     if (contentItem?.status === 'pending') {
       isPendingInQueue.value = true
@@ -168,8 +232,8 @@ function restoreTranslatingState() {
       isTranslating.value = true
     }
   }
-  if (dh && isTranslatingInQueue(dh, 'desc')) {
-    const items = findInQueueByHash(dh)
+  if (fh && isTranslatingInQueue(fh, 'desc')) {
+    const items = findInQueueByHash(fh)
     const descItem = items.find(i => i.type === 'desc')
     if (descItem?.status === 'pending') {
       isPendingDescInQueue.value = true
@@ -219,10 +283,10 @@ function handleTranslate() {
 
   if (translatedContent.value) { showTranslation.value = !showTranslation.value; return }
   if (!translationModel.value) { showToast('AI 模型未配置', 'error'); return }
-  const ch = computeContentHash(skillContent.value)
-  if (!ch) return
+  const fh = getFileHash()
+  if (!fh) return
 
-  const cached = storage.getTranslationByHash(ch)
+  const cached = storage.getTranslationByHash(fh)
   if (cached) {
     translatedContent.value = cached.translatedContent
     showTranslation.value = true
@@ -230,7 +294,7 @@ function handleTranslate() {
     return
   }
 
-  const item = addTranslation(ch, 'content', props.skill.name, skillContent.value)
+  const item = addTranslation(fh, 'content', props.skill.name, skillContent.value)
   if (item?.status === 'pending') {
     isPendingInQueue.value = true
   } else {
@@ -238,7 +302,7 @@ function handleTranslate() {
   }
 
   const unwatch = watch(translationCacheVersion, () => {
-    const cached = storage.getTranslationByHash(ch)
+    const cached = storage.getTranslationByHash(fh)
     if (cached) {
       translatedContent.value = cached.translatedContent
       showTranslation.value = true
@@ -246,7 +310,7 @@ function handleTranslate() {
       isPendingInQueue.value = false
       showToast(`${props.skill.name} 内容翻译完成`, 'success')
       unwatch()
-    } else if (!isTranslatingInQueue(ch, 'content')) {
+    } else if (!isTranslatingInQueue(fh, 'content')) {
       isTranslating.value = false
       isPendingInQueue.value = false
       showToast('内容翻译失败', 'error')
@@ -255,8 +319,12 @@ function handleTranslate() {
   })
 }
 
+function getFileHash(): string {
+  return rawContent.value ? window.services.hashContent(rawContent.value) : ''
+}
+
 function handleTranslateDesc() {
-  const desc = skillDesc.value || props.skill.description
+  const desc = props.skill.description
   if (!desc) return
 
   isDescChinese.value = isChineseContent(desc)
@@ -270,10 +338,10 @@ function handleTranslateDesc() {
 
   if (descTranslationDone.value) { showDescTranslation.value = !showDescTranslation.value; return }
   if (!translationModel.value) { showToast('AI 模型未配置', 'error'); return }
-  const dh = window.services.hashContent(desc)
-  if (!dh) return
+  const fh = getFileHash()
+  if (!fh) return
 
-  const cached = storage.getDescTranslationByHash(dh)
+  const cached = storage.getDescTranslationByHash(fh)
   if (cached) {
     translatedDesc.value = cached
     descTranslationDone.value = true
@@ -282,7 +350,7 @@ function handleTranslateDesc() {
     return
   }
 
-  const item = addTranslation(dh, 'desc', props.skill.name, desc)
+  const item = addTranslation(fh, 'desc', props.skill.name, desc)
   if (item?.status === 'pending') {
     isPendingDescInQueue.value = true
   } else {
@@ -290,7 +358,7 @@ function handleTranslateDesc() {
   }
 
   const unwatch = watch(translationCacheVersion, () => {
-    const cached = storage.getDescTranslationByHash(dh)
+    const cached = storage.getDescTranslationByHash(fh)
     if (cached) {
       translatedDesc.value = cached
       descTranslationDone.value = true
@@ -299,7 +367,7 @@ function handleTranslateDesc() {
       isPendingDescInQueue.value = false
       showToast(`${props.skill.name} 描述翻译完成`, 'success')
       unwatch()
-    } else if (!isTranslatingInQueue(dh, 'desc')) {
+    } else if (!isTranslatingInQueue(fh, 'desc')) {
       isTranslatingDesc.value = false
       isPendingDescInQueue.value = false
       showToast('描述翻译失败', 'error')
@@ -309,7 +377,7 @@ function handleTranslateDesc() {
 }
 
 function handleReTranslateDesc() {
-  const desc = skillDesc.value || props.skill.description
+  const desc = props.skill.description
   if (!desc) return
 
   isDescChinese.value = isChineseContent(desc)
@@ -322,14 +390,14 @@ function handleReTranslateDesc() {
   }
 
   if (!translationModel.value) { showToast('AI 模型未配置', 'error'); return }
-  const dh = window.services.hashContent(desc)
-  if (!dh) return
+  const fh = getFileHash()
+  if (!fh) return
 
-  storage.removeDescTranslationByHash(dh)
+  storage.removeDescTranslationByHash(fh)
   translatedDesc.value = ''
   descTranslationDone.value = false
 
-  const item = addTranslation(dh, 'desc', props.skill.name, desc)
+  const item = addTranslation(fh, 'desc', props.skill.name, desc)
   if (item?.status === 'pending') {
     isPendingDescInQueue.value = true
   } else {
@@ -337,7 +405,7 @@ function handleReTranslateDesc() {
   }
 
   const unwatch = watch(translationCacheVersion, () => {
-    const cached = storage.getDescTranslationByHash(dh)
+    const cached = storage.getDescTranslationByHash(fh)
     if (cached) {
       translatedDesc.value = cached
       descTranslationDone.value = true
@@ -346,7 +414,7 @@ function handleReTranslateDesc() {
       isPendingDescInQueue.value = false
       showToast(`${props.skill.name} 描述翻译完成`, 'success')
       unwatch()
-    } else if (!isTranslatingInQueue(dh, 'desc')) {
+    } else if (!isTranslatingInQueue(fh, 'desc')) {
       isTranslatingDesc.value = false
       isPendingDescInQueue.value = false
       showToast('描述翻译失败', 'error')
@@ -455,10 +523,8 @@ async function handleImport() {
     const skillFile = ['SKILL.md', 'skill.md'].find((f) => window.services.pathExists(window.services.pathJoin(targetDir, f)))
     if (skillFile) {
       const parsed = window.services.parseSkillFile(window.services.pathJoin(targetDir, skillFile))
-      if (parsed?.manifest?.description) {
-        // Update cached description if parsed from SKILL.md
-        storage.saveCachedSkills([{ ...props.skill, description: parsed.manifest.description, storeSourceId: props.skill.storeSourceId }])
-      }
+      const description = parsed?.manifest?.description || props.skill.description || ''
+      storage.saveCachedSkills([{ ...props.skill, description, storeSourceId: props.skill.storeSourceId }])
     }
     storage.addDownloadedId(props.skill.id)
     storage.addSessionDownload(props.skill.id, props.skill.name, 'marketplace')
@@ -482,14 +548,14 @@ function handleReTranslate() {
   }
 
   if (!translationModel.value) { showToast('AI 模型未配置', 'error'); return }
-  const ch = computeContentHash(skillContent.value)
-  if (!ch) return
+  const fh = getFileHash()
+  if (!fh) return
 
-  storage.removeTranslationByHash(ch)
+  storage.removeTranslationByHash(fh)
   translatedContent.value = ''
   showTranslation.value = false
 
-  const item = addTranslation(ch, 'content', props.skill.name, skillContent.value)
+  const item = addTranslation(fh, 'content', props.skill.name, skillContent.value)
   if (item?.status === 'pending') {
     isPendingInQueue.value = true
   } else {
@@ -497,7 +563,7 @@ function handleReTranslate() {
   }
 
   const unwatch = watch(translationCacheVersion, () => {
-    const cached = storage.getTranslationByHash(ch)
+    const cached = storage.getTranslationByHash(fh)
     if (cached) {
       translatedContent.value = cached.translatedContent
       showTranslation.value = true
@@ -505,7 +571,7 @@ function handleReTranslate() {
       isPendingInQueue.value = false
       showToast(`${props.skill.name} 内容翻译完成`, 'success')
       unwatch()
-    } else if (!isTranslatingInQueue(ch, 'content')) {
+    } else if (!isTranslatingInQueue(fh, 'content')) {
       isTranslating.value = false
       isPendingInQueue.value = false
       showToast('内容翻译失败', 'error')
@@ -602,7 +668,6 @@ function handleReTranslate() {
               <div class="section-header-row">
                 <h3 class="section-heading mb-0">
                   SKILL 内容
-                  <span class="section-hint">预览</span>
                 </h3>
                 <div class="section-actions">
                   <template v-if="isContentChinese">

@@ -1,4 +1,3 @@
-export type SkillFormat = 'opencode' | 'claude' | 'codex' | 'cline' | 'generic'
 export type SkillSource = 'builtin' | 'github' | 'skills-sh' | 'local' | 'marketplace-json' | 'git-repo' | 'local-dir'
 export type StoreSourceType = 'marketplace-json' | 'git-repo' | 'local-dir'
 export type InstallMode = 'symlink' | 'copy'
@@ -9,9 +8,7 @@ export interface Skill {
   description: string
   author: string
   tags: string[]
-  format: SkillFormat
   source: SkillSource
-  contentHash?: string
   sourceUrl?: string
   repo?: string
   path?: string
@@ -40,8 +37,6 @@ export interface SkillIdentity {
   description: string
   author: string
   tags: string[]
-  format: SkillFormat
-  contentHash: string
   sources: SkillSourceLocation[]
   primarySource?: SkillSourceLocation
   createdAt: string
@@ -133,7 +128,6 @@ export interface SkillManifest {
   description: string
   author: string
   tags: string[]
-  format: SkillFormat
   language: string
 }
 
@@ -275,7 +269,6 @@ export interface SkillScanResult {
     description: string
     author: string
     tags: string[]
-    format: string
     language: string
   }
 }

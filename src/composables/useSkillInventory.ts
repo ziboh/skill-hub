@@ -2,7 +2,7 @@ import { ref, computed } from 'vue'
 import { storage } from '../utils/storage'
 import { detectPlatforms, getPlatformPath, defaultPlatforms } from '../data/platforms'
 import { useProjectState } from './useProjectState'
-import type { Skill, SkillFormat, SkillScanResult } from '../types'
+import type { Skill, SkillScanResult } from '../types'
 
 function normalizeSkillScanResult(scan: SkillScanResult): Skill {
   const name = scan.manifest?.name || scan.name
@@ -12,7 +12,6 @@ function normalizeSkillScanResult(scan: SkillScanResult): Skill {
     description: scan.manifest?.description || '',
     author: scan.manifest?.author || '',
     tags: scan.manifest?.tags || [],
-    format: (scan.manifest?.format as SkillFormat) || 'generic',
     source: 'local',
     path: scan.dir,
   }
@@ -20,6 +19,7 @@ function normalizeSkillScanResult(scan: SkillScanResult): Skill {
 
 const agentSkills = ref<Record<string, SkillScanResult[]>>({})
 const agentSkillsLoaded = ref(false)
+const agentSkillsDirty = ref(false)
 
 export { normalizeSkillScanResult }
 
@@ -62,6 +62,17 @@ export function useSkillInventory() {
   function refreshAgentSkills() {
     agentSkillsLoaded.value = false
     ensureAgentSkills()
+  }
+
+  function markAgentSkillsDirty() {
+    agentSkillsDirty.value = true
+  }
+
+  function refreshDirtyAgentSkills() {
+    if (!agentSkillsDirty.value) return
+    agentSkillsLoaded.value = false
+    ensureAgentSkills()
+    agentSkillsDirty.value = false
   }
 
   function updateAgentPlatformSkills(platformId: string, skills: SkillScanResult[]) {
@@ -108,5 +119,8 @@ export function useSkillInventory() {
     ensureAgentSkills,
     refreshAgentSkills,
     updateAgentPlatformSkills,
+    markAgentSkillsDirty,
+    isAgentSkillsDirty: agentSkillsDirty,
+    refreshDirtyAgentSkills,
   }
 }

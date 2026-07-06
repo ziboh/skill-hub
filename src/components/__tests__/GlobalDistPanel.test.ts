@@ -25,7 +25,7 @@ function createSkill(overrides = {}) {
     description: 'A test skill',
     author: 'Test',
     tags: [],
-    format: 'opencode',
+
     source: 'local',
     path: '/home/user/.config/skills/test-skill',
     ...overrides,

@@ -4,8 +4,8 @@ import TranslatePanel from '../TranslatePanel.vue'
 import type { Skill } from '../../types'
 
 const sampleSkills: Skill[] = [
-  { id: 'skill-1', name: 'Skill One', description: 'First skill', tags: [], format: 'opencode' },
-  { id: 'skill-2', name: 'Skill Two', description: 'Second skill', tags: [], format: 'opencode' },
+  { id: 'skill-1', name: 'Skill One', description: 'First skill', tags: [] },
+  { id: 'skill-2', name: 'Skill Two', description: 'Second skill', tags: [] },
 ]
 
 function setupStorageSkills(skills: Skill[] = sampleSkills) {
@@ -143,7 +143,7 @@ describe('Translation status detection', () => {
   }
 
   function makeSkill(overrides: Partial<Skill> & { id: string; name: string }): Skill {
-    return { description: '', tags: [], format: 'opencode', ...overrides }
+    return { description: '', tags: [], ...overrides }
   }
 
   function getStatusBadge(wrapper: ReturnType<typeof mount>, skillName: string) {

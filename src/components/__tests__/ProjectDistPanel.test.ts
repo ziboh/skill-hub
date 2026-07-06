@@ -22,7 +22,7 @@ vi.mock('../../utils/storage', () => ({
 function createSkill(overrides = {}) {
   return {
     id: 'test/skill', name: 'Test Skill', description: 'A test skill', author: 'Test',
-    tags: [], format: 'opencode', source: 'local', path: '/home/user/.config/skills/test-skill',
+    tags: [], source: 'local', path: '/home/user/.config/skills/test-skill',
     ...overrides,
   }
 }

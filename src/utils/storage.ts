@@ -255,12 +255,18 @@ export const storage = {
     if (!_cachedSkillsCache) _cachedSkillsCache = dbGet<Skill[]>(KEYS.CACHED_SKILLS) || []
     return _cachedSkillsCache
   },
-  saveCachedSkills(skills: Skill[]): void {
+  saveCachedSkills(skills: Skill[], options?: { forceStoreSourceId?: boolean }): void {
     const existing = this.getCachedSkills()
     const map = new Map(existing.map((s) => [s.id, s]))
     for (const s of skills) {
       const copy = JSON.parse(JSON.stringify(s)) as Skill
       copy.description = cleanDescription(copy.description)
+      if (!options?.forceStoreSourceId) {
+        const existingSkill = map.get(copy.id)
+        if (existingSkill && this.isDownloaded(copy.id)) {
+          copy.storeSourceId = existingSkill.storeSourceId
+        }
+      }
       map.set(copy.id, copy)
     }
     invalidateCachedSkills()
@@ -324,9 +330,10 @@ export const storage = {
   addDownloadedId(id: string): void {
     const ids = this.getDownloadedIds()
     if (!ids.includes(id)) {
-      ids.push(id)
+      const next = [...ids, id]
+      _downloadedIdsCache = next
       if (_downloadedSetCache) _downloadedSetCache.add(id)
-      dbSet(KEYS.DOWNLOADED_IDS, ids)
+      dbSet(KEYS.DOWNLOADED_IDS, next)
     }
   },
   removeDownloadedId(id: string): void {
@@ -414,7 +421,7 @@ export const storage = {
     return all?.[pageId] ?? null
   },
 
-  // === Translation Cache (keyed by contentHash / descHash) ===
+  // === Translation Cache (keyed by file hash) ===
   _readTranslationCache(): Record<string, { sourceContent: string; translatedContent: string; mode: string; updatedAt: number }> {
     let cache: Record<string, any> = {}
     try { cache = dbGet<Record<string, any>>(KEYS.TRANSLATIONS) || {} } catch {
@@ -473,7 +480,7 @@ export const storage = {
     this._writeDescTranslationCache(cache)
   },
 
-  // === Tags Translation Cache (keyed by contentHash) ===
+  // === Tags Translation Cache (keyed by file hash) ===
   _readTagsTranslationCache(): Record<string, { translatedTags: string[]; updatedAt: number }> {
     let cache: Record<string, any> = {}
     try { cache = dbGet<Record<string, any>>(KEYS.TRANSLATIONS + '_tags') || {} } catch { /* ignore */ }

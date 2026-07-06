@@ -30,9 +30,10 @@ const navigateToProjectSkills = inject(KeyNavigateToProjectSkills, () => {})
 const projectList = computed(() => registeredProjects.value || [])
 const selectedProjects = ref<RegisteredProject[]>([])
 const selectedAgentDirs = ref<string[]>([])
-const customDirInput = ref('')
+const customDirInputValue = ref('')
+const customAgentDirs = ref<{ id: string; name: string; path: string; type: string }[]>([])
 
-const showStatusBadges = computed(() => selectedProjects.value.length === 1 && selectedAgentDirs.value.length < 2)
+const showStatusBadges = computed(() => selectedProjects.value.length === 1)
 const installRecords = ref<InstallRecord[]>([])
 const installLog = ref<{ platform: string; status: 'ok' | 'error' | 'pending'; msg: string }[]>([])
 
@@ -44,6 +45,20 @@ const platforms = computed(() => {
   })
 })
 
+function addCustomDir() {
+  const p = customDirInputValue.value.trim()
+  if (!p) return
+  const exists = agentDirOptions.value.some(d => d.path === p)
+  if (exists) {
+    showToast('该路径已存在', 'warning')
+    return
+  }
+  const dir = { id: 'custom-' + Date.now(), name: '自定义', path: p, type: 'custom' }
+  customAgentDirs.value.push(dir)
+  selectedAgentDirs.value.push(p)
+  customDirInputValue.value = ''
+}
+
 const agentDirOptions = computed(() => {
   const dirs: { id: string; name: string; path: string; type: string }[] = [
     { id: '_generic', name: '通用位置', path: '.agents/skills', type: 'generic' },
@@ -52,6 +67,11 @@ const agentDirOptions = computed(() => {
     const path = p.customProjectPath || p.projectPath || ''
     if (path && !dirs.some(d => d.path === path)) {
       dirs.push({ id: p.id, name: p.name, path, type: 'agent' })
+    }
+  }
+  for (const d of customAgentDirs.value) {
+    if (!dirs.some(dd => dd.path === d.path)) {
+      dirs.push(d)
     }
   }
   return dirs
@@ -241,9 +261,6 @@ async function install() {
   const projects = selectedProjects.value
   if (!projects.length) { showToast('请先选择项目', 'error'); return }
   const agentPaths = [...selectedAgentDirs.value]
-  if (customDirInput.value && !agentPaths.includes(customDirInput.value)) {
-    agentPaths.push(customDirInput.value)
-  }
   if (!agentPaths.length) { showToast('请先选择保存位置', 'error'); return }
 
   emit('install-started')
@@ -326,13 +343,14 @@ async function install() {
   } finally {
     loadInstallStatus()
     selectedAgentDirs.value = []
-    customDirInput.value = ''
+    customAgentDirs.value = []
+    customDirInputValue.value = ''
     emit('install-finished')
   }
 }
 
-watch(() => props.skill.id, () => { loadInstallStatus(); selectedAgentDirs.value = []; customDirInput.value = '' })
-watch(() => selectedProjects.value.map((p) => p.id), () => { loadInstallStatus(); selectedAgentDirs.value = [] })
+watch(() => props.skill.id, () => { loadInstallStatus(); selectedAgentDirs.value = []; customAgentDirs.value = []; customDirInputValue.value = '' })
+watch(() => selectedProjects.value.map((p) => p.id), () => { loadInstallStatus(); selectedAgentDirs.value = []; customAgentDirs.value = [] })
 loadInstallStatus()
 </script>
 
@@ -414,7 +432,7 @@ loadInstallStatus()
         @click="!installing && (showStatusBadges ? (!isInstalled(a.path) && !sourceAgentDirs.has(a.path)) : true) && toggleAgentDir(a.path)"
       >
         <div class="platform-card-row">
-          <ProviderIcon :icon="a.type === 'generic' ? '_generic' : a.id" :size="22" variant="mono" />
+          <ProviderIcon :icon="(a.type === 'generic' || a.type === 'custom') ? '_generic' : a.id" :size="22" variant="mono" />
           <div class="platform-card-info">
             <h4 class="platform-card-name">{{ a.name }} <span class="platform-dir-path">/{{ a.path }}</span></h4>
             <template v-if="showStatusBadges">
@@ -440,7 +458,11 @@ loadInstallStatus()
         </div>
       </div>
       <div class="custom-dir-row">
-        <input v-model="customDirInput" placeholder="+ 自定义目录路径，如 .claude/skills" class="custom-dir-input" />
+        <input v-model="customDirInputValue" placeholder="自定义目录路径，如 .claude/skills" class="custom-dir-input" @keyup.enter="addCustomDir" />
+        <button class="custom-dir-add-btn" @click="addCustomDir" :disabled="!customDirInputValue.trim()">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          添加
+        </button>
       </div>
     </div>
   </div>
@@ -511,8 +533,11 @@ loadInstallStatus()
 .platform-checkbox.checked { background: hsl(var(--primary)); border-color: hsl(var(--primary)); }
 .platform-checkbox.checked svg { color: #fff; }
 
-.custom-dir-row { margin-top: 4px; }
-.custom-dir-input { width: 100%; padding: 8px 10px; font-size: 12px; border-radius: 8px; border: 1px solid hsl(var(--border)); background: hsl(var(--accent) / 0.3); color: hsl(var(--foreground)); outline: none; font-family: inherit; box-sizing: border-box; }
+.custom-dir-row { display: flex; gap: 6px; margin-top: 4px; align-items: center; }
+.custom-dir-input { flex: 1; padding: 8px 10px; font-size: 12px; border-radius: 8px; border: 1px solid hsl(var(--border)); background: hsl(var(--accent) / 0.3); color: hsl(var(--foreground)); outline: none; font-family: inherit; box-sizing: border-box; }
 .custom-dir-input::placeholder { color: hsl(var(--muted-foreground)); }
 .custom-dir-input:focus { border-color: hsl(var(--primary) / 0.5); }
+.custom-dir-add-btn { display: flex; align-items: center; gap: 3px; padding: 8px 12px; font-size: 12px; font-weight: 600; border-radius: 8px; border: 1px solid hsl(var(--primary) / 0.3); background: hsl(var(--primary) / 0.1); color: hsl(var(--primary)); cursor: pointer; white-space: nowrap; transition: all var(--duration-base) var(--ease-standard); flex-shrink: 0; }
+.custom-dir-add-btn:hover:not(:disabled) { background: hsl(var(--primary) / 0.2); }
+.custom-dir-add-btn:disabled { opacity: 0.4; cursor: default; }
 </style>

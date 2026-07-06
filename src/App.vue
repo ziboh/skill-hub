@@ -10,6 +10,7 @@ import {
   KeyRefreshCounts, KeyCurrentRoute, KeyFilterCategory, KeyFilterSource,
   KeyRefreshMySkills, KeyOpenImportModal, KeyRefreshKey, KeyTriggerRefresh,
   KeyAgentSkills, KeyUpdateAgentPlatformSkills, KeySelectedAgentPlatformId,
+  KeyMarkAgentSkillsDirty, KeyIsAgentSkillsDirty,
 } from './inject-keys'
 
 const SkillStore = defineAsyncComponent(() => import('./views/SkillStore/index.vue'))
@@ -53,6 +54,8 @@ const {
   allSkills: inventoryAllSkills,
   ensureAgentSkills,
   updateAgentPlatformSkills,
+  markAgentSkillsDirty,
+  isAgentSkillsDirty,
 } = useSkillInventory()
 
 const {
@@ -96,6 +99,8 @@ provide(KeyPlatformSkillCounts, platformSkillCounts)
 provide(KeyAgentSkills, inventoryAgentSkills)
 provide(KeySelectedAgentPlatformId, selectedAgentPlatformId)
 provide(KeyUpdateAgentPlatformSkills, updateAgentPlatformSkills)
+provide(KeyMarkAgentSkillsDirty, markAgentSkillsDirty)
+provide(KeyIsAgentSkillsDirty, isAgentSkillsDirty)
 provide(KeyScanProject, scanProject)
 provide(KeyProjectScanning, projectScanning)
 
@@ -155,6 +160,7 @@ onMounted(() => {
   refreshCounts()
   refreshMySkills()
   ensureAgentSkills()
+  isAgentSkillsDirty.value = false
   applyTheme(settings)
   ;(async () => {
     const s = storage.getSettings()

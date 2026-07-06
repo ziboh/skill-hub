@@ -49,7 +49,6 @@ const debugFields = computed(() => {
     { key: 'description', label: '描述', value: s.description || '—' },
     { key: 'author', label: '作者', value: s.author || '—' },
     { key: 'tags', label: '标签', value: s.tags?.length ? s.tags.join(', ') : '—' },
-    { key: 'format', label: '格式', value: s.format || '—' },
     { key: 'source', label: '来源', value: s.source || '—' },
     { key: 'sourceUrl', label: '来源URL', value: s.sourceUrl || '—' },
     { key: 'repo', label: '仓库', value: s.repo || '—' },
@@ -65,12 +64,6 @@ const debugFields = computed(() => {
     { key: 'skillDir', label: 'Skill目录', value: s.skillDir || '—' },
   ]
 })
-
-function getProtocolLabel(): string {
-  const map: Record<string, string> = { opencode: 'OpenCode', claude: 'Claude Code', codex: 'Codex', cline: 'CLINE' }
-  return map[props.skill.format] || '通用'
-}
-
 
 const confirmUninstall = ref<{ platformId: string; platformName: string } | null>(null)
 function cancelUninstall() { confirmUninstall.value = null }
@@ -96,10 +89,19 @@ const showTranslation = ref(false)
 const translatedContent = ref('')
 const translationMode = ref<TranslationMode>('full')
 const isContentChinese = ref(false)
-const contentHash = computed(() => props.skillContent ? computeContentHash(props.skillContent) : '')
-const descHash = computed(() => {
-  const desc = props.skillDesc || props.skill.description || ''
-  return desc ? window.services.hashContent(desc) : ''
+const fileHash = computed(() => {
+  // 优先从本地磁盘读取原始内容（与 TranslatePanel 一致）
+  const isDownloaded = storage.getDownloadedIds().includes(props.skill.id)
+  if (isDownloaded) {
+    const dir = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', props.skill.id)
+    const skillFile = ['SKILL.md', 'skill.md'].find(f => window.services.pathExists(window.services.pathJoin(dir, f)))
+    if (skillFile) {
+      const raw = window.services.readFile(window.services.pathJoin(dir, skillFile))
+      if (raw) return window.services.hashContent(raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n'))
+    }
+  }
+  const readme = props.skill.readme || ''
+  return readme ? window.services.hashContent(readme.replace(/\r\n/g, '\n').replace(/\r/g, '\n')) : ''
 })
 
 const isTranslatingDesc = ref(false)
@@ -137,8 +139,9 @@ const translationModel = computed(() => {
 })
 
 function loadTranslationCache() {
-  const ch = contentHash.value
-  const cached = ch ? storage.getTranslationByHash(ch) : null
+  const fh = fileHash.value
+
+  const cached = fh ? storage.getTranslationByHash(fh) : null
   if (cached) {
     translatedContent.value = cached.translatedContent
     translationMode.value = cached.mode as TranslationMode
@@ -151,8 +154,8 @@ function loadTranslationCache() {
   if (isContentChinese.value) {
     showTranslation.value = true
   }
-  const dh = descHash.value
-  const cachedDesc = dh ? storage.getDescTranslationByHash(dh) : null
+
+  const cachedDesc = fh ? storage.getDescTranslationByHash(fh) : null
   if (cachedDesc) {
     translatedDesc.value = cachedDesc
     descTranslationDone.value = true
@@ -209,7 +212,7 @@ onMounted(() => {
   loadUserTags()
 })
 
-watch([() => contentHash.value, () => descHash.value], () => {
+watch([() => fileHash.value, () => fileHash.value], () => {
   loadTranslationCache()
   restoreTranslatingState()
   loadUserTags()
@@ -221,15 +224,14 @@ watch(translationCacheVersion, () => {
 })
 
 function restoreTranslatingState() {
-  const ch = contentHash.value
-  const dh = descHash.value
+  const fh = fileHash.value
   isTranslating.value = false
   isPendingInQueue.value = false
   isTranslatingDesc.value = false
   isPendingDescInQueue.value = false
 
-  if (ch && isTranslatingInQueue(ch, 'content')) {
-    const items = findInQueueByHash(ch)
+  if (fh && isTranslatingInQueue(fh, 'content')) {
+    const items = findInQueueByHash(fh)
     const contentItem = items.find(i => i.type === 'content')
     if (contentItem?.status === 'pending') {
       isPendingInQueue.value = true
@@ -237,8 +239,8 @@ function restoreTranslatingState() {
       isTranslating.value = true
     }
   }
-  if (dh && isTranslatingInQueue(dh, 'desc')) {
-    const items = findInQueueByHash(dh)
+  if (fh && isTranslatingInQueue(fh, 'desc')) {
+    const items = findInQueueByHash(fh)
     const descItem = items.find(i => i.type === 'desc')
     if (descItem?.status === 'pending') {
       isPendingDescInQueue.value = true
@@ -274,7 +276,7 @@ function handleTranslate() {
     showToast('请先在设置中配置 AI 模型', 'error')
     return
   }
-  const ch = contentHash.value
+  const ch = fileHash.value
   if (!ch) return
 
   const cached = storage.getTranslationByHash(ch)
@@ -333,7 +335,7 @@ function handleTranslateDesc() {
     return
   }
 
-  const dh = descHash.value
+  const dh = fileHash.value
   if (!dh) return
 
   const cached = storage.getDescTranslationByHash(dh)
@@ -389,7 +391,7 @@ function handleReTranslateDesc() {
     return
   }
 
-  const dh = descHash.value
+  const dh = fileHash.value
   if (!dh) return
 
   storage.removeDescTranslationByHash(dh)
@@ -433,7 +435,7 @@ function handleReTranslate() {
   }
 
   if (!translationModel.value) { showToast('请先在设置中配置 AI 模型', 'error'); return }
-  const ch = contentHash.value
+  const ch = fileHash.value
   if (!ch) return
 
   storage.removeTranslationByHash(ch)
@@ -603,7 +605,6 @@ function handleReTranslate() {
               <div class="section-header-row">
                 <h3 class="section-heading mb-0">
                   SKILL 内容
-                  <span class="section-hint">预览</span>
                 </h3>
                 <div class="section-actions">
                   <template v-if="isContentChinese">
@@ -709,13 +710,6 @@ function handleReTranslate() {
               <div class="meta-item">
                 <span class="meta-label">ID</span>
                 <span class="meta-value mono">{{ skill.id }}</span>
-              </div>
-              <div class="meta-item">
-                <span class="meta-label">协议</span>
-                <span class="meta-value protocol">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-                  {{ getProtocolLabel() }}
-                </span>
               </div>
               <div class="meta-item">
                 <span class="meta-label">作者</span>
