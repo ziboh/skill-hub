@@ -102,6 +102,10 @@ export function computeContentHash(content: string): string {
   return window.services.hashContent(stripped)
 }
 
+export function computeDescriptionHash(description: string): string {
+  return window.services.hashContent(`desc:${description || ''}`)
+}
+
 export function renderImmersiveSegments(content: string): ImmersiveSegment[] {
   const segments: ImmersiveSegment[] = []
   const regex = /<t>([\s\S]*?)<\/t>/g

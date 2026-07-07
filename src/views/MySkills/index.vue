@@ -110,7 +110,8 @@ const downloadedSkills = computed(() =>
 
 const downloadedSkillStats = computed(() => {
   const list = downloadedSkills.value
-  const favSet = storage.getFavoriteSet()
+  void favoriteIds.value
+  const favSet = new Set(favoriteIds.value)
   const instSet = installedSkillIds.value
   let favCount = 0
   let distCount = 0
@@ -215,7 +216,7 @@ onUnmounted(() => {
   iconObservers.clear()
 })
 
-function isFavorited(id: string) { return storage.isFavorite(id) }
+function isFavorited(id: string) { return favoriteIds.value.includes(id) }
 function toggleFavorite(id: string) { storage.toggleFavorite(id); favoriteIds.value = storage.getFavoriteIds(); refreshMySkills() }
 function deleteSkill(skill: Skill) {
   deleteSkillTarget.value = skill

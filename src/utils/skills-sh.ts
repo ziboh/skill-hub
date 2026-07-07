@@ -137,16 +137,46 @@ export async function fetchLeaderboard(filterKey?: string): Promise<LeaderboardR
 
 // ── Fetch description from skills.sh detail page ──
 
+function extractLdDescription(html: string): string | null {
+  const scriptRe = /<script type="application\/ld\+json">([\s\S]*?)<\/script>/gi
+  let m: RegExpExecArray | null
+  while ((m = scriptRe.exec(html)) !== null) {
+    try {
+      const data = JSON.parse(m[1])
+      if (data?.description && data['@type'] === 'SoftwareApplication') {
+        return data.description
+      }
+    } catch { continue }
+  }
+  return null
+}
+
+function extractMetaDescription(html: string): string | null {
+  const metaRe = /<meta[^>]+(?:name|property)\s*=\s*"(?:description|og:description)"[^>]*content\s*=\s*"([^"]+)"/i
+  const m = html.match(metaRe)
+  if (m) {
+    const desc = m[1].replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/&amp;/g, '&')
+    if (desc.length > 10) return desc
+  }
+  return null
+}
+
+function extractSummaryText(html: string): string | null {
+  const summaryRe = /bg-muted[^>]*px-6[^>]*py-3[^>]*>([\s\S]*?)<\/div>/i
+  const m = html.match(summaryRe)
+  if (m) {
+    const text = stripTags(m[1]).trim()
+    if (text && text.length > 10) return text
+  }
+  return null
+}
+
 export async function fetchSkillDescriptionFromSh(skill: Skill): Promise<string | null> {
   if (!skill.repo) return null
   const detailUrl = `${BASE}/${skill.repo}/${skill.path}`
   try {
     const html = await fetchText(detailUrl)
-    const ldMatch = html.match(/<script type="application\/ld\+json">(\{[^<]*"@type"\s*:\s*"SoftwareApplication"[^<]*\})<\/script>/i)
-    if (ldMatch) {
-      const data = JSON.parse(ldMatch[1])
-      if (data.description) return data.description
-    }
+    return extractLdDescription(html) || extractMetaDescription(html) || extractSummaryText(html)
   } catch {}
   return null
 }
@@ -257,6 +287,7 @@ export function leaderboardEntryToSkill(e: LeaderboardEntry): Skill {
     id: `${e.owner}/${e.repo}/${dirName}`,
     name: e.skillName,
     description: '',
+    shortDescription: '',
     author: e.owner,
     tags: [],
     source: 'skills-sh',
@@ -274,6 +305,7 @@ export function searchResultToSkill(s: PublicSearchResult): Skill {
     id: `${s.source}/${path}`,
     name: s.name,
     description: '',
+    shortDescription: '',
     author: owner,
     tags: [],
     source: 'skills-sh',

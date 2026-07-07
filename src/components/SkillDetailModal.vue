@@ -6,14 +6,11 @@ import { storage } from '../utils/storage'
 import { parseFrontmatter, extractChineseSummary } from '../utils/frontmatter'
 import type { Skill } from '../types'
 import SkillPickModal from './SkillPickModal.vue'
+import SkillPreviewPanel from './SkillPreviewPanel.vue'
 import { useSettings } from '../composables/useSettings'
-import { isChineseContent, computeContentHash, stripFrontmatter } from '../utils/translate'
-import type { TranslationMode } from '../utils/translate'
 import { getAvatarColor } from '../utils/color'
 import { SKILL_CATEGORIES, inferCategory, CATEGORY_ICONS } from '../data/skill-categories'
 import { getSourceInfo, isSvgIcon, isImageUrl } from '../utils/source-info'
-import { useTranslationQueue } from '../composables/useTranslationQueue'
-import MarkdownRenderer from './MarkdownRenderer.vue'
 
 const props = defineProps<{ skill: Skill }>()
 const emit = defineEmits(['close', 'imported'])
@@ -21,7 +18,6 @@ const showToast = inject(KeyShowToast, () => {})
 const refreshCounts = inject(KeyRefreshCounts)
 
 const { settings } = useSettings()
-const { addTranslation, isTranslating: isTranslatingInQueue, findInQueueByHash, cacheVersion: translationCacheVersion } = useTranslationQueue()
 
 const loading = ref(true)
 const skillName = ref('')
@@ -35,20 +31,6 @@ const isDownloaded = computed(() => storage.getDownloadedIds().includes(props.sk
 const showPickModal = ref(false)
 const pickSkills = ref<{ name: string; description: string; dir: string }[]>([])
 let pickSkillResolve: ((dir: string | null) => void) | null = null
-
-const isTranslating = ref(false)
-const isPendingInQueue = ref(false)
-const showTranslation = ref(false)
-const translatedContent = ref('')
-const translationMode = ref<TranslationMode>('full')
-const isContentChinese = ref(false)
-
-const isTranslatingDesc = ref(false)
-const isPendingDescInQueue = ref(false)
-const descTranslationDone = ref(false)
-const showDescTranslation = ref(false)
-const translatedDesc = ref('')
-const isDescChinese = ref(false)
 
 const favorites = ref<string[]>([])
 const isFavorited = computed(() => props.skill && favorites.value.includes(props.skill.id))
@@ -98,8 +80,6 @@ async function fetchContent() {
           rawContent.value = normalized
           skillContent.value = bodyMatch ? bodyMatch[1].trim() : normalized
           loading.value = false
-          initChineseDetection()
-          loadTranslationCache()
           return
         }
       }
@@ -114,25 +94,23 @@ async function fetchContent() {
       rawContent.value = normalized
       skillContent.value = bodyMatch ? bodyMatch[1].trim() : props.skill.readme
     loading.value = false
-    initChineseDetection()
-    loadTranslationCache()
     return
   }
-  if (props.skill.repo) {
-      const result = await fetchSkillDetailFromSkill(props.skill, storage.getSettings().githubToken || undefined)
-      if (result) {
-        skillName.value = props.skill.name
-        skillDesc.value = result.description
-        const normalized2 = result.content.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
-        const bodyMatch2 = normalized2.match(/^---\n[\s\S]*?\n---\n?([\s\S]*)$/)
-        rawContent.value = normalized2
-        skillContent.value = bodyMatch2 ? bodyMatch2[1].trim() : result.content
-        loading.value = false
-        initChineseDetection()
-        loadTranslationCache()
-        return
-      }
+  const pageState = storage.getPageState('skill-store')
+  const shouldFetchFromGitHub = pageState?.fetchGitHubDesc !== false
+  if (shouldFetchFromGitHub && props.skill.repo) {
+    const result = await fetchSkillDetailFromSkill(props.skill, storage.getSettings().githubToken || undefined)
+    if (result) {
+      skillName.value = props.skill.name
+      skillDesc.value = result.description
+      const normalized2 = result.content.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+      const bodyMatch2 = normalized2.match(/^---\n[\s\S]*?\n---\n?([\s\S]*)$/)
+      rawContent.value = normalized2
+      skillContent.value = bodyMatch2 ? bodyMatch2[1].trim() : result.content
+      loading.value = false
+      return
     }
+  }
     if (props.skill.sourceUrl) {
       try {
         const rawUrl = props.skill.sourceUrl
@@ -150,8 +128,6 @@ async function fetchContent() {
             rawContent.value = normalized3
             skillContent.value = bodyMatch3 ? bodyMatch3[1].trim() : text
             loading.value = false
-            initChineseDetection()
-            loadTranslationCache()
             return
           }
         }
@@ -163,265 +139,10 @@ async function fetchContent() {
     skillContent.value = ''
   } catch {}
   loading.value = false
-  initChineseDetection()
-  loadTranslationCache()
 }
 
-function initChineseDetection() {
-  const desc = props.skill.description || ''
-  isDescChinese.value = isChineseContent(desc)
-  if (isDescChinese.value) {
-    translatedDesc.value = desc
-    descTranslationDone.value = true
-    showDescTranslation.value = true
-  }
-  isContentChinese.value = isChineseContent(skillContent.value)
-  if (isContentChinese.value) {
-    showTranslation.value = true
-  }
-}
-
-function loadTranslationCache() {
-  // 优先从磁盘读取原始文件做哈希（与 TranslatePanel/MySkills 一致）
-  let fh = ''
-  const isDownloaded = storage.getDownloadedIds().includes(props.skill.id)
-  if (isDownloaded) {
-    const dir = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', props.skill.id)
-    const skillFile = ['SKILL.md', 'skill.md'].find(f => window.services.pathExists(window.services.pathJoin(dir, f)))
-    if (skillFile) {
-      const raw = window.services.readFile(window.services.pathJoin(dir, skillFile))
-      if (raw) fh = window.services.hashContent(raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n'))
-    }
-  }
-  if (!fh) {
-    fh = props.skill.readme ? window.services.hashContent(props.skill.readme.replace(/\r\n/g, '\n').replace(/\r/g, '\n')) : ''
-  }
-
-  const cached = fh ? storage.getTranslationByHash(fh) : null
-  if (cached) {
-    translatedContent.value = cached.translatedContent
-    translationMode.value = cached.mode as TranslationMode
-    showTranslation.value = true
-  }
-
-  const cachedDesc = fh ? storage.getDescTranslationByHash(fh) : null
-  if (cachedDesc) {
-    translatedDesc.value = cachedDesc
-    descTranslationDone.value = true
-    showDescTranslation.value = true
-  }
-}
-
-onMounted(() => { fetchContent(); loadFavorites(); restoreTranslatingState() })
-watch(() => props.skill?.id, () => { fetchContent(); loadFavorites(); restoreTranslatingState() })
-watch(translationCacheVersion, () => { loadTranslationCache(); restoreTranslatingState() })
-
-function restoreTranslatingState() {
-  const fh = getFileHash()
-  isTranslating.value = false
-  isPendingInQueue.value = false
-  isTranslatingDesc.value = false
-  isPendingDescInQueue.value = false
-
-  if (fh && isTranslatingInQueue(fh, 'content')) {
-    const items = findInQueueByHash(fh)
-    const contentItem = items.find(i => i.type === 'content')
-    if (contentItem?.status === 'pending') {
-      isPendingInQueue.value = true
-    } else {
-      isTranslating.value = true
-    }
-  }
-  if (fh && isTranslatingInQueue(fh, 'desc')) {
-    const items = findInQueueByHash(fh)
-    const descItem = items.find(i => i.type === 'desc')
-    if (descItem?.status === 'pending') {
-      isPendingDescInQueue.value = true
-    } else {
-      isTranslatingDesc.value = true
-    }
-  }
-}
-
-const translationModel = computed(() => {
-  if (!settings.translationModelId) {
-    return settings.aiModels.find((m) => m.isDefault && m.enabled) || null
-  }
-  const sepIdx = settings.translationModelId.lastIndexOf('::')
-  if (sepIdx >= 0) {
-    const providerId = settings.translationModelId.substring(0, sepIdx)
-    const modelId = settings.translationModelId.substring(sepIdx + 2)
-    const provider = settings.aiModels.find(m => m.id === providerId)
-    if (provider && provider.models?.some(m => m.id === modelId && m.enabled)) {
-      return { ...provider, model: modelId }
-    }
-  } else {
-    const byProvider = settings.aiModels.find((m) => m.id === settings.translationModelId && m.enabled)
-    if (byProvider) return byProvider
-    for (const provider of settings.aiModels) {
-      const matchedModel = provider.models?.find(
-        (m) => m.id === settings.translationModelId && m.enabled,
-      )
-      if (matchedModel) {
-        return { ...provider, model: matchedModel.id }
-      }
-    }
-  }
-  return null
-})
-
-function handleTranslate() {
-  if (!skillContent.value.trim()) return
-
-  isContentChinese.value = isChineseContent(skillContent.value)
-
-  if (isContentChinese.value) {
-    translatedContent.value = skillContent.value
-    showTranslation.value = true
-    return
-  }
-
-  if (translatedContent.value) { showTranslation.value = !showTranslation.value; return }
-  if (!translationModel.value) { showToast('AI 模型未配置', 'error'); return }
-  const fh = getFileHash()
-  if (!fh) return
-
-  const cached = storage.getTranslationByHash(fh)
-  if (cached) {
-    translatedContent.value = cached.translatedContent
-    showTranslation.value = true
-    showToast(`${props.skill.name} 内容翻译完成`, 'success')
-    return
-  }
-
-  const item = addTranslation(fh, 'content', props.skill.name, skillContent.value)
-  if (item?.status === 'pending') {
-    isPendingInQueue.value = true
-  } else {
-    isTranslating.value = true
-  }
-
-  const unwatch = watch(translationCacheVersion, () => {
-    const cached = storage.getTranslationByHash(fh)
-    if (cached) {
-      translatedContent.value = cached.translatedContent
-      showTranslation.value = true
-      isTranslating.value = false
-      isPendingInQueue.value = false
-      showToast(`${props.skill.name} 内容翻译完成`, 'success')
-      unwatch()
-    } else if (!isTranslatingInQueue(fh, 'content')) {
-      isTranslating.value = false
-      isPendingInQueue.value = false
-      showToast('内容翻译失败', 'error')
-      unwatch()
-    }
-  })
-}
-
-function getFileHash(): string {
-  return rawContent.value ? window.services.hashContent(rawContent.value) : ''
-}
-
-function handleTranslateDesc() {
-  const desc = props.skill.description
-  if (!desc) return
-
-  isDescChinese.value = isChineseContent(desc)
-
-  if (isDescChinese.value) {
-    translatedDesc.value = desc
-    descTranslationDone.value = true
-    showDescTranslation.value = true
-    return
-  }
-
-  if (descTranslationDone.value) { showDescTranslation.value = !showDescTranslation.value; return }
-  if (!translationModel.value) { showToast('AI 模型未配置', 'error'); return }
-  const fh = getFileHash()
-  if (!fh) return
-
-  const cached = storage.getDescTranslationByHash(fh)
-  if (cached) {
-    translatedDesc.value = cached
-    descTranslationDone.value = true
-    showDescTranslation.value = true
-    showToast(`${props.skill.name} 描述翻译完成`, 'success')
-    return
-  }
-
-  const item = addTranslation(fh, 'desc', props.skill.name, desc)
-  if (item?.status === 'pending') {
-    isPendingDescInQueue.value = true
-  } else {
-    isTranslatingDesc.value = true
-  }
-
-  const unwatch = watch(translationCacheVersion, () => {
-    const cached = storage.getDescTranslationByHash(fh)
-    if (cached) {
-      translatedDesc.value = cached
-      descTranslationDone.value = true
-      showDescTranslation.value = true
-      isTranslatingDesc.value = false
-      isPendingDescInQueue.value = false
-      showToast(`${props.skill.name} 描述翻译完成`, 'success')
-      unwatch()
-    } else if (!isTranslatingInQueue(fh, 'desc')) {
-      isTranslatingDesc.value = false
-      isPendingDescInQueue.value = false
-      showToast('描述翻译失败', 'error')
-      unwatch()
-    }
-  })
-}
-
-function handleReTranslateDesc() {
-  const desc = props.skill.description
-  if (!desc) return
-
-  isDescChinese.value = isChineseContent(desc)
-
-  if (isDescChinese.value) {
-    translatedDesc.value = desc
-    descTranslationDone.value = true
-    showDescTranslation.value = true
-    return
-  }
-
-  if (!translationModel.value) { showToast('AI 模型未配置', 'error'); return }
-  const fh = getFileHash()
-  if (!fh) return
-
-  storage.removeDescTranslationByHash(fh)
-  translatedDesc.value = ''
-  descTranslationDone.value = false
-
-  const item = addTranslation(fh, 'desc', props.skill.name, desc)
-  if (item?.status === 'pending') {
-    isPendingDescInQueue.value = true
-  } else {
-    isTranslatingDesc.value = true
-  }
-
-  const unwatch = watch(translationCacheVersion, () => {
-    const cached = storage.getDescTranslationByHash(fh)
-    if (cached) {
-      translatedDesc.value = cached
-      descTranslationDone.value = true
-      showDescTranslation.value = true
-      isTranslatingDesc.value = false
-      isPendingDescInQueue.value = false
-      showToast(`${props.skill.name} 描述翻译完成`, 'success')
-      unwatch()
-    } else if (!isTranslatingInQueue(fh, 'desc')) {
-      isTranslatingDesc.value = false
-      isPendingDescInQueue.value = false
-      showToast('描述翻译失败', 'error')
-      unwatch()
-    }
-  })
-}
+onMounted(() => { fetchContent(); loadFavorites() })
+watch(() => props.skill?.id, () => { fetchContent(); loadFavorites() })
 
 function collectAllSkillDirs(root: string): string[] {
   const results: string[] = []
@@ -536,49 +257,6 @@ async function handleImport() {
   }
   importing.value = false
 }
-
-function handleReTranslate() {
-  if (!skillContent.value.trim()) return
-
-  isContentChinese.value = isChineseContent(skillContent.value)
-  if (isContentChinese.value) {
-    translatedContent.value = skillContent.value
-    showTranslation.value = true
-    return
-  }
-
-  if (!translationModel.value) { showToast('AI 模型未配置', 'error'); return }
-  const fh = getFileHash()
-  if (!fh) return
-
-  storage.removeTranslationByHash(fh)
-  translatedContent.value = ''
-  showTranslation.value = false
-
-  const item = addTranslation(fh, 'content', props.skill.name, skillContent.value)
-  if (item?.status === 'pending') {
-    isPendingInQueue.value = true
-  } else {
-    isTranslating.value = true
-  }
-
-  const unwatch = watch(translationCacheVersion, () => {
-    const cached = storage.getTranslationByHash(fh)
-    if (cached) {
-      translatedContent.value = cached.translatedContent
-      showTranslation.value = true
-      isTranslating.value = false
-      isPendingInQueue.value = false
-      showToast(`${props.skill.name} 内容翻译完成`, 'success')
-      unwatch()
-    } else if (!isTranslatingInQueue(fh, 'content')) {
-      isTranslating.value = false
-      isPendingInQueue.value = false
-      showToast('内容翻译失败', 'error')
-      unwatch()
-    }
-  })
-}
 </script>
 
 <template>
@@ -619,7 +297,7 @@ function handleReTranslate() {
           </div>
         </div>
         <div class="header-toolbar">
-          <button class="toolbar-icon-btn" :class="{ favorited: isFavorited }" :title="isFavorited ? '取消收藏' : '收藏'" @click="toggleFavorite">
+          <button v-if="isDownloaded" class="toolbar-icon-btn" :class="{ favorited: isFavorited }" :title="isFavorited ? '取消收藏' : '收藏'" @click="toggleFavorite">
             <svg width="16" height="16" viewBox="0 0 24 24" :fill="isFavorited ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
           </button>
           <button class="toolbar-icon-btn close-btn" title="关闭" @click="emit('close')">
@@ -636,71 +314,16 @@ function handleReTranslate() {
         </div>
         <template v-else>
           <div class="preview-content">
-            <!-- SKILL 描述 -->
-            <section class="content-section">
-              <div class="section-header-row">
-                <h3 class="section-heading mb-0">SKILL 描述</h3>
-                <div class="section-actions">
-                  <template v-if="isDescChinese">
-                    <span class="already-chinese-hint">此描述已是中文</span>
-                  </template>
-                  <template v-else>
-                    <span v-if="descTranslationDone && !isDescChinese" class="translation-success-badge">翻译成功</span>
-                    <button v-if="descTranslationDone" class="heading-btn" @click="handleReTranslateDesc" :disabled="isTranslatingDesc || isPendingDescInQueue">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/><path d="M21 3v9h-9"/></svg>
-                      重新翻译
-                    </button>
-                    <button class="heading-btn" :class="{ active: descTranslationDone && showDescTranslation }" @click="handleTranslateDesc" :disabled="isTranslatingDesc || isPendingDescInQueue">
-                      <svg v-if="isTranslatingDesc || isPendingDescInQueue" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-                      <svg v-else width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>
-                      {{ isPendingDescInQueue ? '排队中...' : isTranslatingDesc ? '翻译中...' : descTranslationDone ? (showDescTranslation ? '显示原文' : '显示译文') : '翻译描述' }}
-                    </button>
-                  </template>
-                </div>
-              </div>
-              <div class="panel-card desc-panel">
-                <p class="desc-text">{{ descTranslationDone && showDescTranslation ? translatedDesc : (skillDesc || skill.description || '暂无描述') }}</p>
-              </div>
-            </section>
-
-            <!-- SKILL 内容 -->
-            <section class="content-section">
-              <div class="section-header-row">
-                <h3 class="section-heading mb-0">
-                  SKILL 内容
-                </h3>
-                <div class="section-actions">
-                  <template v-if="isContentChinese">
-                    <span class="already-chinese-hint">此内容已是中文</span>
-                  </template>
-                  <template v-else>
-                    <span v-if="translatedContent && !isContentChinese" class="translation-success-badge">翻译成功</span>
-                    <button v-if="translatedContent" class="heading-btn" @click="handleReTranslate" :disabled="isTranslating || isPendingInQueue">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/><path d="M21 3v9h-9"/></svg>
-                      重新翻译
-                    </button>
-                    <button class="heading-btn" :class="{ active: showTranslation && translatedContent }" @click="handleTranslate" :disabled="isTranslating || isPendingInQueue">
-                      <svg v-if="isTranslating || isPendingInQueue" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-                      <svg v-else width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>
-                      {{ isPendingInQueue ? '排队中...' : isTranslating ? '翻译中...' : showTranslation && translatedContent ? '显示原文' : translatedContent ? '显示译文' : '翻译内容' }}
-                    </button>
-                  </template>
-                </div>
-              </div>
-              <div class="panel-card content-panel">
-                <button class="copy-md-btn" @click="handleCopy(skillContent, 'instr')" :title="copyStatus['instr'] ? '已复制' : '复制 MD'">
-                  <svg v-if="copyStatus['instr']" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                  <svg v-else width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                </button>
-                <div v-if="skillContent" class="skill-markdown-body p-6">
-                  <MarkdownRenderer :content="showTranslation && translatedContent ? stripFrontmatter(translatedContent) : skillContent" />
-                </div>
-                <div v-else class="empty-content">
-                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-                  <p>暂无内容</p>
-                </div>
-              </div>
-            </section>
+            <SkillPreviewPanel
+              :skill="skill"
+              :skill-name="skillName"
+              :skill-desc="skillDesc"
+              :skill-content="skillContent"
+              :is-editing="false"
+              :edited-content="''"
+              :copy-status="copyStatus"
+              @copy-content="(text, key) => handleCopy(text, key)"
+            />
           </div>
         </template>
       </div>
@@ -751,49 +374,8 @@ function handleReTranslate() {
 .loading { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 48px; color: hsl(var(--muted-foreground)); font-size: 13px; }
 .spinner { width: 20px; height: 20px; border: 2px solid hsl(var(--border)); border-top-color: hsl(var(--primary)); border-radius: 50%; animation: spin 0.7s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.spin { animation: spin 0.7s linear infinite; }
 
 .preview-content { padding: 20px 0; }
-
-/* ═══ Section heading ═══ */
-.section-heading { font-size: 11px; font-weight: 700; color: hsl(var(--muted-foreground)); text-transform: uppercase; letter-spacing: 0.2em; white-space: nowrap; }
-.section-hint { font-size: 10px; font-weight: 400; text-transform: none; letter-spacing: 0; opacity: 0.5; margin-left: 6px; }
-.section-header-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.section-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-.already-chinese-hint { font-size: 12px; color: hsl(var(--muted-foreground)); font-style: italic; }
-.translation-success-badge { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 6px; background: hsl(142 60% 44% / 0.1); color: hsl(142 60% 44%); white-space: nowrap; }
-.mb-0 { margin-bottom: 0; }
-
-/* ═══ Panel cards ═══ */
-.panel-card { border-radius: 16px; border: 1px solid hsl(var(--border)); padding: 20px; }
-.desc-panel { background: hsl(var(--card)); }
-.desc-text { font-size: 14px; line-height: 1.7; color: hsl(var(--foreground) / 0.9); white-space: pre-line; margin-bottom: 14px; }
-.desc-footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
-.desc-badges { display: flex; flex-wrap: wrap; gap: 6px; }
-.desc-actions { display: flex; gap: 6px; }
-
-.variant-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 500; padding: 3px 10px; border-radius: 6px; }
-.variant-badge.source { background: transparent; color: transparent; }
-.variant-badge.author { background: hsl(var(--accent)); color: hsl(var(--accent-foreground)); }
-.variant-badge.tag { background: hsl(var(--primary) / 0.1); color: hsl(var(--primary)); }
-
-.heading-btn { display: inline-flex; align-items: center; gap: 5px; padding: 4px 12px; font-size: 12px; font-weight: 500; border-radius: 8px; border: none; background: hsl(var(--accent) / 0.6); color: hsl(var(--muted-foreground)); cursor: pointer; transition: all var(--duration-base) var(--ease-standard); white-space: nowrap; flex-shrink: 0; }
-.heading-btn:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
-.heading-btn.active { background: hsl(var(--primary) / 0.12); color: hsl(var(--primary)); }
-
-/* ═══ Content section ═══ */
-.content-section { display: flex; flex-direction: column; gap: 16px; }
-.content-panel { background: hsl(var(--card)); box-shadow: 0 1px 3px hsl(0 0% 0% / 0.04); overflow: hidden; min-height: 200px; display: flex; flex-direction: column; position: relative; }
-.copy-md-btn { position: absolute; top: 12px; right: 12px; z-index: 2; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 8px; border: 1px solid hsl(var(--border)); background: hsl(var(--card)); color: hsl(var(--muted-foreground)); cursor: pointer; transition: all var(--duration-base) var(--ease-standard); opacity: 0; }
-.content-panel:hover .copy-md-btn { opacity: 1; }
-.copy-md-btn:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
-
-.skill-markdown-body { flex: 1; padding: 20px; }
-
-.empty-content { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px 0; color: hsl(var(--muted-foreground)); opacity: 0.35; }
-.empty-content p { margin-top: 10px; font-size: 13px; }
-
-.space-y-4 > * + * { margin-top: 16px; }
 
 /* ═══ Footer ═══ */
 .modal-footer { padding: 16px 24px 20px; border-top: 1px solid hsl(var(--border)); display: flex; justify-content: flex-end; flex-shrink: 0; }

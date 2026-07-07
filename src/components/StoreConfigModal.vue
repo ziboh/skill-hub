@@ -23,13 +23,13 @@ const isEditing = computed(() => !!editingId.value)
 
 const typeOptions: { value: StoreSourceType; icon: string; label: string; hint: string }[] = [
   { value: 'marketplace-json', icon: ICON_MARKETPLACE, label: 'Marketplace JSON', hint: 'Marketplace 索引 URL' },
-  { value: 'git-repo', icon: ICON_GITHUB, label: 'Git 仓库', hint: 'GitHub / Git 仓库 URL' },
+  { value: 'git-repo', icon: ICON_GITHUB, label: 'Git 仓库', hint: 'GitHub 仓库 URL' },
   { value: 'local-dir', icon: ICON_FOLDER, label: '本地目录', hint: '本地文件夹路径' },
 ]
 
 const examples: Record<StoreSourceType, { label: string; lines: string[] }> = {
   'marketplace-json': { label: 'Example', lines: ['https://raw.githubusercontent.com/ziboh/skills-marketplace/main/marketplace.json'] },
-  'git-repo': { label: 'Examples', lines: ['https://github.com/anthropics/skills', 'Branch: main | Dir: skills/.curated', '~/Projects/my-skill-repo'] },
+  'git-repo': { label: 'Examples', lines: ['https://github.com/anthropics/skills', 'Branch: main | Dir: skills/.curated'] },
   'local-dir': { label: 'Example', lines: ['~/Documents/my-skills'] },
 }
 

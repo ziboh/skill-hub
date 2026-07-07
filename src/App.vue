@@ -216,15 +216,16 @@ const storePresets = [
 const filterCategory = ref('all')
 const filterSource = ref('')
 
-const myAllSkills = ref<Skill[]>([])
+const allCachedSkills = ref<Skill[]>([])
 const myDownloadedIds = ref<string[]>([])
 const myInstallRecords = ref<any[]>([])
 const myFavoriteIds = ref<string[]>([])
 const myInstalledIds = computed(() => storage.getInstalledSkillSet())
-const myDownloadedSkills = computed(() => myAllSkills.value.filter((s: Skill) => storage.isDownloaded(s.id)))
+const myDownloadedSkills = computed(() => allCachedSkills.value.filter((s: Skill) => storage.isDownloaded(s.id)))
 const myCategories = computed(() => {
   const downloaded = myDownloadedSkills.value
-  const favSet = storage.getFavoriteSet()
+  void myFavoriteIds.value
+  const favSet = new Set(myFavoriteIds.value)
   const instSet = myInstalledIds.value
   let fav = 0, dist = 0, pend = 0
   for (const s of downloaded) {
@@ -257,7 +258,7 @@ function getSkillSourceLabel(skill: Skill): string {
   return 'Local'
 }
 function refreshMySkills() {
-  myAllSkills.value = storage.getCachedSkills()
+  allCachedSkills.value = storage.getCachedSkills()
   myDownloadedIds.value = storage.getDownloadedIds()
   myInstallRecords.value = storage.getInstallRecords()
   myFavoriteIds.value = storage.getFavoriteIds()

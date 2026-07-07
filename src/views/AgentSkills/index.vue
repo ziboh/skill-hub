@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onActivated, watch, inject, unref, onDeactiva
 import { KeyShowToast, KeyDetectedPlatforms, KeyPlatformSkillCounts, KeyRefreshCounts, KeyAgentSkills, KeyUpdateAgentPlatformSkills, KeySelectedAgentPlatformId, KeyIsAgentSkillsDirty } from '../../inject-keys'
 import { detectPlatforms, getPlatformPath, defaultPlatforms } from '../../data/platforms'
 import { storage } from '../../utils/storage'
-import { isChineseContent } from '../../utils/translate'
+import { isChineseContent, computeDescriptionHash } from '../../utils/translate'
 import { useSettings } from '../../composables/useSettings'
 import { getSourceInfo } from '../../utils/source-info'
 import { normalizePath } from '../../utils/path'
@@ -12,6 +12,7 @@ import ProviderIcon from '../../components/ProviderIcon.vue'
 import SkillCard from '../../components/SkillCard.vue'
 import QuickSwitcher from '../../components/QuickSwitcher.vue'
 import ConfirmModal from '../../components/ConfirmModal.vue'
+import DeployModal from '../../components/DeployModal.vue'
 import { cacheVersion as translationCacheVersion } from '../../composables/useTranslationQueue'
 
 const props = defineProps<{ initialPlatformId?: string }>()
@@ -34,6 +35,7 @@ const loading = ref(false)
 const skillFilter = ref<string>('')
 const viewMode = ref<'grid' | 'list'>('grid')
 const downloadedIds = ref<string[]>(storage.getDownloadedIds())
+const importing = ref<Record<string, boolean>>({})
 function refreshDownloaded() { downloadedIds.value = storage.getDownloadedIds() }
 
 function getSkillId(skill: SkillScanResult): string {
@@ -244,7 +246,8 @@ function getLanguageTags(skill: any): { showChineseTag: boolean; showTranslatedT
     const raw = skill.content || ''
     const normalized = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
     const fh = window.services.hashContent(normalized)
-    const hasTranslation = !!(storage.getDescTranslationByHash(fh) && storage.getTranslationByHash(fh))
+    const dh = computeDescriptionHash(desc)
+    const hasTranslation = !!((storage.getDescTranslationByHash(dh) || storage.getDescTranslationByHash(fh)) && storage.getTranslationByHash(fh))
     return { showChineseTag: false, showTranslatedTag: hasTranslation }
   } catch {
     return { showChineseTag: false, showTranslatedTag: false }
@@ -265,6 +268,69 @@ function openSkillDetail(skill: any) {
 
 function openFolder(skill: any) {
   try { window.services.openFolder(skill.dir) } catch {}
+}
+
+function skillToSkill(skill: any): Skill {
+  const cached = findCachedSkill(skill)
+  if (cached) return { ...cached, skillDir: skill.dir || '', readme: skill.content || cached.readme || '' } as any
+  const id = getSkillId(skill)
+  return {
+    id,
+    name: skill.manifest?.name || skill.name,
+    description: skill.manifest?.description || '',
+    author: skill.manifest?.author || '',
+    tags: skill.manifest?.tags || [],
+    source: 'local',
+    readme: skill.content || '',
+    skillDir: skill.dir || '',
+  } as any
+}
+
+const showDeployModal = ref(false)
+const deploySkill = ref<Skill | null>(null)
+
+function openDeploy(skill: any) {
+  deploySkill.value = skillToSkill(skill)
+  showDeployModal.value = true
+}
+
+function onDeployed() {
+  showDeployModal.value = false
+  deploySkill.value = null
+  refreshCurrent()
+  refreshCounts()
+}
+
+async function importSkillToMy(skill: any) {
+  const id = getSkillId(skill)
+  importing.value[id] = true
+  try {
+    const targetDir = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', id)
+    window.services.mkdir(targetDir)
+    window.services.copyFile(skill.dir, targetDir)
+    const cached = storage.getCachedSkills()
+    if (!cached.some((s) => s.id === id)) {
+      const manifest = skill.manifest || { name: id, description: '', author: '', tags: [] }
+      cached.push({
+        id,
+        name: manifest.name || id,
+        description: manifest.description || '',
+        author: manifest.author || '',
+        tags: manifest.tags || [],
+        source: 'local',
+        path: skill.dir || '',
+      })
+      storage.saveCachedSkills(cached)
+    }
+    storage.addDownloadedId(id)
+    storage.addSessionDownload(id, skill.manifest?.name || skill.name, 'agent')
+    refreshDownloaded()
+    refreshCounts()
+    showToast(`已导入「${skill.manifest?.name || skill.name}」到我的 Skill`, 'success')
+  } catch (err: any) {
+    showToast(err?.message || `导入「${skill.manifest?.name || skill.name}」失败`, 'error')
+  }
+  importing.value[id] = false
 }
 
 function executeUninstallByScope() {
@@ -386,17 +452,17 @@ const showImportModal = ref(false)
 const importingFromMy = ref(false)
 const importSearch = ref('')
 const selectedImportIds = ref<Set<string>>(new Set())
-const myAllSkills = ref<Skill[]>([])
+const allCachedSkills = ref<Skill[]>([])
 
 const filteredMySkills = computed(() => {
   const q = importSearch.value.toLowerCase().trim()
-  const skills = myAllSkills.value.filter((s) => storage.isDownloaded(s.id))
+  const skills = allCachedSkills.value.filter((s) => storage.isDownloaded(s.id))
   if (!q) return skills
   return skills.filter((s) => s.name.toLowerCase().includes(q) || (s.description || '').toLowerCase().includes(q))
 })
 
 function openImportModal() {
-  myAllSkills.value = storage.getCachedSkills()
+  allCachedSkills.value = storage.getCachedSkills()
   selectedImportIds.value = new Set()
   importSearch.value = ''
   refreshPlatformSkillsForImport()
@@ -453,7 +519,7 @@ function confirmImportFromMy() {
     let importedCount = 0
     let failCount = 0
     for (const skillId of selectedImportIds.value) {
-      const skill = myAllSkills.value.find((s) => s.id === skillId)
+      const skill = allCachedSkills.value.find((s) => s.id === skillId)
       if (!skill) continue
       const skillDirName = skill.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || skill.id
       const dest = window.services.pathJoin(targetDir, skillDirName)
@@ -639,6 +705,13 @@ function confirmImportFromMy() {
               <button class="card-action-btn" title="打开文件夹" @click.stop="openFolder(s)">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
               </button>
+              <button v-if="isInMySkills(s)" class="card-action-btn primary" title="分发到平台" @click.stop="openDeploy(s)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+              </button>
+              <button v-else class="card-action-btn primary" :disabled="importing[getSkillId(s)]" title="导入到我的 Skill" @click.stop="importSkillToMy(s)">
+                <svg v-if="importing[getSkillId(s)]" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              </button>
               <button class="card-action-btn danger" title="删除" @click.stop="confirmDeleteDir = s.dir; confirmDeleteSkillName = s.manifest?.name || s.name">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
               </button>
@@ -703,6 +776,13 @@ function confirmImportFromMy() {
         </div>
       </div>
     </div>
+
+    <DeployModal
+      v-if="showDeployModal && deploySkill"
+      :skill="deploySkill"
+      @close="showDeployModal = false"
+      @deployed="onDeployed"
+    />
 
     <ConfirmModal v-if="confirmDeleteDir" title="删除 Skill" :message="`确定要删除 <strong>${confirmDeleteSkillName}</strong> 吗？此操作不可撤销。`" @confirm="uninstallSkill({ dir: confirmDeleteDir, manifest: { name: confirmDeleteSkillName } })" @cancel="confirmDeleteDir = null" />
 

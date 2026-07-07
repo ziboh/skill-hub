@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, inject } from 'vue'
-import { KeyShowToast, KeySelectedProject } from '../../inject-keys'
+import { KeyShowToast, KeySelectedProject, KeyRefreshCounts } from '../../inject-keys'
 import { storage } from '../../utils/storage'
 import { parseFrontmatter, extractChineseSummary } from '../../utils/frontmatter'
 import { fetchSkillDetailFromSkill } from '../../utils/skills-sh'
@@ -13,6 +13,7 @@ const props = defineProps<{ skill: Skill | null; context?: 'my' | 'store' | 'pro
 const emit = defineEmits(['navigate'])
 const showToast = inject(KeyShowToast, () => {})
 const selectedProject = inject(KeySelectedProject, ref(null))
+const refreshCounts = inject(KeyRefreshCounts, () => {})
 
 const activeTab = ref<'preview' | 'source' | 'files'>('preview')
 const skillContent = ref('')
@@ -158,6 +159,7 @@ function toggleFavorite() {
   if (!props.skill) return
   storage.toggleFavorite(props.skill.id)
   loadFavorites()
+  refreshCounts()
 }
 
 async function loadSkillContent() {
@@ -261,6 +263,7 @@ function saveContent() {
     :edited-content="editedInstructions"
     :copy-status="copyStatus"
     :skill-dir="skillDir"
+    :show-favorite="isImported"
     v-model:active-tab="activeTab"
     @navigate="emit('navigate', $event)"
     @toggle-favorite="toggleFavorite"

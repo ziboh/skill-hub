@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, inject, watch } from 'vue'
-import { KeyShowToast } from '../../inject-keys'
+import { KeyShowToast, KeyRefreshCounts } from '../../inject-keys'
 import { defaultPlatforms, getPlatformPath } from '../../data/platforms'
 import { storage } from '../../utils/storage'
 import { normalizePath } from '../../utils/path'
@@ -14,6 +14,7 @@ import type { SkillScanResult, PlatformInfo, Skill } from '../../types'
 const props = defineProps<{ skill: SkillScanResult | null; platformId: string; duplicateSkills?: SkillScanResult[] | null }>()
 const emit = defineEmits(['navigate'])
 const showToast = inject(KeyShowToast, () => {})
+const refreshCounts = inject(KeyRefreshCounts, () => {})
 
 const activeTab = ref<'preview' | 'source' | 'files'>('preview')
 const skillContent = ref('')
@@ -141,8 +142,8 @@ const skill = computed<Skill | null>(() => {
   }
 })
 
-const isFavorited = ref(false)
 const favorites = ref<string[]>([])
+const isFavorited = computed(() => skill.value ? favorites.value.includes(skill.value.id) : false)
 
 onMounted(() => {
   loadSkillContentForActive()
@@ -166,6 +167,7 @@ function toggleFavorite() {
   if (!skill.value) return
   storage.toggleFavorite(skill.value.id)
   loadFavorites()
+  refreshCounts()
 }
 
 const getSkillDirPath = computed(() => {

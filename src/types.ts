@@ -6,6 +6,7 @@ export interface Skill {
   id: string
   name: string
   description: string
+  shortDescription?: string
   author: string
   tags: string[]
   source: SkillSource

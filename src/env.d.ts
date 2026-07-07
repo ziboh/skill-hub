@@ -59,7 +59,7 @@ interface Services {
 
   createSymlink: (target: string, linkPath: string) => string
 
-  downloadFile: (url: string, token?: string) => Promise<Buffer>
+  downloadFile: (url: string, token?: string) => Promise<any>
   fetchGitHubText: (url: string, token?: string) => Promise<string>
 
   extractBufferZip: (buffer: ArrayBuffer, dest: string) => string

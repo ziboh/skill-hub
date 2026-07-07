@@ -1,5 +1,5 @@
 import { ref, watch } from 'vue'
-import { translateContent, translateDescription, translateTags, isChineseContent, isChineseText, stripFrontmatter } from '../utils/translate'
+import { translateContent, translateDescription, translateTags, isChineseContent, isChineseText, stripFrontmatter, computeDescriptionHash } from '../utils/translate'
 import { AIError } from '../utils/ai'
 import { storage } from '../utils/storage'
 import type { ModelConfig, Skill } from '../types'
@@ -176,7 +176,7 @@ function readSkillContent(skill: Skill): string | null {
 
 function findSkillByHash(skills: Skill[], hash: string, type: 'content' | 'desc'): Skill | null {
   for (const s of skills) {
-    // 使用整个 SKILL.md 文件的哈希
+    if (type === 'desc' && computeDescriptionHash(s.description || '') === hash) return s
     if (s.readme) {
       if (window.services.hashContent(s.readme.replace(/\r\n/g, '\n').replace(/\r/g, '\n')) === hash) return s
     }
@@ -205,9 +205,10 @@ async function processQueueItem(item: TranslationQueueItem, model: ModelConfig |
     }
     if (skill) {
       const tags = skill.tags || []
+      const tagHash = item.hash.startsWith('desc:') ? computeDescriptionHash(skill.description || '') : item.hash
       if (tags.length > 0 && !tags.every(t => isChineseText(t))) {
         const translatedTags = await translateTags(tags, model)
-        storage.saveTranslationTagsByHash(item.hash, translatedTags)
+        storage.saveTranslationTagsByHash(tagHash, translatedTags)
       }
     }
   } else {
@@ -308,7 +309,7 @@ export function useTranslationQueue() {
 
       const cachedSkills = storage.getCachedSkills()
       const skill = cachedSkills.find(s => {
-        // 使用整个 SKILL.md 文件的哈希
+        if (item.type === 'desc') return computeDescriptionHash(s.description || '') === item.hash
         if (s.readme) {
           if (window.services.hashContent(s.readme.replace(/\r\n/g, '\n').replace(/\r/g, '\n')) === item.hash) return true
         }

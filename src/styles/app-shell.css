@@ -180,6 +180,14 @@ body {
   padding: 0;
 }
 
+.main-content.no-padding:has(.skill-store),
+.main-content.no-padding:has(.my-skills),
+.main-content.no-padding:has(.project-skills),
+.main-content.no-padding:has(.agent-skills),
+.main-content.no-padding:has(.records-page) {
+  overflow: hidden;
+}
+
 /* ===== FLOATING TRANSLATE BUTTON ===== */
 .floating-translate-btn {
   position: fixed;

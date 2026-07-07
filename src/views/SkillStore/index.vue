@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onActivated, onDeactivated, watch, inject, onUnmounted, nextTick } from 'vue'
 import { KeyRefreshCounts, KeyShowToast } from '../../inject-keys'
-import { storage } from '../../utils/storage'
+import { storage, MARKETPLACE_TTL } from '../../utils/storage'
 import { parseGitHubUrl, fetchGitHubRepoTree, fetchGitHubFile, detectSkillDirectories, getRateLimitState } from '../../utils/github'
 import { parseFrontmatter } from '../../utils/frontmatter'
 import * as skillsSh from '../../utils/skills-sh'
@@ -25,7 +25,7 @@ import { useTheme } from '../../composables/useTheme'
 import { useDownloadQueue } from '../../composables/useDownloadQueue'
 import { useTranslationQueue } from '../../composables/useTranslationQueue'
 import { loadRegistry, registerSkillFromStore, removeFromRegistry } from '../../utils/skill-registry'
-import { isChineseContent, computeContentHash } from '../../utils/translate'
+import { isChineseContent, computeContentHash, computeDescriptionHash } from '../../utils/translate'
 
 const props = defineProps<{ storeId: string }>()
 const emit = defineEmits(['navigate'])
@@ -76,9 +76,9 @@ function loadLocalIcons() {
   }
 }
 
-const PAGE_SIZE = 24
 const savedState = storage.getPageState('skill-store')
 const activePresetId = ref(savedState?.presetId || props.storeId)
+const fetchGitHubDesc = ref(savedState?.fetchGitHubDesc !== false)
 const currentSource = computed(() => storeSources.value.find(s => s.id === activePresetId.value))
 const showPickModal = ref(false)
 const pickSkills = ref<{ name: string; description: string; dir: string }[]>([])
@@ -98,16 +98,43 @@ const allEntries = ref<Skill[]>([])
 const sourceSkills = ref<Skill[]>([])
 const totalCount = ref(0)
 const loading = ref(false)
-const loadingMore = ref(false)
 const error = ref('')
 const downloadedIds = ref<string[]>([])
 const downloading = ref<Set<string>>(new Set())
 const installRecords = ref(storage.getInstallRecords())
-const scrollRef = ref<HTMLElement | null>(null)
 const storeScrollRef = ref<HTMLElement | null>(null)
 const skillsCache = ref<Record<string, Skill[]>>({})
 const totalCountCache = ref<Record<string, number>>({})
 const selectedSkill = ref<Skill | null>(null)
+const PAGE_SIZE = 60
+const visibleCount = ref(PAGE_SIZE)
+function ensureDescriptionObserver() {
+  if (activePresetId.value === 'skills-sh') nextTick(setupDescriptionObserver)
+}
+
+function resetVisibleCount() { visibleCount.value = PAGE_SIZE; ensureDescriptionObserver() }
+function growVisibleCount() {
+  const maxCount = searchActive.value
+    ? searchResults.value.length
+    : isLocalSearchActive.value
+      ? localSearchResults.value.length
+      : importedSkills.value.length + availableSkillsAll.value.length
+  if (visibleCount.value >= maxCount) return false
+  visibleCount.value = Math.min(visibleCount.value + PAGE_SIZE, maxCount)
+  ensureDescriptionObserver()
+  return true
+}
+function onStoreScroll(e: Event) {
+  const el = e.currentTarget as HTMLElement
+  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 600) growVisibleCount()
+}
+
+function fillViewport() {
+  const el = storeScrollRef.value
+  if (!el) return
+  let guard = 0
+  while (el.scrollHeight <= el.clientHeight + 600 && growVisibleCount() && guard++ < 20) {}
+}
 
 const showConfirmDelete = ref(false)
 const skillToDelete = ref<Skill | null>(null)
@@ -134,7 +161,7 @@ watch(() => props.storeId, (id) => {
   sourceSkills.value = []
   error.value = ''
   loading.value = false
-  loadingMore.value = false
+  resetVisibleCount()
   fetchCurrentSkills()
 })
 
@@ -150,51 +177,63 @@ watch(storeSources, (list) => {
 }, { immediate: true })
 
 let scrollObserver: IntersectionObserver | null = null
-function onKeydown(e: KeyboardEvent) { if (e.key === 'Escape' && (searchActive.value || isLocalSearchActive.value)) { searchQuery.value = ''; exitSearch() } }
-onMounted(() => { downloadedIds.value = storage.getDownloadedIds(); fetchCurrentSkills(); setupScrollObserver(); loadLocalIcons(); window.addEventListener('keydown', onKeydown) })
-onActivated(() => { downloadedIds.value = storage.getDownloadedIds(); if (props.storeId !== activePresetId.value) { activePresetId.value = props.storeId; storage.savePageState('skill-store', { presetId: props.storeId }); } fetchCurrentSkills(); nextTick(() => { reobserveScroll() }); window.addEventListener('keydown', onKeydown) })
-onDeactivated(() => { scrollObserver?.disconnect(); stopLoadingDots(); window.removeEventListener('keydown', onKeydown); if (searchDebounceTimer) { clearTimeout(searchDebounceTimer); searchDebounceTimer = null } })
-onUnmounted(() => { scrollObserver?.disconnect(); stopLoadingDots(); window.removeEventListener('keydown', onKeydown); if (searchDebounceTimer) { clearTimeout(searchDebounceTimer); searchDebounceTimer = null } })
+const fetchedDescIds = ref<Set<string>>(new Set())
+const loadingDescIds = ref<Set<string>>(new Set())
 
-function setupScrollObserver() {
-  scrollObserver = new IntersectionObserver((entries) => {
-    if (entries[0]?.isIntersecting && !loading.value && sourceSkills.value.length < allEntries.value.length) loadMore()
+function setupDescriptionObserver() {
+  if (scrollObserver) { scrollObserver.disconnect(); scrollObserver = null }
+  if (!fetchGitHubDesc.value || activePresetId.value !== 'skills-sh') return
+  scrollObserver = new IntersectionObserver(async (entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue
+      const skillId = entry.target.getAttribute('data-skill-id')
+      if (!skillId || fetchedDescIds.value.has(skillId)) continue
+      const skill = allEntries.value.find(s => s.id === skillId) || importedSkills.value.find(s => s.id === skillId)
+      if (!skill) continue
+      if (skill.description || skill.shortDescription) { fetchedDescIds.value.add(skillId); continue }
+      loadingDescIds.value = new Set([...loadingDescIds.value, skillId])
+      skillsSh.fetchSkillDescriptionFromSh(skill).then(desc => {
+        if (desc && activePresetId.value === 'skills-sh') {
+          skill.shortDescription = desc
+          fetchedDescIds.value = new Set([...fetchedDescIds.value, skillId])
+          storage.saveCachedSkills([{ ...skill, storeSourceId: activePresetId.value }], { forceStoreSourceId: true })
+        }
+      }).catch(() => {}).finally(() => {
+        loadingDescIds.value = new Set([...loadingDescIds.value].filter(id => id !== skillId))
+      })
+      scrollObserver?.unobserve(entry.target)
+    }
   }, { root: storeScrollRef.value, threshold: 0.1 })
-  nextTick(reobserveScroll)
+  nextTick(() => {
+    if (!scrollObserver) return
+    const container = storeScrollRef.value
+    if (!container) return
+    container.querySelectorAll('[data-skill-id]').forEach(el => scrollObserver?.observe(el))
+  })
 }
-function reobserveScroll() { if (scrollObserver) { scrollObserver.disconnect(); if (scrollRef.value) scrollObserver.observe(scrollRef.value) } }
+
+function onKeydown(e: KeyboardEvent) { if (e.key === 'Escape' && (searchActive.value || isLocalSearchActive.value)) { searchQuery.value = ''; exitSearch() } }
+onMounted(() => { downloadedIds.value = storage.getDownloadedIds(); fetchCurrentSkills(); loadLocalIcons(); window.addEventListener('keydown', onKeydown); window.addEventListener('resize', fillViewport) })
+onActivated(() => { downloadedIds.value = storage.getDownloadedIds(); if (props.storeId !== activePresetId.value) { activePresetId.value = props.storeId; storage.savePageState('skill-store', { presetId: props.storeId }); resetVisibleCount(); fetchCurrentSkills(); } else if (activePresetId.value === 'skills-sh') setupDescriptionObserver(); window.addEventListener('keydown', onKeydown); window.addEventListener('resize', fillViewport); nextTick(fillViewport) })
+onDeactivated(() => { stopLoadingDots(); if (scrollObserver) { scrollObserver.disconnect(); scrollObserver = null } window.removeEventListener('keydown', onKeydown); window.removeEventListener('resize', fillViewport); if (searchDebounceTimer) { clearTimeout(searchDebounceTimer); searchDebounceTimer = null } })
+onUnmounted(() => { stopLoadingDots(); if (scrollObserver) { scrollObserver.disconnect(); scrollObserver = null } window.removeEventListener('keydown', onKeydown); window.removeEventListener('resize', fillViewport); if (searchDebounceTimer) { clearTimeout(searchDebounceTimer); searchDebounceTimer = null } })
 
 function fetchCurrentSkills(force = false) {
   const id = activePresetId.value
+  resetVisibleCount()
+  if (storeScrollRef.value) storeScrollRef.value.scrollTop = 0
   // 检查内存缓存
   if (!force && skillsCache.value[id]) {
     allEntries.value = skillsCache.value[id]
     totalCount.value = totalCountCache.value[id] ?? allEntries.value.length
-    const isMarketplace = storage.getStoreSources().find(s => s.id === id)?.type === 'marketplace-json'
-    sourceSkills.value = isMarketplace ? allEntries.value : allEntries.value.slice(0, PAGE_SIZE)
+    sourceSkills.value = allEntries.value
     loading.value = false
     stopLoadingDots()
     error.value = ''
-    nextTick(reobserveScroll)
+    if (id === 'skills-sh') setupDescriptionObserver()
     return
   }
-  // 检查持久化缓存（仅 marketplace-json 类型使用）
   const custom = storage.getStoreSources().find(s => s.id === id)
-  if (!force && custom?.type === 'marketplace-json') {
-    const cachedSkills = storage.getCachedSkills().filter(s => s.storeSourceId === id)
-    if (cachedSkills.length > 0) {
-      skillsCache.value[id] = cachedSkills
-      totalCountCache.value[id] = cachedSkills.length
-      allEntries.value = cachedSkills
-      totalCount.value = cachedSkills.length
-      sourceSkills.value = cachedSkills
-      loading.value = false
-      stopLoadingDots()
-      error.value = ''
-      nextTick(reobserveScroll)
-      return
-    }
-  }
   const preset = presets.find((p) => p.id === id)
   if (preset) {
     allEntries.value = []; totalCount.value = 0
@@ -226,14 +265,15 @@ function getActivePreset() {
 
 function getSkillUrl(skill: Skill): string | undefined {
   if (skill.sourceUrl) return skill.sourceUrl
-  if (skill.repo) return `https://github.com/${skill.repo}`
   if (skill.homepage) return skill.homepage
+  if (skill.repo) return `https://github.com/${skill.repo}`
   return undefined
 }
 
 async function fetchSkillsSh() {
   const presetId = activePresetId.value
-  loading.value = true; loadingMore.value = false; error.value = ''; allEntries.value = []; sourceSkills.value = []
+  fetchedDescIds.value = new Set()
+  loading.value = true; error.value = ''; allEntries.value = []; sourceSkills.value = []
   try {
     const res = await skillsSh.fetchLeaderboard(leaderboardFilter.value)
     if (activePresetId.value !== presetId) return
@@ -243,44 +283,17 @@ async function fetchSkillsSh() {
       s.storeSourceId = presetId
       const cached = cachedMap.get(s.id)
       if (cached) {
-        if (cached.description) s.description = cached.description
-        if (cached.readme) s.readme = cached.readme
+        if (!s.description && cached.description) s.description = cached.description
+        if (!s.shortDescription && cached.shortDescription) s.shortDescription = cached.shortDescription
       }
     })
     allEntries.value = skills; totalCount.value = res.totalCount
-    sourceSkills.value = skills.slice(0, PAGE_SIZE)
-    loading.value = false; stopLoadingDots(); loadingMore.value = true
-    nextTick(reobserveScroll)
-    const firstPage = skills.slice(0, PAGE_SIZE)
-    await enrichSkillDetails(firstPage)
-    if (activePresetId.value !== presetId) { loadingMore.value = false; return }
-    sourceSkills.value = sourceSkills.value.map(s => ({ ...s }))
-    loadingMore.value = false
+    sourceSkills.value = skills
+    loading.value = false; stopLoadingDots()
     skillsCache.value['skills-sh'] = allEntries.value; totalCountCache.value['skills-sh'] = res.totalCount
-    storage.saveCachedSkills(skills)
-  } catch (err: any) { error.value = err.message; loading.value = false; stopLoadingDots(); loadingMore.value = false }
+    setupDescriptionObserver()
+  } catch (err: any) { error.value = err.message; loading.value = false; stopLoadingDots() }
 }
-
-function loadMore() {
-  if (loading.value || loadingMore.value || sourceSkills.value.length >= allEntries.value.length) return
-  const prevLen = sourceSkills.value.length
-  sourceSkills.value = allEntries.value.slice(0, prevLen + PAGE_SIZE)
-  nextTick(reobserveScroll)
-  loadingMore.value = true
-  ;(async () => {
-    if (activePresetId.value === 'skills-sh') {
-      const newItems = allEntries.value.slice(prevLen, prevLen + PAGE_SIZE)
-      await enrichSkillDetails(newItems)
-    }
-    sourceSkills.value = sourceSkills.value.map(s => ({ ...s }))
-    loadingMore.value = false
-    nextTick(reobserveScroll)
-  })().catch(() => { loadingMore.value = false; nextTick(reobserveScroll) })
-}
-
-function onLeaderboardFilterChange(key: string) { leaderboardFilter.value = key; if (activePresetId.value === 'skills-sh') { sourceSkills.value = []; fetchSkillsSh() } }
-
-function onModalImported() { downloadedIds.value = storage.getDownloadedIds(); selectedSkill.value = null }
 
 async function fetchWithTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([
@@ -289,43 +302,31 @@ async function fetchWithTimeout<T>(promise: Promise<T>, ms: number): Promise<T> 
   ])
 }
 
-async function enrichSkillDetails(skills: Skill[]) {
-  const token = storage.getSettings().githubToken || undefined
-  await Promise.all(skills.map(async (s) => {
-    try {
-      const desc = await fetchWithTimeout(skillsSh.fetchSkillDescriptionFromSh(s), 5000)
-      if (desc) s.description = desc
-    } catch {}
-    try {
-      const result = await fetchWithTimeout(skillsSh.fetchSkillDetailFromSkill(s, token), 10000)
-      if (result) {
-        if (!s.description) s.description = result.description
-        s.readme = result.content
-      }
-    } catch {}
-  }))
-}
+function onLeaderboardFilterChange(key: string) { leaderboardFilter.value = key; if (activePresetId.value === 'skills-sh') { sourceSkills.value = []; fetchSkillsSh() } }
+
+function onModalImported() { downloadedIds.value = storage.getDownloadedIds(); selectedSkill.value = null }
+
+
 
 
 async function fetchGitHubSkills(url: string, directory?: string, branch?: string) {
   const presetId = activePresetId.value
-  loading.value = true; loadingMore.value = false; error.value = ''; allEntries.value = []; totalCount.value = 0; sourceSkills.value = []
+  loading.value = true; error.value = ''; allEntries.value = []; totalCount.value = 0; sourceSkills.value = []
   try {
     const info = parseGitHubUrl(url)
-    if (!info) { error.value = 'Invalid GitHub URL'; loading.value = false; stopLoadingDots(); loadingMore.value = false; return }
+    if (!info) { error.value = 'Invalid GitHub URL'; loading.value = false; stopLoadingDots(); return }
     const effectiveBranch = branch || info.defaultBranch
     const token = storage.getSettings().githubToken || undefined
     const tree = await fetchGitHubRepoTree(info.owner, info.repo, effectiveBranch, token)
     if (activePresetId.value !== presetId) return
     const dirPrefix = directory ? `${directory}/` : ''
     const skillDirs = detectSkillDirectories(tree).filter(
-      (sd) => !dirPrefix || sd.dir === directory || sd.dir.startsWith(dirPrefix)
+      (sd) => directory ? sd.dir === directory : true
     )
     totalCount.value = skillDirs.length
-    loading.value = false; stopLoadingDots(); loadingMore.value = true
-    nextTick(reobserveScroll)
+    loading.value = false; stopLoadingDots()
     for (let i = 0; i < skillDirs.length; ) {
-      if (activePresetId.value !== presetId) { loadingMore.value = false; return }
+      if (activePresetId.value !== presetId) { return }
       const { remaining } = getRateLimitState()
       const batchSize = remaining > 100 ? 8 : remaining > 30 ? 4 : remaining > 10 ? 2 : 1
       const batch = skillDirs.slice(i, i + batchSize)
@@ -338,10 +339,10 @@ async function fetchGitHubSkills(url: string, directory?: string, branch?: strin
         const builtinCategory = lookupBuiltinCategory(`${info.owner}/${info.repo}`, dirName)
         const category = builtinCategory || inferCategory(dirName, fm.description || '')
         const iconUrl = lookupBuiltinIcon(`${info.owner}/${info.repo}`, dirName)
-        const skill: Skill = { id: `${info.owner}/${info.repo}/${dirName}`, name: fm.name || dirName, description: fm.description || '', author: fm.author || '', tags, source: 'github', repo: `${info.owner}/${info.repo}`, path: sd.dir, category, iconUrl, readme: content, storeSourceId: presetId, branch: effectiveBranch }
+        const skill: Skill = { id: `${info.owner}/${info.repo}/${dirName}`, name: fm.name || dirName, description: fm.description || '', author: fm.author || '', tags, source: 'github', sourceUrl: `https://github.com/${info.owner}/${info.repo}`, repo: `${info.owner}/${info.repo}`, path: sd.dir, category, iconUrl, readme: content, storeSourceId: presetId, branch: effectiveBranch }
         return skill
       }))
-      if (activePresetId.value !== presetId) { loadingMore.value = false; return }
+      if (activePresetId.value !== presetId) { return }
       const seen = new Map(allEntries.value.map(s => [s.id, s]))
       for (const r of results) {
         if (r.status === 'fulfilled' && !seen.has(r.value.id)) {
@@ -349,133 +350,134 @@ async function fetchGitHubSkills(url: string, directory?: string, branch?: strin
         }
       }
       allEntries.value = Array.from(seen.values())
-      sourceSkills.value = allEntries.value.slice(0, Math.max(sourceSkills.value.length, PAGE_SIZE))
-      nextTick(reobserveScroll)
+      sourceSkills.value = allEntries.value
       i += batchSize
     }
-    if (activePresetId.value !== presetId) { loadingMore.value = false; return }
-    loadingMore.value = false
+    if (activePresetId.value !== presetId) { return }
     skillsCache.value[presetId] = allEntries.value; totalCountCache.value[presetId] = allEntries.value.length
     storage.saveCachedSkills(allEntries.value)
-  } catch (err: any) { error.value = err.message; loading.value = false; stopLoadingDots(); loadingMore.value = false }
+  } catch (err: any) { error.value = err.message; loading.value = false; stopLoadingDots() }
+}
+
+function parseMarketplaceEntries(entries: any[], source: StoreSource, presetId: string): Skill[] {
+  return entries.map((entry: any) => {
+    const name = entry.name || entry.title || '未知'
+    const description = entry.description || ''
+    const author = entry.author || ''
+    const tags = Array.isArray(entry.tags) ? entry.tags : (typeof entry.tags === 'string' ? entry.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : [])
+    const dirName = name.toLowerCase().replace(/\s+/g, '-')
+    const category = inferCategory(dirName, description)
+    const repo = entry.repo || entry.repository || ''
+    let skillPath = dirName
+    if (entry.homepage && repo) {
+      const repoUrl = `https://github.com/${repo}/tree/`
+      if (entry.homepage.startsWith(repoUrl)) {
+        const afterBranch = entry.homepage.slice(repoUrl.length).split('/').slice(1).join('/')
+        if (afterBranch) skillPath = afterBranch
+      }
+    }
+    const skillId = repo ? `${repo}/${dirName}` : `${source.id}/${dirName}`
+    return {
+      id: skillId, name, description, author, tags,
+      source: 'marketplace-json',
+      repo: repo || undefined, path: skillPath,
+      category, storeSourceId: presetId,
+      sourceUrl: entry.url || entry.sourceUrl || entry.homepage || entry.downloadUrl || source.url,
+      iconUrl: entry.icon || entry.iconUrl,
+    } as Skill
+  })
+}
+
+function applyMarketplaceSkills(skills: Skill[], presetId: string) {
+  skillsCache.value[presetId] = skills
+  totalCountCache.value[presetId] = skills.length
+  if (activePresetId.value === presetId) {
+    allEntries.value = skills
+    totalCount.value = skills.length
+    sourceSkills.value = skills
+  }
 }
 
 async function fetchMarketplaceSkills(source: StoreSource, force = false) {
   const presetId = activePresetId.value
-  // 先检查内存缓存
   if (!force && skillsCache.value[presetId]) {
-    allEntries.value = skillsCache.value[presetId]
-    totalCount.value = totalCountCache.value[presetId] ?? allEntries.value.length
-    sourceSkills.value = allEntries.value
-    loading.value = false
-    loadingMore.value = false
-    error.value = ''
-    nextTick(reobserveScroll)
+    applyMarketplaceSkills(skillsCache.value[presetId], presetId)
+    loading.value = false; error.value = ''
     return
   }
-  // 检查持久化缓存
   if (!force) {
-    const cachedSkills = storage.getCachedSkills().filter(s => s.storeSourceId === presetId)
-    if (cachedSkills.length > 0) {
-      skillsCache.value[presetId] = cachedSkills
-      totalCountCache.value[presetId] = cachedSkills.length
-      allEntries.value = cachedSkills
-      totalCount.value = cachedSkills.length
-      sourceSkills.value = cachedSkills
-      loading.value = false
-      loadingMore.value = false
-      error.value = ''
-      nextTick(reobserveScroll)
+    const stale = storage.getMarketplaceCache(presetId)
+    if (stale) {
+      applyMarketplaceSkills(stale.skills, presetId)
+      loading.value = false; error.value = ''
+      if (Date.now() - stale.fetchedAt >= MARKETPLACE_TTL) {
+        fetch(source.url!).then(res => res.json()).then(data => {
+          if (activePresetId.value !== presetId) return
+          const entries = Array.isArray(data) ? data : (data.skills || data.plugins || data.packages || [])
+          const skills = parseMarketplaceEntries(entries, source, presetId)
+          applyMarketplaceSkills(skills, presetId)
+          storage.saveMarketplaceSkills(presetId, skills)
+        }).catch(() => {})
+      }
       return
     }
   }
-  // 没有缓存，重新获取
   loading.value = true; error.value = ''
   try {
     const res = await fetch(source.url!)
     const data = await res.json()
     if (activePresetId.value !== presetId) return
-
     const entries = Array.isArray(data) ? data : (data.skills || data.plugins || data.packages || [])
-
-    const skills: Skill[] = entries.map((entry: any) => {
-      const name = entry.name || entry.title || '未知'
-      const description = entry.description || ''
-      const author = entry.author || ''
-      const tags = Array.isArray(entry.tags) ? entry.tags : (typeof entry.tags === 'string' ? entry.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : [])
-      const dirName = name.toLowerCase().replace(/\s+/g, '-')
-      const category = inferCategory(dirName, description)
-      const repo = entry.repo || entry.repository || ''
-      let skillPath = dirName
-      if (entry.homepage && repo) {
-        const repoUrl = `https://github.com/${repo}/tree/`
-        if (entry.homepage.startsWith(repoUrl)) {
-          const afterBranch = entry.homepage.slice(repoUrl.length).split('/').slice(1).join('/')
-          if (afterBranch) skillPath = afterBranch
-        }
-      }
-      const skillId = repo ? `${repo}/${dirName}` : `${source.id}/${dirName}`
-      return {
-        id: skillId, name, description, author, tags,
-        source: 'marketplace-json',
-        repo: repo || undefined, path: skillPath,
-        category, storeSourceId: presetId,
-        sourceUrl: entry.url || entry.sourceUrl || entry.homepage || entry.downloadUrl || source.url,
-        iconUrl: entry.icon || entry.iconUrl,
-      } as Skill
-    })
+    const skills = parseMarketplaceEntries(entries, source, presetId)
 
     allEntries.value = skills
     totalCount.value = skills.length
     sourceSkills.value = skills
     loading.value = false
-    loadingMore.value = false
 
     skillsCache.value[presetId] = skills
     totalCountCache.value[presetId] = skills.length
-    storage.saveCachedSkills(skills)
+    storage.saveMarketplaceSkills(presetId, skills)
   } catch (err: any) {
     error.value = err.message || '加载 Marketplace 失败'
     loading.value = false
-    loadingMore.value = false
   }
 }
 
 async function fetchLocalDirSkills(source: StoreSource) {
   const presetId = activePresetId.value
-  loading.value = true; loadingMore.value = false; error.value = ''; allEntries.value = []; totalCount.value = 0; sourceSkills.value = []
+  loading.value = true; error.value = ''; allEntries.value = []; totalCount.value = 0; sourceSkills.value = []
   try {
     await new Promise<void>((resolve, reject) => {
       try {
         const results = window.services.scanForSkills(source.url!)
         if (activePresetId.value !== presetId) return
         totalCount.value = results.length
-        loading.value = false; stopLoadingDots(); loadingMore.value = true
-        nextTick(reobserveScroll)
+        const skills: Skill[] = []
         for (const r of results) {
-          if (activePresetId.value !== presetId) { loadingMore.value = false; return }
+          if (activePresetId.value !== presetId) { return }
           const fm = r.manifest || parseFrontmatter(r.content)
           const dirName = r.name
           const fmTags = fm.tags as string | string[] | undefined
           const tags = fmTags ? (Array.isArray(fmTags) ? fmTags : fmTags.split(',').map((t: string) => t.trim()).filter(Boolean)) : []
           const category = inferCategory(dirName, fm.description || '')
-          const skill: Skill = {
+          skills.push({
             id: `local/${dirName}`, name: fm.name || dirName, description: fm.description || '',
             author: fm.author || '', tags,
             source: 'local', sourceUrl: source.url, path: r.dir,
             category, readme: r.content, storeSourceId: presetId,
-          }
-          allEntries.value = [...allEntries.value, skill]
-          sourceSkills.value = allEntries.value.slice(0, Math.max(sourceSkills.value.length, PAGE_SIZE))
+          })
         }
-        if (activePresetId.value !== presetId) { loadingMore.value = false; return }
-        loadingMore.value = false
-        skillsCache.value[presetId] = allEntries.value; totalCountCache.value[presetId] = allEntries.value.length
-        storage.saveCachedSkills(allEntries.value)
+        if (activePresetId.value !== presetId) { return }
+        allEntries.value = skills
+        sourceSkills.value = skills
+        loading.value = false; stopLoadingDots()
+        skillsCache.value[presetId] = skills; totalCountCache.value[presetId] = skills.length
+        storage.saveCachedSkills(skills)
         resolve()
       } catch (e) { reject(e) }
     })
-  } catch (err: any) { error.value = err.message || '扫描本地目录失败'; loading.value = false; stopLoadingDots(); loadingMore.value = false }
+  } catch (err: any) { error.value = err.message || '扫描本地目录失败'; loading.value = false; stopLoadingDots() }
 }
 
 const isLocalSearchActive = computed(() => debouncedSearchQuery.value.trim() !== '' && activePresetId.value !== 'skills-sh')
@@ -491,6 +493,8 @@ const localSearchResults = computed(() => {
     return nameMatch || descMatch || authorMatch || tagMatch
   })
 })
+const visibleSearchResults = computed(() => searchResults.value.slice(0, visibleCount.value))
+const visibleLocalSearchResults = computed(() => localSearchResults.value.slice(0, visibleCount.value))
 
 function getLanguageTags(skill: any): { showChineseTag: boolean; showTranslatedTag: boolean } {
   void translationCacheVersion.value
@@ -500,7 +504,8 @@ function getLanguageTags(skill: any): { showChineseTag: boolean; showTranslatedT
     const raw = skill.content || ''
     const normalized = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
     const fh = window.services.hashContent(normalized)
-    const hasTranslation = !!(storage.getDescTranslationByHash(fh) && storage.getTranslationByHash(fh))
+    const dh = computeDescriptionHash(desc)
+    const hasTranslation = !!((storage.getDescTranslationByHash(dh) || storage.getDescTranslationByHash(fh)) && storage.getTranslationByHash(fh))
     return { showChineseTag: false, showTranslatedTag: hasTranslation }
   } catch {
     return { showChineseTag: false, showTranslatedTag: false }
@@ -511,16 +516,17 @@ const importedSkills = computed(() => {
   const idMap = new Map<string, Skill>()
   const cached = storage.getCachedSkills()
   const cachedMap = new Map(cached.map(s => [s.id, s]))
+  const ids = downloadedIdSet.value
   if (allEntries.value.length) {
     for (const s of allEntries.value) {
-      if (!downloadedIds.value.includes(s.id)) continue
+      if (!ids.has(s.id)) continue
       const cs = cachedMap.get(s.id)
       if (!cs || cs.storeSourceId !== activePresetId.value) continue
       idMap.set(s.id, s)
     }
   }
   for (const s of cached) {
-    if (!downloadedIds.value.includes(s.id)) continue
+    if (!ids.has(s.id)) continue
     if (s.storeSourceId !== activePresetId.value) continue
     if (!idMap.has(s.id)) idMap.set(s.id, s)
   }
@@ -528,6 +534,7 @@ const importedSkills = computed(() => {
   if (filterTab.value !== 'all') list = list.filter((s) => s.category === filterTab.value)
   return list
 })
+const visibleImportedSkills = computed(() => importedSkills.value.slice(0, visibleCount.value))
 
 function getPresetOwnerRepo(storeId: string): string | null {
   const preset = presets.find(p => p.id === storeId)
@@ -550,7 +557,7 @@ const cachedSkillMap = computed(() => {
   return map
 })
 
-const availableSkills = computed(() => {
+const availableSkillsAll = computed(() => {
   let list = sourceSkills.value.filter((s) => {
     if (!downloadedIdSet.value.has(s.id)) return true
     const cs = cachedSkillMap.value.get(s.id)
@@ -559,6 +566,9 @@ const availableSkills = computed(() => {
   if (filterTab.value !== 'all') list = list.filter((s) => s.category === filterTab.value)
   return list
 })
+
+const availableSkills = computed(() => availableSkillsAll.value.slice(0, visibleCount.value))
+watch([filterTab, debouncedSearchQuery, searchActive], resetVisibleCount)
 
 const categoryCounts = computed(() => {
   const counts: Record<string, number> = { all: sourceSkills.value.length }
@@ -579,10 +589,18 @@ async function onSearch() {
   loading.value = true; error.value = ''
   try {
     const results = await skillsSh.searchSkillsSh(q)
-    searchResults.value = results.map(skillsSh.searchResultToSkill)
+    const skills = results.map(skillsSh.searchResultToSkill)
+    const cachedMap = new Map(storage.getCachedSkills().map(s => [s.id, s]))
+    skills.forEach(s => {
+      const cached = cachedMap.get(s.id)
+      if (cached) {
+        if (!s.description && cached.description) s.description = cached.description
+        if (!s.shortDescription && cached.shortDescription) s.shortDescription = cached.shortDescription
+      }
+    })
+    searchResults.value = skills
     searchActive.value = true
     storage.saveCachedSkills(searchResults.value)
-    await enrichSkillDetails(searchResults.value)
   }
   catch (err: any) { error.value = err.message }
   loading.value = false
@@ -935,6 +953,12 @@ function confirmDeleteStore() {
               </svg>
             </button>
           </div>
+          <button class="toolbar-icon-btn" :class="{ active: fetchGitHubDesc }" @click="fetchGitHubDesc = !fetchGitHubDesc; storage.savePageState('skill-store', { presetId: activePresetId, fetchGitHubDesc: fetchGitHubDesc }); if (fetchGitHubDesc && activePresetId === 'skills-sh') setupDescriptionObserver(); else if (scrollObserver) { scrollObserver.disconnect(); scrollObserver = null }" :title="fetchGitHubDesc ? 'GitHub 描述：已开启' : 'GitHub 描述：已关闭'">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/>
+              <path d="m9 12 2 2 4-4"/>
+            </svg>
+          </button>
           <button class="toolbar-icon-btn" :disabled="loading" @click="fetchCurrentSkills(true)" title="刷新">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
@@ -1009,7 +1033,7 @@ function confirmDeleteStore() {
       </button>
     </div>
 
-    <div ref="storeScrollRef" class="ss-scroll">
+    <div ref="storeScrollRef" class="ss-scroll" @scroll="onStoreScroll">
       <template v-if="searchActive">
         <div v-if="loading" class="section">
           <div class="section-header"><h3>搜索结果</h3><span class="section-count loading-dots">{{ loadingDots }}</span></div>
@@ -1033,10 +1057,13 @@ function confirmDeleteStore() {
           </div>
           <div v-else class="skill-grid" :class="viewMode">
             <SkillCard
-              v-for="(skill, idx) in searchResults"
+              v-for="(skill, idx) in visibleSearchResults"
               :key="skill.id"
+              :data-skill-id="skill.id"
               :name="skill.name"
-              :description="skill.description || '暂无描述'"
+              :description="skill.description"
+              :short-description="skill.shortDescription"
+
               :avatar-icon="skill.iconUrl"
               :source-tag="currentSource ? { label: currentSource.label || getActivePreset()?.name || '', icon: currentSource.icon || '', color: 'hsl(var(--primary))', bg: 'hsl(var(--primary) / 0.1)' } : null"
               @click="selectedSkill = skill"
@@ -1074,10 +1101,12 @@ function confirmDeleteStore() {
           </div>
           <div v-else class="skill-grid" :class="viewMode">
             <SkillCard
-              v-for="(skill, idx) in localSearchResults"
+              v-for="(skill, idx) in visibleLocalSearchResults"
               :key="skill.id"
               :name="skill.name"
-              :description="skill.description || '暂无描述'"
+              :description="skill.description"
+              :short-description="skill.shortDescription"
+
               :avatar-icon="skill.iconUrl"
               :source-tag="currentSource ? { label: currentSource.label || getActivePreset()?.name || '', icon: currentSource.icon || '', color: 'hsl(var(--primary))', bg: 'hsl(var(--primary) / 0.1)' } : null"
               @click="selectedSkill = skill"
@@ -1104,10 +1133,14 @@ function confirmDeleteStore() {
           <div class="section-header"><h3>已导入</h3><span class="section-count">{{ importedSkills.length }}</span></div>
           <div class="skill-grid" :class="viewMode">
             <SkillCard
-              v-for="(skill, idx) in importedSkills"
+              v-for="(skill, idx) in visibleImportedSkills"
               :key="skill.id"
+              :data-skill-id="skill.id"
               :name="skill.name"
-              :description="skill.description || '暂无描述'"
+              :description="skill.description"
+              :short-description="skill.shortDescription"
+              :loading-description="loadingDescIds.has(skill.id)"
+
               :avatar-icon="skill.iconUrl"
               :show-chinese-tag="isChineseContent(skill.description || '')"
               :show-translated-tag="getLanguageTags(skill).showTranslatedTag"
@@ -1126,15 +1159,11 @@ function confirmDeleteStore() {
           </div>
         </div>
 
-        <div v-if="loading" class="section">
-          <div class="section-header"><h3>可用</h3><span class="section-count loading-dots">{{ loadingDots }}</span></div>
-          <div class="load-more-hint"><div class="spinner small"></div><span>正在加载更多内容...</span></div>
-        </div>
-        <div v-else-if="error" class="error-box">
+        <div v-if="error" class="error-box">
           ⚠ {{ error }}<br>
           <button v-if="error.includes('速率限制')" class="error-settings-link" @click="emit('navigate', 'settings', { anchor: 'github-token-section' })">前往设置 →</button>
         </div>
-        <div v-else-if="!sourceSkills.length && !totalCount && !importedSkills.length" class="empty-state">
+        <div v-else-if="!loading && !sourceSkills.length && !totalCount && !importedSkills.length" class="empty-state">
           <div class="empty-icon">
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           </div>
@@ -1144,19 +1173,22 @@ function confirmDeleteStore() {
 
         <template v-else>
           <div class="section">
-            <div class="section-header"><h3>可用</h3><span class="section-count">{{ availableSkills.length }}</span></div>
+            <div class="section-header"><h3>可用</h3><span class="section-count">{{ availableSkillsAll.length }}</span></div>
             <div class="skill-grid" :class="viewMode">
               <SkillCard
                 v-for="skill in availableSkills"
                 :key="skill.id"
+                :data-skill-id="skill.id"
                 :name="skill.name"
-                :description="skill.description || '暂无描述'"
-                :avatar-icon="skill.iconUrl"
-                :source-tag="currentSource ? { label: currentSource.label || getActivePreset()?.name || '', icon: currentSource.icon || '', color: 'hsl(var(--primary))', bg: 'hsl(var(--primary) / 0.1)' } : null"
-                @click="selectedSkill = skill"
-              >
-                <template #actions>
-                  <a v-if="getSkillUrl(skill)" :href="getSkillUrl(skill)" target="_blank" class="card-action-btn" title="打开链接" @click.stop>
+                :description="skill.description"
+              :short-description="skill.shortDescription"
+              :loading-description="loadingDescIds.has(skill.id)"
+              :avatar-icon="skill.iconUrl"
+              :source-tag="currentSource ? { label: currentSource.label || getActivePreset()?.name || '', icon: currentSource.icon || '', color: 'hsl(var(--primary))', bg: 'hsl(var(--primary) / 0.1)' } : null"
+              @click="selectedSkill = skill"
+            >
+              <template #actions>
+                <a v-if="getSkillUrl(skill)" :href="getSkillUrl(skill)" target="_blank" class="card-action-btn" title="打开链接" @click.stop>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                   </a>
                   <button class="card-action-btn" :disabled="isDownloading(skill.id)" @click.stop="downloadSkill(skill)">
@@ -1168,8 +1200,7 @@ function confirmDeleteStore() {
             </div>
           </div>
 
-          <div ref="scrollRef" class="scroll-sentinel"></div>
-          <div v-if="loadingMore" class="load-more-hint"><div class="spinner small"></div><span>正在加载更多内容...</span></div>
+          <div v-if="loading" class="load-more-hint"><div class="spinner small"></div><span>正在加载内容...</span></div>
         </template>
       </template>
     </div>
@@ -1311,6 +1342,12 @@ function confirmDeleteStore() {
 .toolbar-icon-btn:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+.toolbar-icon-btn.active {
+  background: hsl(var(--primary) / 0.15);
+  color: hsl(var(--primary));
+  border-color: hsl(var(--primary) / 0.3);
 }
 
 .view-toggle {

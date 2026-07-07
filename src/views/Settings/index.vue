@@ -16,6 +16,7 @@ import ConfirmModal from '../../components/ConfirmModal.vue'
 import CleanupSelectModal from '../../components/CleanupSelectModal.vue'
 import QuickSwitcher, { type QuickSwitcherItem } from '../../components/QuickSwitcher.vue'
 import { loadRegistry } from '../../utils/skill-registry'
+import DataManagement from './DataManagement.vue'
 
 const props = defineProps<{ anchor?: string }>()
 const { settings, updateSettings } = useSettings()
@@ -120,6 +121,7 @@ const sections = [
   { id: 'ai', label: '模型设置', icon: '🧠' },
   { id: 'default-model', label: '翻译设置', icon: '🌐' },
   { id: 'agent', label: 'Agent 设置', icon: '🤖' },
+  { id: 'data', label: '数据管理', icon: '💾' },
 ]
 
 const themeModes: { id: ThemeMode; label: string; icon: string }[] = [
@@ -2390,6 +2392,11 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
             </div>
           </div>
         </div>
+      </template>
+
+      <!-- ===== DATA ===== -->
+      <template v-if="activeSection === 'data'">
+        <DataManagement />
       </template>
     </div>
   </div>

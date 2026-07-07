@@ -2,7 +2,7 @@
 import { ref, computed, watch } from 'vue'
 import { storage } from '../utils/storage'
 import { useTranslationQueue } from '../composables/useTranslationQueue'
-import { isChineseContent, stripFrontmatter } from '../utils/translate'
+import { isChineseContent, stripFrontmatter, computeDescriptionHash } from '../utils/translate'
 import type { ModelConfig, Skill } from '../types'
 import QuickSwitcher, { type QuickSwitcherItem } from './QuickSwitcher.vue'
 import ProviderIcon from './ProviderIcon.vue'
@@ -120,19 +120,27 @@ function getSkillContent(skill: Skill): string | null {
 function getSkillKey(skill: Skill): string {
   const ch = getFileHash(skill)
   if (ch) return 'c:' + ch
-  const identity = [
+  return 'i:' + window.services.hashContent([
     skill.name,
     skill.description || '',
-    skill.author || '',
-    (skill.tags || []).slice().sort().join(','),
-    skill.sourceUrl || skill.repo || skill.path || '',
-  ].join('|')
-  return 'i:' + window.services.hashContent(identity)
+  ].join('|'))
+}
+
+function getDescHash(skill: Skill): string {
+  return computeDescriptionHash(skill.description || '')
+}
+
+function getDescTranslation(skill: Skill, cache?: Record<string, any>): string | null {
+  const dh = getDescHash(skill)
+  const fh = getFileHash(skill)
+  if (cache) return cache[dh]?.translatedDesc || (fh ? cache[fh]?.translatedDesc : null) || null
+  return storage.getDescTranslationByHash(dh) || (fh ? storage.getDescTranslationByHash(fh) : null)
 }
 
 function isSkillInQueue(skill: Skill): boolean {
   const fh = getFileHash(skill)
-  return !!(fh && isInQueue(fh, 'content')) || !!(fh && isInQueue(fh, 'desc'))
+  const dh = getDescHash(skill)
+  return !!(fh && isInQueue(fh, 'content')) || isInQueue(dh, 'desc')
 }
 
 function hasTranslatingItem(hash: string) {
@@ -243,10 +251,10 @@ function translateSkill(skill: Skill) {
   if (translateType.value === 'content' || translateType.value === 'both') types.push('content')
 
   for (const type of types) {
-    const hash = getFileHash(skill)
+    const hash = type === 'desc' ? getDescHash(skill) : getFileHash(skill)
     if (!hash) continue
     if (isInQueue(hash, type)) continue
-    if (type === 'desc' && storage.getDescTranslationByHash(hash)) continue
+    if (type === 'desc' && getDescTranslation(skill)) continue
     if (type === 'content' && storage.getTranslationByHash(hash)) continue
 
     const text = type === 'content' ? (getSkillContent(skill) ?? undefined) : skill.description
@@ -266,9 +274,10 @@ async function translateAll() {
       const skill = skills[i]
       const fh = getFileHash(skill)
 
+      const dh = getDescHash(skill)
       if (translateType.value === 'desc' || translateType.value === 'both') {
-        if (fh && !isChineseContent(skill.description) && !storage.getDescTranslationByHash(fh) && !isInQueue(fh, 'desc')) {
-          addTranslation(fh, 'desc', skill.name, skill.description)
+        if (dh && !isChineseContent(skill.description) && !getDescTranslation(skill) && !isInQueue(dh, 'desc')) {
+          addTranslation(dh, 'desc', skill.name, skill.description)
         }
       }
       if (translateType.value === 'content' || translateType.value === 'both') {
@@ -318,12 +327,13 @@ let _translationCacheVersion = -1
 
 function getTranslationStatus(skill: Skill): 'pending' | 'translating' | 'queued' | 'done' | 'chinese' {
   const fh = getFileHash(skill)
+  const dh = getDescHash(skill)
 
   const needDesc = translateType.value === 'desc' || translateType.value === 'both'
   const needContent = translateType.value === 'content' || translateType.value === 'both'
 
-  if (fh && hasTranslatingItem(fh)) return 'translating'
-  if (fh && (isInQueue(fh, 'content') || isInQueue(fh, 'desc'))) return 'queued'
+  if ((needContent && fh && hasTranslatingItem(fh)) || (needDesc && hasTranslatingItem(dh))) return 'translating'
+  if ((needContent && fh && isInQueue(fh, 'content')) || (needDesc && isInQueue(dh, 'desc'))) return 'queued'
 
   const cv = cacheVersion.value
   if (cv !== _translationCacheVersion) {
@@ -333,7 +343,7 @@ function getTranslationStatus(skill: Skill): 'pending' | 'translating' | 'queued
   }
 
   const contentValid = fh ? _cachedTranslationCache![fh] : null
-  const descTranslated = fh ? _cachedDescTranslationCache![fh]?.translatedDesc : null
+  const descTranslated = getDescTranslation(skill, _cachedDescTranslationCache!)
 
   const descDone = !needDesc || !!descTranslated
   const contentDone = !needContent || !!contentValid
@@ -350,15 +360,16 @@ function getTranslationStatusWithCache(
   descTranslationCache: Record<string, any>
 ): 'pending' | 'translating' | 'queued' | 'done' | 'chinese' {
   const fh = getFileHash(skill)
+  const dh = getDescHash(skill)
 
   const needDesc = translateType.value === 'desc' || translateType.value === 'both'
   const needContent = translateType.value === 'content' || translateType.value === 'both'
 
-  if (fh && hasTranslatingItem(fh)) return 'translating'
-  if (fh && (isInQueue(fh, 'content') || isInQueue(fh, 'desc'))) return 'queued'
+  if ((needContent && fh && hasTranslatingItem(fh)) || (needDesc && hasTranslatingItem(dh))) return 'translating'
+  if ((needContent && fh && isInQueue(fh, 'content')) || (needDesc && isInQueue(dh, 'desc'))) return 'queued'
 
   const contentValid = fh ? translationCache[fh] : null
-  const descTranslated = fh ? descTranslationCache[fh]?.translatedDesc : null
+  const descTranslated = getDescTranslation(skill, descTranslationCache)
 
   const descDone = !needDesc || !!descTranslated
   const contentDone = !needContent || !!contentValid

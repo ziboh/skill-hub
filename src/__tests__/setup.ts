@@ -18,6 +18,7 @@ if (!window.matchMedia) {
 }
 
 vi.stubGlobal('services', {
+  hashContent: vi.fn((content: string) => content),
   scanForSkillFiles: vi.fn(() => []),
   pathJoin: vi.fn((...parts: string[]) => parts.join('/')),
   readDir: vi.fn(() => []),

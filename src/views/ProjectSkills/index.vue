@@ -2,7 +2,7 @@
 import { inject, ref, computed, unref, onDeactivated } from 'vue'
 import { KeyShowToast, KeySelectedProject, KeyScanProject, KeyProjectScanning, KeySelectProject, KeyOpenAddProjectModal, KeyDetectedPlatforms, KeyRefreshCounts } from '../../inject-keys'
 import { storage } from '../../utils/storage'
-import { isChineseContent } from '../../utils/translate'
+import { isChineseContent, computeDescriptionHash } from '../../utils/translate'
 import { useSettings } from '../../composables/useSettings'
 import { useTheme } from '../../composables/useTheme'
 import { useProjectState } from '../../composables/useProjectState'
@@ -126,7 +126,8 @@ function getLanguageTags(skill: any): { showChineseTag: boolean; showTranslatedT
     const raw = skill.content || ''
     const normalized = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
     const fh = window.services.hashContent(normalized)
-    const hasTranslation = !!(storage.getDescTranslationByHash(fh) && storage.getTranslationByHash(fh))
+    const dh = computeDescriptionHash(desc)
+    const hasTranslation = !!((storage.getDescTranslationByHash(dh) || storage.getDescTranslationByHash(fh)) && storage.getTranslationByHash(fh))
     return { showChineseTag: false, showTranslatedTag: hasTranslation }
   } catch {
     return { showChineseTag: false, showTranslatedTag: false }

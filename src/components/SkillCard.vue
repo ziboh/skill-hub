@@ -7,6 +7,8 @@ import ProviderIcon from './ProviderIcon.vue'
 const props = withDefaults(defineProps<{
   name: string
   description?: string
+  shortDescription?: string
+  loadingDescription?: boolean
   selected?: boolean
   showBatchCheckbox?: boolean
   showActions?: boolean
@@ -21,8 +23,10 @@ const props = withDefaults(defineProps<{
   badges?: { text: string; type: string }[]
   duplicateBadge?: { count: number } | null
   showSymlinkBadge?: boolean
-}>(), {
+}>(),
+{
   description: '暂无描述',
+  loadingDescription: false,
   selected: false,
   showBatchCheckbox: false,
   showActions: true,
@@ -61,6 +65,7 @@ function updateIconRowCount() {
 
 let ro: ResizeObserver | null = null
 onMounted(() => {
+  if (!props.showPlatformIcons) return
   nextTick(() => {
     if (iconsContainerRef.value) {
       updateIconRowCount()
@@ -72,7 +77,7 @@ onMounted(() => {
 onUnmounted(() => { ro?.disconnect() })
 
 watch(() => props.installedPlatforms, () => {
-  nextTick(updateIconRowCount)
+  if (props.showPlatformIcons) nextTick(updateIconRowCount)
 })
 </script>
 
@@ -140,7 +145,8 @@ watch(() => props.installedPlatforms, () => {
       </div>
     </div>
     <h3 class="card-name">{{ name }}</h3>
-    <p class="card-desc">{{ description }}</p>
+    <p v-if="loadingDescription && !shortDescription && !description" class="card-desc"><span class="desc-shimmer"></span></p>
+    <p v-else class="card-desc">{{ shortDescription || description || '暂无描述' }}</p>
     <slot name="after-desc" />
   </div>
 </template>
@@ -478,5 +484,21 @@ watch(() => props.installedPlatforms, () => {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  min-height: 36px;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.desc-shimmer {
+  display: block;
+  height: 12px;
+  width: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, hsl(var(--border)) 25%, hsl(var(--muted)) 50%, hsl(var(--border)) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
 }
 </style>

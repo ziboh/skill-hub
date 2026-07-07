@@ -48,7 +48,10 @@ const KEYS = {
   REGISTERED_PROJECTS: 'registered_projects',
   TRANSLATIONS: 'translations',
   FAILURE_RECORDS: 'failure_records',
+  MARKETPLACE_CACHE: 'marketplace_cache',
 }
+
+export const MARKETPLACE_TTL = 86400000 // 24 小时
 
 interface SessionDownload {
   skillId: string
@@ -271,6 +274,25 @@ export const storage = {
     }
     invalidateCachedSkills()
     dbSet(KEYS.CACHED_SKILLS, Array.from(map.values()))
+  },
+  replaceCachedSkills(skills: Skill[]): void {
+    invalidateCachedSkills()
+    dbSet(KEYS.CACHED_SKILLS, skills.map(s => {
+      const copy = JSON.parse(JSON.stringify(s)) as Skill
+      copy.description = cleanDescription(copy.description)
+      return copy
+    }))
+  },
+
+  // === Marketplace Cache (stale-while-revalidate, independent from cached_skills) ===
+  getMarketplaceCache(id: string): { skills: Skill[]; fetchedAt: number } | null {
+    const all = dbGet<Record<string, { skills: Skill[]; fetchedAt: number }>>(KEYS.MARKETPLACE_CACHE)
+    return all?.[id] || null
+  },
+  saveMarketplaceSkills(id: string, skills: Skill[]): void {
+    const all = dbGet<Record<string, { skills: Skill[]; fetchedAt: number }>>(KEYS.MARKETPLACE_CACHE) || {}
+    all[id] = { skills, fetchedAt: Date.now() }
+    dbSet(KEYS.MARKETPLACE_CACHE, all)
   },
 
   // === Favorites (with Set cache for O(1) lookup) ===
