@@ -156,6 +156,8 @@ function stopLoadingDots() { if (loadingDotsTimer) { clearInterval(loadingDotsTi
 watch(() => props.storeId, (id) => {
   activePresetId.value = id
   searchQuery.value = ''
+  searchActive.value = false
+  searchResults.value = []
   filterTab.value = 'all'
   leaderboardFilter.value = 'all'
   sourceSkills.value = []
@@ -188,7 +190,7 @@ function setupDescriptionObserver() {
       if (!entry.isIntersecting) continue
       const skillId = entry.target.getAttribute('data-skill-id')
       if (!skillId || fetchedDescIds.value.has(skillId)) continue
-      const skill = allEntries.value.find(s => s.id === skillId) || importedSkills.value.find(s => s.id === skillId)
+      const skill = allEntries.value.find(s => s.id === skillId) || searchResults.value.find(s => s.id === skillId) || importedSkills.value.find(s => s.id === skillId)
       if (!skill) continue
       if (skill.description || skill.shortDescription) { fetchedDescIds.value.add(skillId); continue }
       loadingDescIds.value = new Set([...loadingDescIds.value, skillId])
@@ -214,7 +216,7 @@ function setupDescriptionObserver() {
 
 function onKeydown(e: KeyboardEvent) { if (e.key === 'Escape' && (searchActive.value || isLocalSearchActive.value)) { searchQuery.value = ''; exitSearch() } }
 onMounted(() => { downloadedIds.value = storage.getDownloadedIds(); fetchCurrentSkills(); loadLocalIcons(); window.addEventListener('keydown', onKeydown); window.addEventListener('resize', fillViewport) })
-onActivated(() => { downloadedIds.value = storage.getDownloadedIds(); if (props.storeId !== activePresetId.value) { activePresetId.value = props.storeId; storage.savePageState('skill-store', { presetId: props.storeId }); resetVisibleCount(); fetchCurrentSkills(); } else if (activePresetId.value === 'skills-sh') setupDescriptionObserver(); window.addEventListener('keydown', onKeydown); window.addEventListener('resize', fillViewport); nextTick(fillViewport) })
+onActivated(() => { downloadedIds.value = storage.getDownloadedIds(); if (props.storeId !== activePresetId.value) { activePresetId.value = props.storeId; storage.savePageState('skill-store', { presetId: props.storeId }); resetVisibleCount(); fetchCurrentSkills(); } else { exitSearch(); resetVisibleCount(); fetchCurrentSkills(); } window.addEventListener('keydown', onKeydown); window.addEventListener('resize', fillViewport); nextTick(fillViewport) })
 onDeactivated(() => { stopLoadingDots(); if (scrollObserver) { scrollObserver.disconnect(); scrollObserver = null } window.removeEventListener('keydown', onKeydown); window.removeEventListener('resize', fillViewport); if (searchDebounceTimer) { clearTimeout(searchDebounceTimer); searchDebounceTimer = null } })
 onUnmounted(() => { stopLoadingDots(); if (scrollObserver) { scrollObserver.disconnect(); scrollObserver = null } window.removeEventListener('keydown', onKeydown); window.removeEventListener('resize', fillViewport); if (searchDebounceTimer) { clearTimeout(searchDebounceTimer); searchDebounceTimer = null } })
 
@@ -321,7 +323,7 @@ async function fetchGitHubSkills(url: string, directory?: string, branch?: strin
     if (activePresetId.value !== presetId) return
     const dirPrefix = directory ? `${directory}/` : ''
     const skillDirs = detectSkillDirectories(tree).filter(
-      (sd) => directory ? sd.dir === directory : true
+      (sd) => directory ? sd.dir === directory || sd.dir.startsWith(directory + '/') : true
     )
     totalCount.value = skillDirs.length
     loading.value = false; stopLoadingDots()
@@ -597,13 +599,33 @@ async function onSearch() {
         if (!s.description && cached.description) s.description = cached.description
         if (!s.shortDescription && cached.shortDescription) s.shortDescription = cached.shortDescription
       }
+      s.storeSourceId = 'skills-sh'
     })
     searchResults.value = skills
     searchActive.value = true
-    storage.saveCachedSkills(searchResults.value)
+    fetchSearchDescriptions(skills)
   }
   catch (err: any) { error.value = err.message }
   loading.value = false
+}
+
+async function fetchSearchDescriptions(skills: Skill[]) {
+  if (!fetchGitHubDesc.value) return
+  const promises = skills
+    .filter(skill => !(skill.description || skill.shortDescription) && !fetchedDescIds.value.has(skill.id))
+    .map(async (skill) => {
+      loadingDescIds.value = new Set([...loadingDescIds.value, skill.id])
+      try {
+        const desc = await skillsSh.fetchSkillDescriptionFromSh(skill)
+        if (desc) {
+          skill.shortDescription = desc
+          fetchedDescIds.value = new Set([...fetchedDescIds.value, skill.id])
+          storage.saveCachedSkills([{ ...skill, storeSourceId: 'skills-sh' }], { forceStoreSourceId: true })
+        }
+      } catch {}
+      loadingDescIds.value = new Set([...loadingDescIds.value].filter(id => id !== skill.id))
+    })
+  await Promise.all(promises)
 }
 
 function exitSearch() {
@@ -983,7 +1005,7 @@ function confirmDeleteStore() {
         placeholder="搜索商店..."
         add-label="添加商店"
         :show-add="true"
-        @select="(id) => { activePresetId = id; searchQuery = ''; filterTab = 'all'; leaderboardFilter = 'all'; sourceSkills = []; error = ''; storage.savePageState('skill-store', { presetId: id }); fetchCurrentSkills(); emit('navigate', 'store', { sub: id }) }"
+        @select="(id) => { activePresetId = id; searchQuery = ''; searchActive = false; searchResults = []; filterTab = 'all'; leaderboardFilter = 'all'; sourceSkills = []; error = ''; storage.savePageState('skill-store', { presetId: id }); fetchCurrentSkills(); emit('navigate', 'store', { sub: id }) }"
         @add="openAddStoreModal"
         @delete="onDeleteStore"
       >
@@ -1063,7 +1085,7 @@ function confirmDeleteStore() {
               :name="skill.name"
               :description="skill.description"
               :short-description="skill.shortDescription"
-
+              :loading-description="loadingDescIds.has(skill.id)"
               :avatar-icon="skill.iconUrl"
               :source-tag="currentSource ? { label: currentSource.label || getActivePreset()?.name || '', icon: currentSource.icon || '', color: 'hsl(var(--primary))', bg: 'hsl(var(--primary) / 0.1)' } : null"
               @click="selectedSkill = skill"
@@ -1075,7 +1097,7 @@ function confirmDeleteStore() {
                 <button v-if="isDownloaded(skill.id)" class="card-action-btn danger" title="删除" @click.stop="confirmDelete(skill)">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                 </button>
-                <button v-else class="card-action-btn" :disabled="isDownloading(skill.id)" @click.stop="downloadSkill(skill)">
+                <button v-else class="card-action-btn" :disabled="isDownloading(skill.id) || !skillsSh.isGitHubSkill(skill)" @click.stop="downloadSkill(skill)">
                   <svg v-if="isDownloading(skill.id)" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
                   <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 </button>
@@ -1179,8 +1201,8 @@ function confirmDeleteStore() {
                 v-for="skill in availableSkills"
                 :key="skill.id"
                 :data-skill-id="skill.id"
-                :name="skill.name"
-                :description="skill.description"
+              :name="skill.name"
+              :description="skill.description"
               :short-description="skill.shortDescription"
               :loading-description="loadingDescIds.has(skill.id)"
               :avatar-icon="skill.iconUrl"
@@ -1191,7 +1213,7 @@ function confirmDeleteStore() {
                 <a v-if="getSkillUrl(skill)" :href="getSkillUrl(skill)" target="_blank" class="card-action-btn" title="打开链接" @click.stop>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                   </a>
-                  <button class="card-action-btn" :disabled="isDownloading(skill.id)" @click.stop="downloadSkill(skill)">
+                  <button class="card-action-btn" :disabled="isDownloading(skill.id) || !skillsSh.isGitHubSkill(skill)" @click.stop="downloadSkill(skill)">
                     <svg v-if="isDownloading(skill.id)" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
                     <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                   </button>

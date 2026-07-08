@@ -130,9 +130,8 @@ export async function fetchLeaderboard(filterKey?: string): Promise<LeaderboardR
     }
   }
 
-  const filtered = entries.filter((e) => e.owner !== 'site')
-  const totalCount = filtered.length
-  return { entries: filtered, totalCount }
+  const totalCount = entries.length
+  return { entries, totalCount }
 }
 
 // ── Fetch description from skills.sh detail page ──
@@ -172,8 +171,8 @@ function extractSummaryText(html: string): string | null {
 }
 
 export async function fetchSkillDescriptionFromSh(skill: Skill): Promise<string | null> {
-  if (!skill.repo) return null
-  const detailUrl = `${BASE}/${skill.repo}/${skill.path}`
+  const detailUrl = skill.sourceUrl || (skill.repo ? `${BASE}/${skill.repo}/${skill.path}` : '')
+  if (!detailUrl) return null
   try {
     const html = await fetchText(detailUrl)
     return extractLdDescription(html) || extractMetaDescription(html) || extractSummaryText(html)
@@ -264,6 +263,7 @@ export async function fetchSkillDetailFromSkill(skill: Skill, token?: string): P
 // ── Search ──
 
 export interface PublicSearchResult {
+  id?: string
   name: string
   source: string
   installs: number
@@ -291,26 +291,37 @@ export function leaderboardEntryToSkill(e: LeaderboardEntry): Skill {
     author: e.owner,
     tags: [],
     source: 'skills-sh',
+    sourceUrl: e.detailUrl,
     repo: `${e.owner}/${e.repo}`,
     path: dirName,
     installCount: e.installs,
   }
 }
 
+function isDomainSource(source: string): boolean {
+  const owner = source.split('/')[0] || ''
+  return owner === 'site' || owner.includes('.')
+}
+
 export function searchResultToSkill(s: PublicSearchResult): Skill {
   const parts = s.source.split('/')
   const owner = parts[0] || ''
-  const path = s.skillId || s.name.toLowerCase().replace(/\s+/g, '-')
+  const skillPath = s.skillId || s.name.toLowerCase().replace(/\s+/g, '-')
+  const fullId = s.id || `${s.source}/${skillPath}`
+  const repo = s.source.includes('/') ? s.source : `${s.source}/${s.source}`
+  const isNonGitHub = isDomainSource(s.source)
+  const urlPath = isNonGitHub && !fullId.startsWith('site/') ? `site/${fullId}` : fullId
   return {
-    id: `${s.source}/${path}`,
+    id: fullId,
     name: s.name,
     description: '',
     shortDescription: '',
     author: owner,
     tags: [],
     source: 'skills-sh',
-    repo: s.source,
-    path,
+    sourceUrl: `${BASE}/${urlPath}`,
+    repo,
+    path: skillPath,
     installCount: s.installs,
   }
 }
@@ -323,3 +334,14 @@ export function getGitHubRepo(skill: Skill): { owner: string; repo: string } | n
   if (parts.length < 2) return null
   return { owner: parts[0], repo: parts[1] }
 }
+
+export function isGitHubSkill(skill: Skill): boolean {
+  const repo = getGitHubRepo(skill)
+  if (!repo) return false
+  // GitHub 用户名/组织名不含点号，owner 含点号说明是域名（well-known 网页类 skill）
+  // owner 为 'site' 表示 skills.sh 上的非 GitHub 技能
+  if (repo.owner === 'site') return false
+  return !repo.owner.includes('.')
+}
+
+

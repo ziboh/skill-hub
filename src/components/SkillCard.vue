@@ -432,6 +432,12 @@ watch(() => props.installedPlatforms, () => {
   color: hsl(var(--foreground));
 }
 
+:deep(.card-action-btn:disabled) {
+  opacity: 0.35;
+  cursor: default;
+  pointer-events: none;
+}
+
 :deep(.card-action-btn.filled) {
   color: hsl(45 90% 55%);
 }

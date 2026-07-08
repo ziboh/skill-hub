@@ -58,6 +58,7 @@ describe('leaderboardEntryToSkill', () => {
 describe('searchResultToSkill', () => {
   test('converts search result to Skill object', () => {
     const result: PublicSearchResult = {
+      id: 'owner/repo/my-skill',
       name: 'Test Skill',
       source: 'owner/repo',
       installs: 10,
@@ -70,6 +71,7 @@ describe('searchResultToSkill', () => {
       source: 'skills-sh',
       repo: 'owner/repo',
       installCount: 10,
+      sourceUrl: 'https://skills.sh/owner/repo/my-skill',
     })
   })
 
@@ -81,6 +83,19 @@ describe('searchResultToSkill', () => {
     }
     const skill = searchResultToSkill(result)
     expect(skill.path).toBe('my-skill')
+  })
+
+  test('adds site/ prefix for domain-based (non-GitHub) source', () => {
+    const result: PublicSearchResult = {
+      id: 'open.feishu.cn/lark-approval',
+      name: 'lark-approval',
+      source: 'open.feishu.cn',
+      installs: 100,
+      skillId: 'lark-approval',
+    }
+    const skill = searchResultToSkill(result)
+    expect(skill.sourceUrl).toBe('https://skills.sh/site/open.feishu.cn/lark-approval')
+    expect(skill.id).toBe('open.feishu.cn/lark-approval')
   })
 })
 
