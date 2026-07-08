@@ -171,6 +171,9 @@ function getNestedSummary(bucket: BucketDef): { topLabel: string; groups: { key:
       if (s.key === 'marketplace-json') {
         const subGroups = groupBy(data.filter(d => d.source === 'marketplace-json'), d => d.storeSourceId || '未知')
         result.push({ topLabel: s.key, groups: subGroups })
+      } else if (s.key === 'well-known-index') {
+        const subGroups = groupBy(data.filter(d => d.source === 'well-known-index'), d => d.storeSourceId || '未知')
+        result.push({ topLabel: s.key, groups: subGroups })
       } else {
         result.push({ topLabel: s.key, groups: [{ key: '', count: s.count }] })
       }
@@ -490,6 +493,13 @@ function confirmKeepOnlyDownloaded() {
                   <span class="dm-filter-sep">|</span>
                   <button
                     v-for="sg in getNestedSummary(({ key: 'cached_skills', getData: () => storage.getCachedSkills() }) as BucketDef).find(s => s.topLabel === 'marketplace-json')?.groups || []"
+                    :key="sg.key"
+                    class="dm-btn dm-btn-sm"
+                    :title="`清理 ${sg.key} 的缓存`"
+                    @click="confirmCleanupByStoreSource(sg.key)"
+                  >{{ sg.key?.replace(/^[^-]+-/, '') || '?' }}: {{ sg.count }}</button>
+                  <button
+                    v-for="sg in getNestedSummary(({ key: 'cached_skills', getData: () => storage.getCachedSkills() }) as BucketDef).find(s => s.topLabel === 'well-known-index')?.groups || []"
                     :key="sg.key"
                     class="dm-btn dm-btn-sm"
                     :title="`清理 ${sg.key} 的缓存`"

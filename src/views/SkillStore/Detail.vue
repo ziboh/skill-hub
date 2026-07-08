@@ -4,6 +4,7 @@ import { KeyShowToast, KeySelectedProject, KeyRefreshCounts } from '../../inject
 import { storage } from '../../utils/storage'
 import { parseFrontmatter, extractChineseSummary } from '../../utils/frontmatter'
 import { fetchSkillDetailFromSkill } from '../../utils/skills-sh'
+import { isWellKnownSkill, downloadSkillFromWebsite } from '../../utils/well-known'
 import type { Skill, InstallMode } from '../../types'
 import SkillDetailBase from '../../components/SkillDetailBase.vue'
 import GlobalDistPanel from '../../components/GlobalDistPanel.vue'
@@ -54,6 +55,7 @@ const updateMessage = ref('')
 
 const canCheckUpdate = computed(() => {
   if (!props.skill) return false
+  if (isWellKnownSkill(props.skill)) return false
   return !!props.skill.repo
 })
 
@@ -218,7 +220,21 @@ async function loadSkillContent() {
     } catch { }
   }
 
-  if (skill.source === 'skills-sh' && skill.repo && !skill.readme) {
+  if (skill.source === 'skills-sh' && !skill.readme) {
+    // Well-known 技能 或 没有 GitHub repo 的 marketplace 技能：从网站下载 SKILL.md 内容
+    if (isWellKnownSkill(skill) || (!skill.repo && skill.sourceUrl)) {
+      const result = await downloadSkillFromWebsite(skill)
+      if (result) {
+        const fm = parseFrontmatter(result.skillMd)
+        const normalized = result.skillMd.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+        const bodyMatch = normalized.match(/^---\n[\s\S]*?\n---\n?([\s\S]*)$/)
+        skillName.value = fm.name || skill.name
+        skillDesc.value = fm.description || extractChineseSummary(result.skillMd) || ''
+        skillContent.value = bodyMatch ? bodyMatch[1].trim() : result.skillMd
+        editedInstructions.value = skillContent.value
+        return
+      }
+    }
     const result = await fetchSkillDetailFromSkill(skill, storage.getSettings().githubToken || undefined)
     if (result) {
       skillName.value = result.name

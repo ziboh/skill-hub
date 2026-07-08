@@ -17,6 +17,7 @@ const props = withDefaults(defineProps<{
   installedPlatforms?: string[]
   avatarIcon?: string
   sourceTag?: { label: string; icon: string; color: string; bg: string } | null
+  extraSourceTag?: { label: string; color: string; bg: string } | null
   categoryTag?: { label: string; icon: string } | null
   showChineseTag?: boolean
   showTranslatedTag?: boolean
@@ -35,6 +36,7 @@ const props = withDefaults(defineProps<{
   installedPlatforms: () => [],
   avatarIcon: '',
   sourceTag: null,
+  extraSourceTag: null,
   categoryTag: null,
   showChineseTag: false,
   showTranslatedTag: false,
@@ -137,6 +139,9 @@ watch(() => props.installedPlatforms, () => {
             <span v-if="duplicateBadge" class="card-tag badge-duplicate">x{{ duplicateBadge.count }}</span>
             <span v-if="showSymlinkBadge" class="card-tag badge-symlink">软链接</span>
           </slot>
+          <template v-if="extraSourceTag">
+            <span class="card-tag source-tag" :style="{ background: extraSourceTag.bg, color: extraSourceTag.color }">{{ extraSourceTag.label }}</span>
+          </template>
           <slot name="extra-badges" />
         </div>
         <div v-if="showActions" class="card-actions" :class="{ always: actionsAlwaysVisible }">
@@ -386,6 +391,18 @@ watch(() => props.installedPlatforms, () => {
 .card-tag.badge-duplicate {
   background: hsl(38 80% 92%);
   color: hsl(38 80% 35%);
+}
+
+.card-tag.badge-github {
+  background: hsl(210 40% 92%);
+  color: hsl(210 50% 35%);
+  border: 1px solid hsl(210 40% 85%);
+}
+
+.card-tag.badge-website {
+  background: hsl(150 40% 92%);
+  color: hsl(150 50% 30%);
+  border: 1px solid hsl(150 40% 82%);
 }
 
 .card-actions {

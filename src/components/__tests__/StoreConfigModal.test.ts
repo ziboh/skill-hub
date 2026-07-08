@@ -5,9 +5,9 @@ import type { StoreSource } from '../../types'
 
 const sampleSource: StoreSource = {
   id: 'src-1',
-  type: 'marketplace-json',
+  type: 'well-known-index',
   name: 'Test Store',
-  url: 'https://example.com/marketplace.json',
+  url: 'https://example.com/.well-known/skills/index.json',
   branch: undefined,
   directory: undefined,
   icon: undefined,
@@ -49,7 +49,7 @@ describe('StoreConfigModal', () => {
     const wrapper = createWrapper()
     const typeCards = wrapper.findAll('.type-card')
     await typeCards[0].trigger('click')
-    expect(wrapper.find('.type-card.active').text()).toContain('Marketplace JSON')
+    expect(wrapper.find('.type-card.active').text()).toContain('Well-Known Index')
   })
 
   test('git-repo type shows branch and directory fields', () => {
@@ -107,7 +107,7 @@ describe('StoreConfigModal', () => {
     const nameInput = wrapper.find('input[placeholder="商店名称"]')
     const urlInput = wrapper.find('input[placeholder*="URL"]')
     expect((nameInput.element as HTMLInputElement).value).toBe('Test Store')
-    expect((urlInput.element as HTMLInputElement).value).toBe('https://example.com/marketplace.json')
+    expect((urlInput.element as HTMLInputElement).value).toBe('https://example.com/.well-known/skills/index.json')
   })
 
   test('edit mode disables type selection', () => {

@@ -51,6 +51,12 @@ export function getSourceInfo(skill: Skill, registry?: Map<string, SkillIdentity
   if (skill.source === 'skills-sh') {
     return { label: 'skills.sh', icon: STORE_ICONS['skills-sh'], color: '#16a34a', bg: '#dcfce7' }
   }
+  if (skill.source === 'marketplace-json') {
+    return { label: 'Marketplace', icon: 'package', color: '#8b5cf6', bg: '#ede9fe' }
+  }
+  if (skill.source === 'well-known-index') {
+    return { label: 'Well-Known', icon: 'globe', color: '#0ea5e9', bg: '#e0f2fe' }
+  }
   if (skill.repo) {
     if (skill.repo === 'anthropics/skills') {
       return { label: 'Claude Code', icon: STORE_ICONS.claude, color: '#c2785c', bg: '#fef3c7' }
@@ -78,6 +84,8 @@ function getSourceLabelFromLocation(source: SkillSourceLocation): string {
       return source.projectId ? `Project` : 'Local'
     case 'marketplace-json':
       return 'Marketplace'
+    case 'well-known-index':
+      return 'Well-Known'
     case 'git-repo':
       return 'Git Repo'
     case 'builtin':

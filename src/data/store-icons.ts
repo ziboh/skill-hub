@@ -19,6 +19,8 @@ export const ICON_GITHUB = `<svg xmlns="http://www.w3.org/2000/svg" width="16" h
 
 export const ICON_MARKETPLACE = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>`
 
+export const ICON_WELL_KNOWN = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`
+
 export const ICON_FOLDER = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`
 
 export const ICON_STORE = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>`
@@ -27,6 +29,7 @@ export const STORE_TYPE_DEFAULT_ICONS: Record<string, string> = {
   'git-repo': ICON_GITHUB,
   'github': ICON_GITHUB,
   'marketplace-json': ICON_MARKETPLACE,
+  'well-known-index': ICON_WELL_KNOWN,
   'local-dir': ICON_FOLDER,
 }
 
@@ -37,6 +40,8 @@ export function getDefaultStoreIcon(type: string): string {
       return ICON_GITHUB
     case 'marketplace-json':
       return ICON_MARKETPLACE
+    case 'well-known-index':
+      return ICON_WELL_KNOWN
     case 'local-dir':
       return ICON_FOLDER
     default:

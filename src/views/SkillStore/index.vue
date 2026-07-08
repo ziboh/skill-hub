@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onActivated, onDeactivated, watch, inject, onUnmounted, nextTick } from 'vue'
 import { KeyRefreshCounts, KeyShowToast } from '../../inject-keys'
-import { storage, MARKETPLACE_TTL } from '../../utils/storage'
+import { storage, MARKETPLACE_TTL, WELL_KNOWN_TTL } from '../../utils/storage'
 import { parseGitHubUrl, fetchGitHubRepoTree, fetchGitHubFile, detectSkillDirectories, getRateLimitState } from '../../utils/github'
 import { parseFrontmatter } from '../../utils/frontmatter'
 import * as skillsSh from '../../utils/skills-sh'
+import { fetchWellKnownIndex } from '../../utils/well-known'
 import type { Skill, StoreSource } from '../../types'
 
 import { SKILL_CATEGORIES, ALL_CATEGORIES, inferCategory, CATEGORY_ICONS } from '../../data/skill-categories'
@@ -26,6 +27,7 @@ import { useDownloadQueue } from '../../composables/useDownloadQueue'
 import { useTranslationQueue } from '../../composables/useTranslationQueue'
 import { loadRegistry, registerSkillFromStore, removeFromRegistry } from '../../utils/skill-registry'
 import { isChineseContent, computeContentHash, computeDescriptionHash } from '../../utils/translate'
+import { isWellKnownSkill, downloadSkillFromWebsite, downloadDirectFromStore, type WellKnownSkillResult } from '../../utils/well-known'
 
 const props = defineProps<{ storeId: string }>()
 const emit = defineEmits(['navigate'])
@@ -257,6 +259,7 @@ function fetchCurrentSkills(force = false) {
   startLoadingDots()
   if (custom.type === 'git-repo') fetchGitHubSkills(custom.url!, custom.directory, custom.branch)
   else if (custom.type === 'marketplace-json') fetchMarketplaceSkills(custom, force)
+  else if (custom.type === 'well-known-index') fetchWellKnownIndexSkills(custom, force)
   else if (custom.type === 'local-dir') fetchLocalDirSkills(custom)
 }
 
@@ -359,6 +362,59 @@ async function fetchGitHubSkills(url: string, directory?: string, branch?: strin
     skillsCache.value[presetId] = allEntries.value; totalCountCache.value[presetId] = allEntries.value.length
     storage.saveCachedSkills(allEntries.value)
   } catch (err: any) { error.value = err.message; loading.value = false; stopLoadingDots() }
+}
+
+function applyWellKnownIndexSkills(skills: Skill[], presetId: string) {
+  skillsCache.value[presetId] = skills
+  totalCountCache.value[presetId] = skills.length
+  if (activePresetId.value === presetId) {
+    allEntries.value = skills
+    totalCount.value = skills.length
+    sourceSkills.value = skills
+  }
+}
+
+async function fetchWellKnownIndexSkills(source: StoreSource, force = false) {
+  const presetId = activePresetId.value
+  if (!force && skillsCache.value[presetId]) {
+    applyWellKnownIndexSkills(skillsCache.value[presetId], presetId)
+    loading.value = false; error.value = ''
+    return
+  }
+  if (!force) {
+    const stale = storage.getWellKnownCache(presetId)
+    if (stale) {
+      applyWellKnownIndexSkills(stale.skills, presetId)
+      loading.value = false; error.value = ''
+      if (Date.now() - stale.fetchedAt >= WELL_KNOWN_TTL) {
+        fetchWellKnownIndex(source.url!).then(skills => {
+          if (activePresetId.value !== presetId) return
+          skills.forEach(s => s.storeSourceId = presetId)
+          applyWellKnownIndexSkills(skills, presetId)
+          storage.saveWellKnownSkills(presetId, skills)
+        }).catch(() => {})
+      }
+      return
+    }
+  }
+  loading.value = true; error.value = ''
+  try {
+    const skills = await fetchWellKnownIndex(source.url!)
+    if (activePresetId.value !== presetId) return
+    skills.forEach(s => s.storeSourceId = presetId)
+
+    allEntries.value = skills
+    totalCount.value = skills.length
+    sourceSkills.value = skills
+    loading.value = false
+
+    skillsCache.value[presetId] = skills
+    totalCountCache.value[presetId] = skills.length
+    storage.saveWellKnownSkills(presetId, skills)
+  } catch (err: any) {
+    error.value = err.message || '加载 Well-Known 索引失败'
+    loading.value = false
+  }
 }
 
 function parseMarketplaceEntries(entries: any[], source: StoreSource, presetId: string): Skill[] {
@@ -553,16 +609,11 @@ function getPresetOwnerRepo(storeId: string): string | null {
 }
 
 const downloadedIdSet = computed(() => new Set(downloadedIds.value))
-const cachedSkillMap = computed(() => {
-  const map = new Map<string, Skill>()
-  for (const s of storage.getCachedSkills()) map.set(s.id, s)
-  return map
-})
-
 const availableSkillsAll = computed(() => {
+  const cachedMap = new Map(storage.getCachedSkills().map(s => [s.id, s]))
   let list = sourceSkills.value.filter((s) => {
     if (!downloadedIdSet.value.has(s.id)) return true
-    const cs = cachedSkillMap.value.get(s.id)
+    const cs = cachedMap.get(s.id)
     return !cs || cs.storeSourceId !== activePresetId.value
   })
   if (filterTab.value !== 'all') list = list.filter((s) => s.category === filterTab.value)
@@ -717,15 +768,65 @@ function handlePickCancel() {
   pickSkillResolve = null
 }
 
+async function writeDownloadedFiles(skill: Skill, result: WellKnownSkillResult, queueItem: any) {
+  const targetDir = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', skill.id)
+  window.services.removeFile(targetDir)
+  window.services.mkdir(targetDir)
+  for (const [filePath, content] of result.files) {
+    const fullPath = window.services.pathJoin(targetDir, filePath)
+    const dir = fullPath.substring(0, fullPath.lastIndexOf('/') || fullPath.lastIndexOf('\\'))
+    if (dir && !window.services.pathExists(dir)) {
+      window.services.mkdir(dir)
+    }
+    window.services.writeFile(fullPath, content)
+  }
+  const parsed = window.services.parseSkillFile(window.services.pathJoin(targetDir, 'SKILL.md'))
+  if (parsed?.manifest) {
+    if (parsed.manifest.name) skill.name = parsed.manifest.name
+    if (parsed.manifest.description) skill.description = parsed.manifest.description
+    storage.saveCachedSkills([{ ...skill, storeSourceId: activePresetId.value }], { forceStoreSourceId: true })
+    const registry = loadRegistry()
+    registerSkillFromStore(registry, skill.id, {
+      name: skill.name, dir: targetDir,
+      skillFile: window.services.pathJoin(targetDir, 'SKILL.md'), content: '',
+      manifest: parsed.manifest,
+    }, skill.source as any || 'skills-sh', skill.repo || '')
+  }
+  storage.addDownloadedId(skill.id); storage.addSessionDownload(skill.id, skill.name, activePresetId.value || 'unknown'); downloadedIds.value = storage.getDownloadedIds(); refreshCounts?.()
+  autoTranslateSkill(skill, targetDir)
+  updateItem(queueItem.id, { status: 'success' })
+  showToast(`已导入 ${skill.name}`, 'success')
+}
+
 async function downloadSkill(skill: Skill) {
   if (downloadedIds.value.includes(skill.id) || isDownloading(skill.id)) return
-  if (!skill.repo) {
-    showToast('该技能没有关联的 GitHub 仓库，无法下载', 'error')
-    return
-  }
   downloading.value.add(skill.id)
   const queueItem = addDownload(skill.id, skill.name, activePresetId.value || 'unknown')
   try {
+    let result: WellKnownSkillResult | null = null
+
+    // 1. Well-known (网站类) 技能：尝试 .well-known 端点下载
+    if (isWellKnownSkill(skill)) {
+      result = await downloadSkillFromWebsite(skill)
+    }
+
+    // 2. marketplace-json 技能（无 GitHub repo）：尝试从 store 源直接下载
+    if (!result && skill.source === 'marketplace-json' && !skill.repo && skill.sourceUrl) {
+      result = await downloadDirectFromStore(skill)
+    }
+
+    if (result) {
+      await writeDownloadedFiles(skill, result, queueItem)
+      downloading.value.delete(skill.id)
+      return
+    }
+
+    // GitHub 技能：走原有下载流程
+    if (!skill.repo) {
+      showToast('该技能没有关联的 GitHub 仓库，无法下载', 'error')
+      downloading.value.delete(skill.id)
+      return
+    }
     const gh = skillsSh.getGitHubRepo(skill)
     if (!gh) {
       showToast('无效的 GitHub 仓库地址', 'error')
@@ -860,7 +961,7 @@ const sourceSubtitle = computed(() => {
   const preset = getActivePreset()
   if (!preset) return '浏览和下载技能'
   if ('desc' in preset && preset.desc) return preset.desc
-  const typeLabels: Record<string, string> = { 'marketplace-json': 'Marketplace JSON 源', 'git-repo': 'Git 仓库源', 'local-dir': '本地目录源' }
+  const typeLabels: Record<string, string> = { 'marketplace-json': 'Marketplace JSON 源', 'well-known-index': 'Well-Known 索引源', 'git-repo': 'Git 仓库源', 'local-dir': '本地目录源' }
   return typeLabels[(preset as StoreSource).type] || preset.name || '浏览和下载技能'
 })
 
@@ -1088,6 +1189,7 @@ function confirmDeleteStore() {
               :loading-description="loadingDescIds.has(skill.id)"
               :avatar-icon="skill.iconUrl"
               :source-tag="currentSource ? { label: currentSource.label || getActivePreset()?.name || '', icon: currentSource.icon || '', color: 'hsl(var(--primary))', bg: 'hsl(var(--primary) / 0.1)' } : null"
+              :extra-source-tag="isWellKnownSkill(skill) ? { label: 'Web', color: 'hsl(150 50% 30%)', bg: 'hsl(150 40% 92%)' } : skill.repo ? { label: 'Git', color: 'hsl(210 50% 35%)', bg: 'hsl(210 40% 92%)' } : null"
               @click="selectedSkill = skill"
             >
               <template #actions>
@@ -1097,7 +1199,7 @@ function confirmDeleteStore() {
                 <button v-if="isDownloaded(skill.id)" class="card-action-btn danger" title="删除" @click.stop="confirmDelete(skill)">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                 </button>
-                <button v-else class="card-action-btn" :disabled="isDownloading(skill.id) || !skillsSh.isGitHubSkill(skill)" @click.stop="downloadSkill(skill)">
+                <button v-else class="card-action-btn" :disabled="isDownloading(skill.id)" @click.stop="downloadSkill(skill)">
                   <svg v-if="isDownloading(skill.id)" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
                   <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 </button>
@@ -1131,6 +1233,7 @@ function confirmDeleteStore() {
 
               :avatar-icon="skill.iconUrl"
               :source-tag="currentSource ? { label: currentSource.label || getActivePreset()?.name || '', icon: currentSource.icon || '', color: 'hsl(var(--primary))', bg: 'hsl(var(--primary) / 0.1)' } : null"
+              :extra-source-tag="isWellKnownSkill(skill) ? { label: 'Web', color: 'hsl(150 50% 30%)', bg: 'hsl(150 40% 92%)' } : skill.repo ? { label: 'Git', color: 'hsl(210 50% 35%)', bg: 'hsl(210 40% 92%)' } : null"
               @click="selectedSkill = skill"
             >
               <template #actions>
@@ -1207,13 +1310,14 @@ function confirmDeleteStore() {
               :loading-description="loadingDescIds.has(skill.id)"
               :avatar-icon="skill.iconUrl"
               :source-tag="currentSource ? { label: currentSource.label || getActivePreset()?.name || '', icon: currentSource.icon || '', color: 'hsl(var(--primary))', bg: 'hsl(var(--primary) / 0.1)' } : null"
+              :extra-source-tag="isWellKnownSkill(skill) ? { label: 'Web', color: 'hsl(150 50% 30%)', bg: 'hsl(150 40% 92%)' } : skill.repo ? { label: 'Git', color: 'hsl(210 50% 35%)', bg: 'hsl(210 40% 92%)' } : null"
               @click="selectedSkill = skill"
             >
               <template #actions>
                 <a v-if="getSkillUrl(skill)" :href="getSkillUrl(skill)" target="_blank" class="card-action-btn" title="打开链接" @click.stop>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                   </a>
-                  <button class="card-action-btn" :disabled="isDownloading(skill.id) || !skillsSh.isGitHubSkill(skill)" @click.stop="downloadSkill(skill)">
+                  <button class="card-action-btn" :disabled="isDownloading(skill.id)" @click.stop="downloadSkill(skill)">
                     <svg v-if="isDownloading(skill.id)" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
                     <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                   </button>

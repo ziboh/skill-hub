@@ -11,6 +11,7 @@ import { useSettings } from '../composables/useSettings'
 import { getAvatarColor } from '../utils/color'
 import { SKILL_CATEGORIES, inferCategory, CATEGORY_ICONS } from '../data/skill-categories'
 import { getSourceInfo, isSvgIcon, isImageUrl } from '../utils/source-info'
+import { isWellKnownSkill, downloadSkillFromWebsite, downloadDirectFromStore, type WellKnownSkillResult } from '../utils/well-known'
 
 const props = defineProps<{ skill: Skill }>()
 const emit = defineEmits(['close', 'imported'])
@@ -133,6 +134,36 @@ async function fetchContent() {
         }
       } catch {}
     }
+    // Well-known skill: try to fetch from website's .well-known endpoint
+    if (isWellKnownSkill(props.skill)) {
+      const result = await downloadSkillFromWebsite(props.skill)
+      if (result) {
+        const normalized = result.skillMd.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+        const fm = parseFrontmatter(normalized)
+        const bodyMatch = normalized.match(/^---\n[\s\S]*?\n---\n?([\s\S]*)$/)
+        skillName.value = props.skill.name
+        skillDesc.value = fm.description || extractChineseSummary(normalized) || props.skill.description || ''
+        rawContent.value = normalized
+        skillContent.value = bodyMatch ? bodyMatch[1].trim() : result.skillMd
+        loading.value = false
+        return
+      }
+    }
+    // Marketplace-json 技能：尝试从 store 源直接获取
+    if (props.skill.source === 'marketplace-json' && !props.skill.repo && props.skill.sourceUrl) {
+      const result = await downloadDirectFromStore(props.skill)
+      if (result) {
+        const normalized = result.skillMd.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+        const fm = parseFrontmatter(normalized)
+        const bodyMatch = normalized.match(/^---\n[\s\S]*?\n---\n?([\s\S]*)$/)
+        skillName.value = props.skill.name
+        skillDesc.value = fm.description || extractChineseSummary(normalized) || props.skill.description || ''
+        rawContent.value = normalized
+        skillContent.value = bodyMatch ? bodyMatch[1].trim() : result.skillMd
+        loading.value = false
+        return
+      }
+    }
     skillName.value = props.skill.name
     skillDesc.value = props.skill.description || ''
     rawContent.value = ''
@@ -207,14 +238,56 @@ function handlePickCancel() {
   pickSkillResolve = null
 }
 
+async function writeImportFiles(result: WellKnownSkillResult) {
+  const targetDir = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', props.skill.id)
+  window.services.removeFile(targetDir)
+  window.services.mkdir(targetDir)
+  for (const [filePath, content] of result.files) {
+    const fullPath = window.services.pathJoin(targetDir, filePath)
+    const dir = fullPath.substring(0, fullPath.lastIndexOf('/') || fullPath.lastIndexOf('\\'))
+    if (dir && !window.services.pathExists(dir)) {
+      window.services.mkdir(dir)
+    }
+    window.services.writeFile(fullPath, content)
+  }
+  const parsed = window.services.parseSkillFile(window.services.pathJoin(targetDir, 'SKILL.md'))
+  const description = parsed?.manifest?.description || props.skill.description || ''
+  storage.saveCachedSkills([{ ...props.skill, description, storeSourceId: props.skill.storeSourceId }])
+  storage.addDownloadedId(props.skill.id)
+  storage.addSessionDownload(props.skill.id, props.skill.name, 'skills-sh')
+  refreshCounts?.()
+  emit('imported')
+  showToast(`已导入 ${props.skill.name}`, 'success')
+}
+
 async function handleImport() {
   if (isDownloaded.value) return
-  if (!props.skill.repo) {
-    showToast('该技能没有关联的 GitHub 仓库，无法导入', 'error')
-    return
-  }
   importing.value = true
   try {
+    let result: WellKnownSkillResult | null = null
+
+    // 1. Well-known (网站类) 技能：尝试 .well-known 端点下载
+    if (isWellKnownSkill(props.skill)) {
+      result = await downloadSkillFromWebsite(props.skill)
+    }
+
+    // 2. marketplace-json 技能（无 GitHub repo）：尝试从 store 源直接下载
+    if (!result && props.skill.source === 'marketplace-json' && !props.skill.repo && props.skill.sourceUrl) {
+      result = await downloadDirectFromStore(props.skill)
+    }
+
+    if (result) {
+      await writeImportFiles(result)
+      importing.value = false
+      return
+    }
+
+    // GitHub 技能
+    if (!props.skill.repo) {
+      showToast('该技能没有关联的 GitHub 仓库，无法导入', 'error')
+      importing.value = false
+      return
+    }
     const gh = props.skill.repo.split('/')
     const buffer = await window.services.downloadFile(`https://api.github.com/repos/${gh[0]}/${gh[1]}/zipball/${props.skill.branch || 'main'}`, storage.getSettings().githubToken || undefined)
     const tempDir = window.services.pathJoin(window.services.homeDir(), '.cache/skill-hub/')
@@ -334,7 +407,7 @@ async function handleImport() {
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
           已在我的 Skill 中
         </div>
-        <button v-else class="import-btn" :disabled="importing || loading || !props.skill.repo" :title="!props.skill.repo ? '该技能没有关联的 GitHub 仓库' : ''" @click="handleImport">
+        <button v-else class="import-btn" :disabled="importing || loading" @click="handleImport">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           {{ importing ? '导入中...' : '导入到我的 Skill' }}
         </button>

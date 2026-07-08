@@ -48,10 +48,15 @@ const KEYS = {
   REGISTERED_PROJECTS: 'registered_projects',
   TRANSLATIONS: 'translations',
   FAILURE_RECORDS: 'failure_records',
+  WELLKNOWN_CACHE: 'wellknown_cache',
+  WELLKNOWN_CACHE_VERSION: 'wellknown_cache_version',
   MARKETPLACE_CACHE: 'marketplace_cache',
 }
 
+const WELLKNOWN_CACHE_VERSION = 1
+
 export const MARKETPLACE_TTL = 86400000 // 24 小时
+export const WELL_KNOWN_TTL = 86400000 // 24 小时
 
 interface SessionDownload {
   skillId: string
@@ -140,7 +145,8 @@ export const storage = {
 
   // === Store Sources ===
   getStoreSources(): StoreSource[] {
-    return dbGet<StoreSource[]>(KEYS.STORE_SOURCES) || []
+    const sources = dbGet<StoreSource[]>(KEYS.STORE_SOURCES) || []
+    return sources
   },
   saveStoreSource(source: StoreSource): void {
     const sources = this.getStoreSources()
@@ -152,6 +158,21 @@ export const storage = {
   removeStoreSource(id: string): void {
     const sources = this.getStoreSources().filter((s) => s.id !== id)
     dbSet(KEYS.STORE_SOURCES, sources)
+    // 剥离引用该源的缓存技能的 storeSourceId，保留技能条目
+    const cached = this.getCachedSkills()
+    const updated = cached.map(s =>
+      s.storeSourceId === id ? { ...s, storeSourceId: undefined } : s
+    )
+    if (updated.length !== cached.length || updated.some((s, i) => s.storeSourceId !== cached[i].storeSourceId)) {
+      dbSet(KEYS.CACHED_SKILLS, updated)
+      _cachedSkillsCache = updated
+    }
+    // 清理 Well-Known 索引缓存
+    const wkAll = dbGet<Record<string, any>>(KEYS.WELLKNOWN_CACHE)
+    if (wkAll?.[id]) {
+      delete wkAll[id]
+      dbSet(KEYS.WELLKNOWN_CACHE, wkAll)
+    }
   },
 
   // === Platform Configs ===
@@ -255,7 +276,9 @@ export const storage = {
 
   // === Cached Skills (with cache) ===
   getCachedSkills(): Skill[] {
-    if (!_cachedSkillsCache) _cachedSkillsCache = dbGet<Skill[]>(KEYS.CACHED_SKILLS) || []
+    if (!_cachedSkillsCache) {
+      _cachedSkillsCache = dbGet<Skill[]>(KEYS.CACHED_SKILLS) || []
+    }
     return _cachedSkillsCache
   },
   saveCachedSkills(skills: Skill[], options?: { forceStoreSourceId?: boolean }): void {
@@ -293,6 +316,31 @@ export const storage = {
     const all = dbGet<Record<string, { skills: Skill[]; fetchedAt: number }>>(KEYS.MARKETPLACE_CACHE) || {}
     all[id] = { skills, fetchedAt: Date.now() }
     dbSet(KEYS.MARKETPLACE_CACHE, all)
+  },
+
+  // === Well-Known Index Cache (stale-while-revalidate) ===
+  getWellKnownCache(id: string): { skills: Skill[]; fetchedAt: number } | null {
+    const cachedVersion = dbGet<number>(KEYS.WELLKNOWN_CACHE_VERSION)
+    if (cachedVersion !== WELLKNOWN_CACHE_VERSION) {
+      dbSet(KEYS.WELLKNOWN_CACHE, {})
+      dbSet(KEYS.WELLKNOWN_CACHE_VERSION, WELLKNOWN_CACHE_VERSION)
+      return null
+    }
+    const all = dbGet<Record<string, { skills: Skill[]; fetchedAt: number }>>(KEYS.WELLKNOWN_CACHE)
+    const cached = all?.[id]
+    if (!cached) return null
+    if (Date.now() - cached.fetchedAt >= WELL_KNOWN_TTL) {
+      delete all[id]
+      dbSet(KEYS.WELLKNOWN_CACHE, all)
+      return null
+    }
+    return cached
+  },
+  saveWellKnownSkills(id: string, skills: Skill[]): void {
+    const all = dbGet<Record<string, { skills: Skill[]; fetchedAt: number }>>(KEYS.WELLKNOWN_CACHE) || {}
+    all[id] = { skills, fetchedAt: Date.now() }
+    dbSet(KEYS.WELLKNOWN_CACHE, all)
+    dbSet(KEYS.WELLKNOWN_CACHE_VERSION, WELLKNOWN_CACHE_VERSION)
   },
 
   // === Favorites (with Set cache for O(1) lookup) ===

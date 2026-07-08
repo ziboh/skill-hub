@@ -178,6 +178,8 @@ export function getSourceLabel(source: SkillSourceLocation): string {
       return source.projectId ? `Project` : 'Local'
     case 'marketplace-json':
       return 'Marketplace'
+    case 'well-known-index':
+      return 'Well-Known'
     case 'git-repo':
       return 'Git Repo'
     case 'builtin':

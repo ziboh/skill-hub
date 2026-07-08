@@ -283,12 +283,15 @@ export async function searchSkillsSh(q: string): Promise<PublicSearchResult[]> {
 
 export function leaderboardEntryToSkill(e: LeaderboardEntry): Skill {
   const dirName = e.detailPath.split('/').filter(Boolean).pop() || e.skillName.toLowerCase().replace(/\s+/g, '-')
+  // Well-known 技能 ID 不包含 site/ 前缀，格式为 域名/skill名称
+  const isWellKnown = e.owner === 'site' || e.owner.includes('.')
+  const skillId = isWellKnown ? `${e.repo}/${dirName}` : `${e.owner}/${e.repo}/${dirName}`
   return {
-    id: `${e.owner}/${e.repo}/${dirName}`,
+    id: skillId,
     name: e.skillName,
     description: '',
     shortDescription: '',
-    author: e.owner,
+    author: isWellKnown ? e.repo : e.owner,
     tags: [],
     source: 'skills-sh',
     sourceUrl: e.detailUrl,
@@ -307,16 +310,24 @@ export function searchResultToSkill(s: PublicSearchResult): Skill {
   const parts = s.source.split('/')
   const owner = parts[0] || ''
   const skillPath = s.skillId || s.name.toLowerCase().replace(/\s+/g, '-')
-  const fullId = s.id || `${s.source}/${skillPath}`
+  // Well-known 技能 ID 不包含 site/ 前缀，格式为 域名/skill名称
+  const isWellKnown = isDomainSource(s.source)
+  let fullId: string
+  if (isWellKnown) {
+    // 从 source 中提取域名（去掉 site/ 前缀）
+    const domain = owner === 'site' && parts.length >= 2 ? parts.slice(1).join('/') : s.source
+    fullId = s.id || `${domain}/${skillPath}`
+  } else {
+    fullId = s.id || `${s.source}/${skillPath}`
+  }
   const repo = s.source.includes('/') ? s.source : `${s.source}/${s.source}`
-  const isNonGitHub = isDomainSource(s.source)
-  const urlPath = isNonGitHub && !fullId.startsWith('site/') ? `site/${fullId}` : fullId
+  const urlPath = isWellKnown && !fullId.startsWith('site/') ? `site/${fullId}` : fullId
   return {
     id: fullId,
     name: s.name,
     description: '',
     shortDescription: '',
-    author: owner,
+    author: isWellKnown ? (owner === 'site' && parts.length >= 2 ? parts[1] : owner) : owner,
     tags: [],
     source: 'skills-sh',
     sourceUrl: `${BASE}/${urlPath}`,

@@ -1,15 +1,18 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, inject } from 'vue'
 import { storage } from '../utils/storage'
 import type { StoreSource, StoreSourceType } from '../types'
-import { getDefaultStoreIcon, getStoreIconFromSource, getIconRenderType, ICON_GITHUB, ICON_MARKETPLACE, ICON_FOLDER, ICON_STORE } from '../data/store-icons'
+import { getDefaultStoreIcon, getStoreIconFromSource, getIconRenderType, ICON_GITHUB, ICON_MARKETPLACE, ICON_WELL_KNOWN, ICON_FOLDER, ICON_STORE } from '../data/store-icons'
 import StoreIconPicker from './StoreIconPicker.vue'
+import { KeyShowToast } from '../inject-keys'
+import { validateStoreUrl } from '../utils/validate-store'
 
 const props = defineProps<{
   editSource?: StoreSource | null
 }>()
 
 const emit = defineEmits(['close', 'saved'])
+const showToast = inject(KeyShowToast, (msg: string, type?: 'success' | 'error' | 'info' | 'warning') => {})
 
 const editingId = ref<string | null>(props.editSource?.id || null)
 const sourceType = ref<StoreSourceType>((props.editSource?.type as StoreSourceType) || 'git-repo')
@@ -18,17 +21,20 @@ const sourceUrl = ref(props.editSource?.url || '')
 const sourceBranch = ref(props.editSource?.branch || '')
 const sourceDirectory = ref(props.editSource?.directory || '')
 const sourceIcon = ref(props.editSource?.icon || '')
+const validating = ref(false)
 
 const isEditing = computed(() => !!editingId.value)
 
 const typeOptions: { value: StoreSourceType; icon: string; label: string; hint: string }[] = [
   { value: 'marketplace-json', icon: ICON_MARKETPLACE, label: 'Marketplace JSON', hint: 'Marketplace 索引 URL' },
+  { value: 'well-known-index', icon: ICON_WELL_KNOWN, label: 'Well-Known Index', hint: 'Well-Known 技能索引 URL' },
   { value: 'git-repo', icon: ICON_GITHUB, label: 'Git 仓库', hint: 'GitHub 仓库 URL' },
   { value: 'local-dir', icon: ICON_FOLDER, label: '本地目录', hint: '本地文件夹路径' },
 ]
 
 const examples: Record<StoreSourceType, { label: string; lines: string[] }> = {
-  'marketplace-json': { label: 'Example', lines: ['https://raw.githubusercontent.com/ziboh/skills-marketplace/main/marketplace.json'] },
+  'marketplace-json': { label: 'Example', lines: ['https://raw.githubusercontent.com/user/repo/main/marketplace.json'] },
+  'well-known-index': { label: 'Examples', lines: ['https://example.com/.well-known/skills/index.json', 'https://example.com (自动发现 index.json)'] },
   'git-repo': { label: 'Examples', lines: ['https://github.com/anthropics/skills', 'Branch: main | Dir: skills/.curated'] },
   'local-dir': { label: 'Example', lines: ['~/Documents/my-skills'] },
 }
@@ -47,8 +53,16 @@ watch(() => props.editSource, (src) => {
 
 function canAdd(): boolean { return !!(sourceName.value.trim() && sourceUrl.value.trim()) }
 
-function handleSave() {
-  if (!canAdd()) return
+async function handleSave() {
+  if (!canAdd() || validating.value) return
+  validating.value = true
+  const result = await validateStoreUrl(sourceUrl.value.trim(), sourceType.value)
+  if (!result.valid) {
+    showToast(result.message, 'error')
+    validating.value = false
+    return
+  }
+  showToast(result.message, 'success')
   const data = {
     type: sourceType.value,
     name: sourceName.value.trim(),
@@ -66,6 +80,7 @@ function handleSave() {
     const source: StoreSource = { id: newId, ...data }
     storage.saveStoreSource(source)
   }
+  validating.value = false
   emit('saved')
   emit('close')
 }
@@ -109,14 +124,14 @@ function handleSave() {
         </div>
         <StoreIconPicker v-model="sourceIcon" :defaultIcon="getDefaultStoreIcon(sourceType)" />
         <div class="examples-box">
-          <div class="examples-label">{{ examples[sourceType].label }}</div>
-          <div v-for="(line, i) in examples[sourceType].lines" :key="i" class="examples-line">{{ line }}</div>
+          <div class="examples-label">{{ examples[sourceType]?.label || 'Example' }}</div>
+          <div v-for="(line, i) in examples[sourceType]?.lines || []" :key="i" class="examples-line">{{ line }}</div>
         </div>
       </div>
 
       <div class="modal-footer">
         <button class="modal-btn cancel" @click="emit('close')">取消</button>
-        <button class="modal-btn save" :disabled="!canAdd()" @click="handleSave">{{ isEditing ? '保存' : '添加' }}</button>
+        <button class="modal-btn save" :disabled="!canAdd() || validating" @click="handleSave">{{ validating ? '验证中...' : (isEditing ? '保存' : '添加') }}</button>
       </div>
     </div>
   </div>

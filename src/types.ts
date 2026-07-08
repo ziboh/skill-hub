@@ -1,5 +1,5 @@
-export type SkillSource = 'builtin' | 'github' | 'skills-sh' | 'local' | 'marketplace-json' | 'git-repo' | 'local-dir'
-export type StoreSourceType = 'marketplace-json' | 'git-repo' | 'local-dir'
+export type SkillSource = 'builtin' | 'github' | 'skills-sh' | 'local' | 'marketplace-json' | 'well-known-index' | 'git-repo' | 'local-dir'
+export type StoreSourceType = 'marketplace-json' | 'well-known-index' | 'git-repo' | 'local-dir'
 export type InstallMode = 'symlink' | 'copy'
 
 export interface Skill {
@@ -22,6 +22,7 @@ export interface Skill {
   storeSourceId?: string
   canonicalId?: string
   branch?: string
+  installUrl?: string
 }
 
 export interface SkillSourceLocation {

@@ -80,8 +80,8 @@ describe('getSourceLabel', () => {
     expect(getSourceLabel(source)).toBe('Local')
   })
 
-  test('returns Marketplace for marketplace-json type', () => {
-    expect(getSourceLabel({ type: 'marketplace-json', location: '/path' })).toBe('Marketplace')
+  test('returns Well-Known for well-known-index type', () => {
+    expect(getSourceLabel({ type: 'well-known-index', location: '/path' })).toBe('Well-Known')
   })
 
   test('returns Git Repo for git-repo type', () => {

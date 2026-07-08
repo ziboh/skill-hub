@@ -165,6 +165,10 @@ function clearIcon() {
             <span class="sip-grid-svg" v-html="STORE_TYPE_DEFAULT_ICONS['marketplace-json']"></span>
             <span class="sip-grid-label">Market</span>
           </div>
+          <div class="sip-grid-item" :class="{ active: modelValue === 'store:well-known-index' }" @click="selectIcon('store:well-known-index')" title="Well-Known">
+            <span class="sip-grid-svg" v-html="STORE_TYPE_DEFAULT_ICONS['well-known-index']"></span>
+            <span class="sip-grid-label">Well-Known</span>
+          </div>
           <div class="sip-grid-item" :class="{ active: modelValue === 'store:local-dir' }" @click="selectIcon('store:local-dir')" title="本地目录">
             <span class="sip-grid-svg" v-html="STORE_TYPE_DEFAULT_ICONS['local-dir']"></span>
             <span class="sip-grid-label">Folder</span>
