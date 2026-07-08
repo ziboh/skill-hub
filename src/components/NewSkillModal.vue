@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, inject } from 'vue'
-import { KeyRefreshCounts } from '../inject-keys'
+import { KeyRefreshCounts, KeyShowToast } from '../inject-keys'
 import { storage } from '../utils/storage'
-import { parseGitHubUrl, fetchGitHubRepoTree, fetchGitHubFile, detectSkillDirectories } from '../utils/github'
+import { parseGitHubUrl, fetchGitHubRepoTree, fetchGitHubFile, detectSkillDirectories, githubFetch } from '../utils/github'
 import { parseFrontmatter } from '../utils/frontmatter'
 import { loadRegistry, registerSkillFromStore } from '../utils/skill-registry'
 import type { Skill, SkillScanResult } from '../types'
@@ -10,6 +10,7 @@ import { getAvatarColor } from '../utils/color'
 
 const emit = defineEmits(['close', 'imported', 'navigate'])
 const refreshCounts = inject(KeyRefreshCounts)
+const showToast = inject(KeyShowToast, () => {})
 
 const step = ref<'choose' | 'git-input' | 'local-input'>('choose')
 const gitUrl = ref('')
@@ -27,10 +28,19 @@ const methods = [
   { id: 'local', icon: '📁', title: '从本地导入', desc: '选择文件夹，自动识别单个或多个技能' },
 ]
 
+function showError(message: string) {
+  scanError.value = message
+  showToast(message, 'error')
+}
+
+function clearError() {
+  scanError.value = ''
+}
+
 function chooseMethod(id: string) {
   scannedSkills.value = []
   selectedIds.value = new Set()
-  scanError.value = ''
+  clearError()
   if (id === 'git') step.value = 'git-input'
   if (id === 'local') step.value = 'local-input'
 }
@@ -45,8 +55,8 @@ function selectedBranch(infoBranch = 'main') {
 
 async function scanGit() {
   const info = parseGitHubUrl(gitUrl.value.trim())
-  if (!info) { scanError.value = '请输入有效的 GitHub URL 或仓库名称（如 owner/repo）'; return }
-  scanning.value = true; scanError.value = ''; scannedSkills.value = []; selectedIds.value = new Set()
+  if (!info) { showError('请输入有效的 GitHub URL 或仓库名称（如 owner/repo）'); return }
+  scanning.value = true; clearError(); scannedSkills.value = []; selectedIds.value = new Set()
   try {
     const token = storage.getSettings().githubToken || undefined
     const branch = selectedBranch(info.defaultBranch)
@@ -61,10 +71,10 @@ async function scanGit() {
         skills.push({ id: `${info.owner}/${info.repo}/${dirName}`, name: fm.name || dirName, description: fm.description || '', author: fm.author || '', tags, source: 'github', sourceUrl: `https://github.com/${info.owner}/${info.repo}`, repo: `${info.owner}/${info.repo}`, path: sd.dir, readme: content, branch })
       } catch {}
     }
-    if (!skills.length) { scanError.value = '未找到可安装的技能'; return }
+    if (!skills.length) { showError('未找到可安装的技能'); return }
     scannedSkills.value = skills
   } catch (err: any) {
-    scanError.value = err.message || '扫描失败'
+    showError(err.message || '扫描失败')
   } finally {
     scanning.value = false
   }
@@ -73,7 +83,8 @@ async function scanGit() {
 async function importGitDirect() {
   const info = parseGitHubUrl(gitUrl.value.trim())
   const path = gitSkillPath.value.trim()
-  if (!info || !path) return
+  if (!info) { showError('请输入有效的 GitHub URL 或仓库名称（如 owner/repo）'); return }
+  if (!path) { showError('请输入 skill 名称或目录'); return }
   const branch = selectedBranch(info.defaultBranch)
   const idPart = skillIdPart(path, info.repo)
   await importGitSkills([{ id: `${info.owner}/${info.repo}/${idPart}`, name: idPart, description: '', author: '', tags: [], source: 'github', sourceUrl: `https://github.com/${info.owner}/${info.repo}`, repo: `${info.owner}/${info.repo}`, path, branch }])
@@ -93,7 +104,6 @@ function isSkillImported(skill: Skill): boolean {
   const localPath = normalizeLocalPath(skill.sourceUrl || skill.path || '')
   return storage.getCachedSkills().some((s) => {
     if (!downloaded.has(s.id)) return false
-    if (!!skill.sourceUrl && s.sourceUrl === skill.sourceUrl) return true
     if (skill.source === 'local' && localPath) {
       return [s.sourceUrl, s.path].some((p) => normalizeLocalPath(p || '') === localPath)
     }
@@ -135,7 +145,6 @@ function readSkillDirMeta(dirPath: string): { name: string; description: string 
 }
 
 function matchSkillDir(candidates: string[], targetName: string): string | null {
-  if (candidates.length === 1) return candidates[0]
   const targetLower = targetName.toLowerCase()
   for (const dir of candidates) {
     const { name } = readSkillDirMeta(dir)
@@ -143,20 +152,63 @@ function matchSkillDir(candidates: string[], targetName: string): string | null 
   }
   for (const dir of candidates) {
     const dirName = dir.split(/[\\/]/).pop()?.toLowerCase() || ''
-    if (dirName === targetLower || dirName.includes(targetLower) || targetLower.includes(dirName)) return dir
+    if (dirName === targetLower) return dir
   }
-  return candidates[0] || null
+  return null
+}
+
+async function resolveRemoteSkillPath(owner: string, repo: string, branch: string, token: string | undefined, skill: Skill) {
+  let tree
+  try {
+    tree = await fetchGitHubRepoTree(owner, repo, branch, token)
+  } catch (err: any) {
+    throw new Error(err.message || `仓库或分支不存在：${owner}/${repo}`)
+  }
+
+  const target = (skill.path || skill.name || '').trim()
+  const candidates = [target, `skills/${target}`, `agent-skills/${target}`].filter(Boolean)
+  const skillDirs = detectSkillDirectories(tree)
+  const skillDirSet = new Set(skillDirs.map((item) => item.dir))
+  const exact = candidates.find((p) => skillDirSet.has(p))
+  if (exact) return exact
+
+  const targetLower = target.toLowerCase()
+  for (const sd of skillDirs) {
+    const dirName = skillIdPart(sd.dir, repo).toLowerCase()
+    if (dirName === targetLower) return sd.dir
+    try {
+      const content = await fetchGitHubFile(owner, repo, sd.manifestFile, branch, token)
+      const name = parseFrontmatter(content).name?.toLowerCase()
+      if (name && name === targetLower) return sd.dir
+    } catch {}
+  }
+
+  throw new Error(`skill 不存在：${target}（仓库 ${owner}/${repo} 存在，但未找到对应目录或名称）`)
 }
 
 async function importGitSkills(skills: Skill[]) {
-  importing.value = true; scanError.value = ''
+  importing.value = true; clearError()
+  let importedCount = 0
+  const errors: string[] = []
+  const targetNames: string[] = []
   const downloadedIds = storage.getDownloadedIds()
   for (const skill of skills) {
-    if (downloadedIds.includes(skill.id) || !skill.repo) continue
+    if (downloadedIds.includes(skill.id) || !skill.repo) {
+      errors.push(`「${skill.name}」已导入，跳过`)
+      continue
+    }
     try {
       const branch = skill.branch || 'main'
       const [owner, repo] = skill.repo.split('/')
-      const buffer = await window.services.downloadFile(`https://api.github.com/repos/${owner}/${repo}/zipball/${branch}`, storage.getSettings().githubToken || undefined)
+      const token = storage.getSettings().githubToken || undefined
+      const remotePath = await resolveRemoteSkillPath(owner, repo, branch, token, skill)
+      const skillName = (skill.path || skill.name || '').trim().split('/').pop() || skill.name
+      if (downloadedIds.some((id) => id.toLowerCase().endsWith(`/${skillName.toLowerCase()}`)) || targetNames.includes(skillName)) {
+        errors.push(`「${skillName}」已存在，跳过导入`)
+        continue
+      }
+      const arrayBuffer = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/zipball/${branch}`, { headers: token ? { Authorization: `Bearer ${token}` } : {}, cache: false, responseType: 'arraybuffer', timeout: 60000 })
+      const buffer = new Uint8Array(arrayBuffer)
       const tempDir = window.services.pathJoin(window.services.homeDir(), '.cache/skill-hub/')
       window.services.mkdir(tempDir)
       const extractDir = window.services.pathJoin(tempDir, `extract-${skill.id.replace(/[\\/]/g, '-')}`)
@@ -164,20 +216,41 @@ async function importGitSkills(skills: Skill[]) {
       window.services.extractBufferZip(buffer as any, extractDir)
       const rootDir = window.services.readDir(extractDir).find((d: any) => d.isDirectory)
       const sourceRoot = rootDir ? rootDir.path : extractDir
-      const candidates = [skill.path, `skills/${skill.path}`, `agent-skills/${skill.path}`].filter(Boolean) as string[]
+      const candidates = [remotePath].filter(Boolean) as string[]
       let skillSourceDir = candidates.map((p) => window.services.pathJoin(sourceRoot, p)).find((p) => window.services.pathExists(p)) || ''
       if (!skillSourceDir) skillSourceDir = matchSkillDir(collectAllSkillDirs(sourceRoot), skill.name) || ''
-      if (!skillSourceDir) continue
+      if (!skillSourceDir) {
+        errors.push(`skill 不存在：${skill.path || skill.name}（仓库 ${skill.repo} 存在，但未找到对应目录）`)
+        window.services.removeFile(extractDir)
+        continue
+      }
       const targetDir = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', skill.id)
       window.services.removeFile(targetDir); window.services.mkdir(targetDir); window.services.copyFile(skillSourceDir, targetDir)
       await window.services.saveSkillMetaAfterDownload(skill.repo, branch, storage.getSettings().githubToken || undefined, targetDir)
       window.services.removeFile(extractDir)
       finishImportedSkill(skill, targetDir, 'github', skill.repo)
+      const finalName = skill.name || skillName
+      targetNames.push(finalName)
+      importedCount++
     } catch (err: any) {
-      scanError.value = err.message || '导入失败'
+      errors.push(err.message || '导入失败')
     }
   }
-  importing.value = false; emit('imported'); emit('close')
+  importing.value = false
+  if (importedCount) {
+    const msg = targetNames.length === 1 ? `已导入「${targetNames[0]}」` : `已导入 ${targetNames.length} 个技能`
+    showToast(msg, 'success')
+  }
+  if (errors.length) {
+    showError(errors[errors.length - 1])
+    if (importedCount) emit('imported')
+    return
+  }
+  if (!importedCount) {
+    showError('没有可导入的 skill')
+    return
+  }
+  emit('imported'); emit('close')
 }
 
 function finishImportedSkill(skill: Skill, targetDir: string, sourceType: 'github' | 'local-dir', location: string) {
@@ -204,9 +277,9 @@ async function importSelectedGit() {
 }
 
 function selectLocalFolder() {
-  scanError.value = ''
+  clearError()
   const dialog = window.ztools?.showOpenDialog
-  if (!dialog) { scanError.value = '文件选择对话框不可用'; return }
+  if (!dialog) { showError('文件选择对话框不可用'); return }
   const dirs = dialog({ properties: ['openDirectory'], title: '选择技能文件夹' })
   if (!dirs?.length) return
   localRoot.value = dirs[0]
@@ -226,24 +299,32 @@ function loadLocalSkills(dir: string) {
     scannedSkills.value = results.map(localScanResultToSkill)
     selectedIds.value = direct ? new Set(scannedSkills.value.map((s) => s.id)) : new Set()
     if (direct) importLocalSelected()
-    else if (!scannedSkills.value.length) scanError.value = '未找到 SKILL.md'
+    else if (!scannedSkills.value.length) showError('未找到 SKILL.md')
   } catch (err: any) {
-    scanError.value = err.message || '扫描本地技能失败'; step.value = 'choose'
+    showError(err.message || '扫描本地技能失败'); step.value = 'choose'
   }
 }
 
 async function importLocalSelected() {
   importing.value = true
+  const targetNames: string[] = []
   for (const skill of scannedSkills.value.filter((s) => selectedIds.value.has(s.id))) {
     try {
+      if (storage.getDownloadedIds().includes(skill.id) || targetNames.includes(skill.name)) {
+        showError(`「${skill.name}」已存在，跳过导入`)
+        continue
+      }
       const targetDir = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', skill.id)
       window.services.removeFile(targetDir); window.services.mkdir(targetDir); window.services.copyFile(skill.path || '', targetDir)
       finishImportedSkill(skill, targetDir, 'local-dir', skill.sourceUrl || skill.path || '')
+      targetNames.push(skill.name)
     } catch (err: any) {
-      scanError.value = err.message || '导入失败'
+      showError(err.message || '导入失败')
     }
   }
-  importing.value = false; emit('imported'); emit('close')
+  if (targetNames.length) showToast(targetNames.length === 1 ? `已导入「${targetNames[0]}」` : `已导入 ${targetNames.length} 个技能`, 'success')
+  importing.value = false; emit('imported')
+  if (targetNames.length) emit('close')
 }
 </script>
 
@@ -266,7 +347,6 @@ async function importLocalSelected() {
               </div>
             </button>
           </div>
-          <div v-if="scanError" class="scan-error">{{ scanError }}</div>
         </template>
 
         <template v-else-if="step === 'git-input'">
@@ -279,10 +359,6 @@ async function importLocalSelected() {
             <input v-model="gitSkillPath" type="text" placeholder="skill 名称或目录，如 skills/foo" class="git-input" @keydown.enter="importGitDirect" />
             <button class="scan-btn" :disabled="importing || !gitUrl.trim() || !gitSkillPath.trim()" @click="importGitDirect">{{ importing ? '导入中...' : '直接导入' }}</button>
             <button class="scan-btn secondary" :disabled="scanning || !gitUrl.trim()" @click="scanGit">{{ scanning ? '扫描中...' : '扫描仓库' }}</button>
-          </div>
-          <div v-if="scanError" class="scan-error">
-            {{ scanError }}<br>
-            <button v-if="scanError.includes('速率限制')" class="error-settings-link" @click="emit('navigate', 'settings', { anchor: 'github-token-section' })">前往设置 →</button>
           </div>
           <div v-if="scannedSkills.length" class="inline-results">
             <div class="scan-header">
@@ -309,7 +385,6 @@ async function importLocalSelected() {
             <button class="scan-btn secondary" @click="selectLocalFolder">浏览</button>
             <button class="scan-btn" :disabled="!localRoot.trim()" @click="loadLocalSkills(localRoot)">扫描</button>
           </div>
-          <div v-if="scanError" class="scan-error">{{ scanError }}</div>
           <div v-if="scannedSkills.length" class="inline-results">
             <div class="scan-header">
               <p class="hint">找到 {{ scannedSkills.length }} 个技能。选择要导入的：</p>
@@ -364,8 +439,6 @@ async function importLocalSelected() {
 .scan-btn { padding: 10px 18px; font-size: 14px; font-weight: 600; border-radius: 10px; background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); border: none; cursor: pointer; white-space: nowrap; transition: all var(--duration-base) var(--ease-standard); }
 .scan-btn.secondary { background: hsl(var(--muted)); color: hsl(var(--foreground)); border: 1px solid hsl(var(--border)); }
 .scan-btn:disabled { opacity: 0.5; cursor: default; }
-.scan-error { font-size: 13px; color: hsl(var(--destructive)); margin: 12px 0; }
-.error-settings-link { display: inline-block; margin-top: 8px; padding: 6px 16px; font-size: 13px; font-weight: 500; color: #fff; background: hsl(var(--primary)); border: none; border-radius: 8px; cursor: pointer; transition: opacity var(--duration-base) var(--ease-standard); }
 .back-link { background: none; border: none; color: hsl(var(--muted-foreground)); font-size: 13px; cursor: pointer; padding: 4px 0; transition: color var(--duration-base) var(--ease-standard); }
 .back-link:hover { color: hsl(var(--primary)); }
 .scan-header { display: flex; align-items: center; justify-content: space-between; margin: 18px 0 12px; }

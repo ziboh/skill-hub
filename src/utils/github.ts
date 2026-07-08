@@ -91,17 +91,18 @@ function setCache(url: string, data: any) {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-async function githubFetch(url: string, options: {
+export async function githubFetch(url: string, options: {
   headers?: Record<string, string>
   cache?: boolean
   timeout?: number
   parseJson?: boolean
+  responseType?: 'text' | 'arraybuffer'
 }): Promise<any> {
-  const { headers = {}, cache = true, timeout = 15000, parseJson = false } = options
+  const { headers = {}, cache = true, timeout = 15000, parseJson = false, responseType = 'text' } = options
   const method = options as any
   const isGet = !method.method || method.method === 'GET'
 
-  if (cache && isGet) {
+  if (cache && isGet && responseType === 'text') {
     const cached = getCached(url)
     if (cached !== undefined) return cached
   }
@@ -122,8 +123,10 @@ async function githubFetch(url: string, options: {
 
       if (resp.ok) {
         clearTimeout(timer)
-        const result = parseJson ? await resp.json() : await resp.text()
-        if (cache && isGet) setCache(url, result)
+        let result: any
+        if (responseType === 'arraybuffer') result = await resp.arrayBuffer()
+        else result = parseJson ? await resp.json() : await resp.text()
+        if (cache && isGet && responseType === 'text') setCache(url, result)
         return result
       }
 
@@ -138,6 +141,7 @@ async function githubFetch(url: string, options: {
       throw new Error(`GitHub API 请求失败: ${resp.status}`)
     } catch (err: any) {
       if (err.name === 'AbortError') { clearTimeout(timer); throw new Error('GitHub API 请求超时') }
+      if (err.message?.includes(': 404')) throw err
       lastError = err
       if (attempt < 2) await sleep(Math.min(2 ** attempt * 1000, 4000))
     }

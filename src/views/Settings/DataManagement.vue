@@ -7,13 +7,18 @@ import type { Skill, InstallRecord, StoreSource, FailureRecord } from '../../typ
 
 const showToast = inject(KeyShowToast, () => {})
 
+function getSizeBytes(data: any): number {
+  try { return new Blob([JSON.stringify(data)]).size } catch { return 0 }
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
 function estimateSize(data: any): string {
-  try {
-    const bytes = new Blob([JSON.stringify(data)]).size
-    if (bytes < 1024) return `${bytes} B`
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-    return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-  } catch { return '' }
+  return formatBytes(getSizeBytes(data))
 }
 
 function groupBy<T>(items: T[], keyFn: (item: T) => string): { key: string; count: number }[] {
@@ -277,6 +282,23 @@ function deleteSelectedItems() {
   refreshSummary()
 }
 
+const manageableBucketKeys = ['cached_skills','install_records','failure_records','downloaded_ids','translations','desc_translations']
+
+const dataSummary = computed(() => {
+  summaryVersion.value
+  const totalItems = buckets.reduce((sum, bucket) => sum + Number(getCountInfo(bucket) || 0), 0)
+  const totalBytes = buckets.reduce((sum, bucket) => sum + getSizeBytes(bucket.getData()), 0)
+  const cleanableItems = buckets
+    .filter(bucket => manageableBucketKeys.includes(bucket.key))
+    .reduce((sum, bucket) => sum + Number(getCountInfo(bucket) || 0), 0)
+  return [
+    { label: '数据集', value: String(buckets.length), hint: '本地存储分类' },
+    { label: '记录数', value: String(totalItems), hint: '全部缓存条目' },
+    { label: '占用', value: formatBytes(totalBytes), hint: '估算本地体积' },
+    { label: '可清理', value: String(cleanableItems), hint: '支持批量清空' },
+  ]
+})
+
 const summaryVersion = ref(0)
 function refreshSummary() { summaryVersion.value++ }
 
@@ -359,8 +381,19 @@ function confirmKeepOnlyDownloaded() {
 
 <template>
   <div class="settings-scroll">
-    <h1 class="settings-page-title">数据管理</h1>
-    <p class="settings-page-desc">查看和管理本地缓存的应用数据</p>
+    <div class="dm-hero">
+      <div>
+        <h1 class="settings-page-title">数据管理</h1>
+        <p class="settings-page-desc">查看和管理本地缓存的应用数据</p>
+      </div>
+      <div class="dm-summary-grid">
+        <div v-for="item in dataSummary" :key="item.label" class="dm-summary-card">
+          <span class="dm-summary-label">{{ item.label }}</span>
+          <strong class="dm-summary-value">{{ item.value }}</strong>
+          <span class="dm-summary-hint">{{ item.hint }}</span>
+        </div>
+      </div>
+    </div>
 
     <div class="setting-section">
       <h3 class="setting-section-title">缓存数据一览</h3>
@@ -401,7 +434,7 @@ function confirmKeepOnlyDownloaded() {
             <div class="dm-card-actions">
               <button class="dm-btn" @click="openModal(bucket)">查看</button>
               <button
-                v-if="['cached_skills','install_records','failure_records','downloaded_ids','translations','desc_translations'].includes(bucket.key)"
+                v-if="manageableBucketKeys.includes(bucket.key)"
                 class="dm-btn dm-btn-danger"
                 @click="confirmClearAll(bucket)"
               >清空</button>
@@ -416,7 +449,10 @@ function confirmKeepOnlyDownloaded() {
       <div v-if="showJsonModal && modalBucket" class="dm-overlay" @click.self="closeModal">
         <div class="dm-modal">
           <div class="dm-modal-header">
-            <h3 class="dm-modal-title">{{ modalBucket.label }}</h3>
+            <div>
+              <h3 class="dm-modal-title">{{ modalBucket.label }}</h3>
+              <p class="dm-modal-subtitle">{{ tableData.length }} 条记录 · {{ estimateSize(modalBucket.getData()) }}</p>
+            </div>
             <div class="dm-modal-header-btn">
               <!-- Source-level cleanup for cached_skills -->
               <button class="dm-btn-close" @click="closeModal">
@@ -566,46 +602,84 @@ function confirmKeepOnlyDownloaded() {
 </template>
 
 <style scoped>
+.dm-hero {
+  margin-bottom: 24px;
+}
+.dm-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+.dm-summary-card {
+  padding: 12px 14px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 14px;
+  background: linear-gradient(180deg, hsl(var(--card)), hsl(var(--muted) / 0.28));
+  box-shadow: var(--shadow-sm);
+}
+.dm-summary-label,
+.dm-summary-hint {
+  display: block;
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+}
+.dm-summary-value {
+  display: block;
+  margin: 4px 0 2px;
+  font-size: 22px;
+  line-height: 1;
+  color: hsl(var(--foreground));
+  font-variant-numeric: tabular-nums;
+}
 .dm-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
 }
 .dm-card {
-  padding: 14px 16px;
+  min-height: 132px;
+  padding: 16px;
   border: 1px solid hsl(var(--border));
-  border-radius: 12px;
+  border-radius: 16px;
   background: hsl(var(--card));
-  transition: border-color var(--duration-base) var(--ease-standard);
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--duration-base) var(--ease-standard), transform var(--duration-base) var(--ease-standard), box-shadow var(--duration-base) var(--ease-standard);
 }
 .dm-card:hover {
-  border-color: hsl(var(--ring) / 0.3);
+  border-color: hsl(var(--ring) / 0.35);
+  box-shadow: var(--shadow);
+  transform: translateY(-1px);
 }
 .dm-card-main {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
+  flex-direction: column;
+  height: 100%;
+  gap: 14px;
 }
 .dm-card-info {
   flex: 1;
   min-width: 0;
 }
 .dm-card-label-row {
-  display: flex;
-  align-items: baseline;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: start;
   gap: 8px;
-  margin-bottom: 6px;
+  margin-bottom: 10px;
 }
 .dm-card-label {
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
   color: hsl(var(--foreground));
 }
 .dm-card-count {
-  font-size: 13px;
-  font-weight: 500;
+  grid-row: span 2;
+  font-size: 24px;
+  line-height: 1;
+  font-weight: 800;
   color: hsl(var(--primary));
+  font-variant-numeric: tabular-nums;
 }
 .dm-card-size {
   font-size: 11px;
@@ -660,25 +734,37 @@ function confirmKeepOnlyDownloaded() {
 }
 .dm-card-actions {
   display: flex;
-  gap: 6px;
-  flex-shrink: 0;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: auto;
 }
 .dm-btn {
+  min-height: 32px;
   padding: 6px 14px;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
   border: 1px solid hsl(var(--border));
-  border-radius: 6px;
+  border-radius: 8px;
   background: hsl(var(--card));
   color: hsl(var(--foreground));
   cursor: pointer;
-  transition: all var(--duration-base) var(--ease-standard);
+  transition: background var(--duration-base) var(--ease-standard), border-color var(--duration-base) var(--ease-standard), color var(--duration-base) var(--ease-standard), transform var(--duration-quick) var(--ease-standard);
   white-space: nowrap;
 }
 .dm-btn:hover {
   border-color: hsl(var(--ring));
   background: hsl(var(--accent));
   color: hsl(var(--accent-foreground));
+}
+.dm-btn:active {
+  transform: translateY(1px);
+}
+.dm-btn:focus-visible,
+.dm-btn-close:focus-visible,
+.dm-select:focus-visible,
+.dm-search-input:focus-visible {
+  outline: 2px solid hsl(var(--ring) / 0.7);
+  outline-offset: 2px;
 }
 .dm-btn-danger {
   color: hsl(var(--destructive));
@@ -705,14 +791,13 @@ function confirmKeepOnlyDownloaded() {
   backdrop-filter: blur(4px);
 }
 .dm-modal {
-  width: 780px;
-  max-width: 92vw;
-  max-height: 82vh;
+  width: min(1100px, 94vw);
+  max-height: 86vh;
   display: flex;
   flex-direction: column;
   background: hsl(var(--card));
   border: 1px solid hsl(var(--border));
-  border-radius: 16px;
+  border-radius: 18px;
   box-shadow: 0 24px 64px hsl(0 0% 0% / 0.2);
   overflow: hidden;
 }
@@ -725,11 +810,15 @@ function confirmKeepOnlyDownloaded() {
   gap: 12px;
 }
 .dm-modal-title {
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 700;
   color: hsl(var(--foreground));
   margin: 0;
-  flex-shrink: 0;
+}
+.dm-modal-subtitle {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
 }
 .dm-modal-header-btn {
   display: flex;
@@ -759,22 +848,28 @@ function confirmKeepOnlyDownloaded() {
 .dm-modal-body {
   flex: 1;
   overflow: auto;
-  padding: 12px 18px 18px;
+  padding: 14px 18px 18px;
 }
 
 /* Filter bar */
 .dm-filter-bar {
+  position: sticky;
+  top: -14px;
+  z-index: 3;
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 10px;
+  margin: -2px 0 12px;
+  padding: 8px 0;
   flex-wrap: wrap;
+  background: hsl(var(--card));
 }
 .dm-select {
-  padding: 4px 8px;
+  min-height: 34px;
+  padding: 6px 10px;
   font-size: 12px;
   border: 1px solid hsl(var(--border));
-  border-radius: 6px;
+  border-radius: 8px;
   background: hsl(var(--card));
   color: hsl(var(--foreground));
   outline: none;
@@ -784,15 +879,17 @@ function confirmKeepOnlyDownloaded() {
   border-color: hsl(var(--ring));
 }
 .dm-search-box {
+  min-height: 34px;
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
+  gap: 6px;
+  padding: 6px 10px;
   border: 1px solid hsl(var(--border));
-  border-radius: 6px;
+  border-radius: 8px;
   color: hsl(var(--muted-foreground));
+  background: hsl(var(--background));
   flex: 1;
-  max-width: 220px;
+  max-width: 320px;
 }
 .dm-search-box:focus-within {
   border-color: hsl(var(--ring));
@@ -812,13 +909,18 @@ function confirmKeepOnlyDownloaded() {
 
 /* Batch bar */
 .dm-batch-bar {
+  position: sticky;
+  top: 42px;
+  z-index: 2;
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-  padding: 6px 8px;
-  border-radius: 6px;
-  background: hsl(var(--muted) / 0.3);
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  background: hsl(var(--muted) / 0.35);
+  backdrop-filter: blur(8px);
 }
 .dm-batch-check {
   display: flex;
@@ -838,25 +940,38 @@ function confirmKeepOnlyDownloaded() {
 
 /* Table */
 .dm-table-wrap {
-  overflow-x: auto;
+  overflow: auto;
+  border: 1px solid hsl(var(--border));
+  border-radius: 12px;
+  background: hsl(var(--card));
 }
 .dm-table {
   width: 100%;
-  border-collapse: collapse;
+  min-width: 720px;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 12px;
 }
 .dm-th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   text-align: left;
-  font-weight: 600;
+  font-weight: 700;
   color: hsl(var(--muted-foreground));
-  padding: 8px 6px;
+  padding: 10px 8px;
   border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--muted) / 0.45);
   white-space: nowrap;
 }
 .dm-th-check {
-  width: 32px;
-  padding: 8px 4px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  width: 36px;
+  padding: 10px 6px;
   border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--muted) / 0.45);
 }
 .dm-th-check input, .dm-td-check input {
   accent-color: hsl(var(--primary));
@@ -871,21 +986,23 @@ function confirmKeepOnlyDownloaded() {
   background: hsl(var(--primary) / 0.05);
 }
 .dm-td {
-  padding: 6px;
+  padding: 8px;
   border-bottom: 1px solid hsl(var(--border) / 0.5);
   color: hsl(var(--foreground));
   vertical-align: top;
   word-break: break-word;
+  line-height: 1.45;
 }
 .dm-td-check {
-  padding: 6px 4px;
+  padding: 8px 6px;
   border-bottom: 1px solid hsl(var(--border) / 0.5);
 }
 .dm-empty {
-  padding: 24px;
+  padding: 40px 24px;
   text-align: center;
   color: hsl(var(--muted-foreground));
-  font-size: 12px;
+  font-size: 13px;
+  background: hsl(var(--muted) / 0.18);
 }
 
 /* KV view */
@@ -952,14 +1069,14 @@ function confirmKeepOnlyDownloaded() {
   gap: 6px;
   padding: 7px 16px;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
   border-radius: 8px;
   border: none;
   background: hsl(var(--primary));
-  color: #fff;
+  color: hsl(var(--primary-foreground));
   cursor: pointer;
   flex-shrink: 0;
-  transition: opacity var(--duration-base) var(--ease-standard);
+  transition: opacity var(--duration-base) var(--ease-standard), transform var(--duration-quick) var(--ease-standard);
 }
 .dm-btn-keep:hover {
   opacity: 0.9;
@@ -1001,14 +1118,13 @@ function confirmKeepOnlyDownloaded() {
   backdrop-filter: blur(3px);
 }
 .dm-detail-card {
-  width: 500px;
-  max-width: 90vw;
-  max-height: 75vh;
+  width: min(620px, 92vw);
+  max-height: 78vh;
   display: flex;
   flex-direction: column;
   background: hsl(var(--card));
   border: 1px solid hsl(var(--border));
-  border-radius: 14px;
+  border-radius: 16px;
   box-shadow: 0 24px 64px hsl(0 0% 0% / 0.2);
   overflow: hidden;
 }
@@ -1060,5 +1176,28 @@ function confirmKeepOnlyDownloaded() {
   color: hsl(var(--foreground));
   word-break: break-all;
   line-height: 1.5;
+}
+@media (max-width: 760px) {
+  .dm-summary-grid,
+  .dm-grid {
+    grid-template-columns: 1fr;
+  }
+  .dm-card-main,
+  .dm-top-bar,
+  .dm-detail-field {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .dm-modal {
+    width: 96vw;
+    max-height: 90vh;
+  }
+  .dm-search-box {
+    max-width: none;
+    width: 100%;
+  }
+  .dm-detail-field-key {
+    flex-basis: auto;
+  }
 }
 </style>
