@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onActivated, onDeactivated, watch, inject, onUnmounted, nextTick } from 'vue'
 import { KeyRefreshCounts, KeyShowToast } from '../../inject-keys'
-import { storage, MARKETPLACE_TTL, WELL_KNOWN_TTL } from '../../utils/storage'
-import { parseGitHubUrl, fetchGitHubRepoTree, fetchGitHubFile, detectSkillDirectories, getRateLimitState } from '../../utils/github'
+import { storage, MARKETPLACE_TTL, WELL_KNOWN_TTL, GITHUB_TTL } from '../../utils/storage'
+import { parseGitHubUrl, fetchGitHubRepoTree, fetchGitHubFile, detectSkillDirectories } from '../../utils/github'
 import { parseFrontmatter } from '../../utils/frontmatter'
 import * as skillsSh from '../../utils/skills-sh'
 import { fetchWellKnownIndex } from '../../utils/well-known'
@@ -80,7 +80,6 @@ function loadLocalIcons() {
 
 const savedState = storage.getPageState('skill-store')
 const activePresetId = ref(savedState?.presetId || props.storeId)
-const fetchGitHubDesc = ref(savedState?.fetchGitHubDesc !== false)
 const currentSource = computed(() => storeSources.value.find(s => s.id === activePresetId.value))
 const showPickModal = ref(false)
 const pickSkills = ref<{ name: string; description: string; dir: string }[]>([])
@@ -111,7 +110,12 @@ const selectedSkill = ref<Skill | null>(null)
 const PAGE_SIZE = 60
 const visibleCount = ref(PAGE_SIZE)
 function ensureDescriptionObserver() {
-  if (activePresetId.value === 'skills-sh') nextTick(setupDescriptionObserver)
+  if (scrollObserver) { scrollObserver.disconnect(); scrollObserver = null }
+  if (activePresetId.value === 'skills-sh') {
+    nextTick(setupDescriptionObserver)
+  } else if (_githubRepoInfo.value) {
+    nextTick(setupGitHubDescriptionObserver)
+  }
 }
 
 function resetVisibleCount() { visibleCount.value = PAGE_SIZE; ensureDescriptionObserver() }
@@ -183,10 +187,14 @@ watch(storeSources, (list) => {
 let scrollObserver: IntersectionObserver | null = null
 const fetchedDescIds = ref<Set<string>>(new Set())
 const loadingDescIds = ref<Set<string>>(new Set())
+const failedDescIds = ref<Set<string>>(new Set())
+// GitHub 骨架卡片 -> manifest 文件路径，用于后台懒加载 description
+const githubManifestMap = new Map<string, string>()
+const _githubRepoInfo = ref<{ owner: string; repo: string; branch: string; presetId: string } | null>(null)
 
 function setupDescriptionObserver() {
   if (scrollObserver) { scrollObserver.disconnect(); scrollObserver = null }
-  if (!fetchGitHubDesc.value || activePresetId.value !== 'skills-sh') return
+  if (activePresetId.value !== 'skills-sh') return
   scrollObserver = new IntersectionObserver(async (entries) => {
     for (const entry of entries) {
       if (!entry.isIntersecting) continue
@@ -216,9 +224,90 @@ function setupDescriptionObserver() {
   })
 }
 
+function setupGitHubDescriptionObserver() {
+  if (scrollObserver) { scrollObserver.disconnect(); scrollObserver = null }
+  if (!_githubRepoInfo.value) return
+  scrollObserver = new IntersectionObserver(async (entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue
+      const skillId = entry.target.getAttribute('data-skill-id')
+      if (!skillId || fetchedDescIds.value.has(skillId)) continue
+      const skill = allEntries.value.find(s => s.id === skillId)
+      if (!skill) continue
+      if (skill.description) { fetchedDescIds.value = new Set([...fetchedDescIds.value, skillId]); continue }
+      loadingDescIds.value = new Set([...loadingDescIds.value, skillId])
+      try {
+        const manifestFile = githubManifestMap.get(skillId)
+        if (!manifestFile) { loadingDescIds.value = new Set([...loadingDescIds.value].filter(id => id !== skillId)); continue }
+        if (!_githubRepoInfo.value) { loadingDescIds.value = new Set([...loadingDescIds.value].filter(id => id !== skillId)); continue }
+        const { owner, repo, branch } = _githubRepoInfo.value
+        const tk = storage.getSettings().githubToken || undefined
+        const content = await fetchWithTimeout(
+          fetchGitHubFile(owner, repo, manifestFile, branch, tk), 20000
+        )
+        const fm = parseFrontmatter(content)
+        const dirName = skill.path === '.' ? repo : skill.path!.split('/').pop() || skill.path!
+        if (fm.name) skill.name = fm.name
+        skill.description = fm.description || ''
+        skill.author = fm.author || skill.author
+        skill.tags = fm.tags ? fm.tags.split(',').map((t) => t.trim()).filter(Boolean) : skill.tags
+        skill.readme = content
+        fetchedDescIds.value = new Set([...fetchedDescIds.value, skillId])
+        storage.saveGitHubSkills(activePresetId.value, allEntries.value.filter(s => s.description), allEntries.value.every(s => s.description))
+      } catch {
+        failedDescIds.value = new Set([...failedDescIds.value, skillId])
+        showToast('技能描述加载失败，点击卡片可重试', 'warning')
+      }
+      loadingDescIds.value = new Set([...loadingDescIds.value].filter(id => id !== skillId))
+      scrollObserver?.unobserve(entry.target)
+    }
+  }, { root: storeScrollRef.value, threshold: 0.1 })
+  nextTick(() => {
+    if (!scrollObserver) return
+    const container = storeScrollRef.value
+    if (!container) return
+    container.querySelectorAll('[data-skill-id]').forEach(el => scrollObserver?.observe(el))
+  })
+}
+
+async function retryDescription(skillId: string) {
+  if (!_githubRepoInfo.value) return
+  const skill = allEntries.value.find(s => s.id === skillId)
+  if (!skill) return
+  const manifestFile = githubManifestMap.get(skillId)
+  if (!manifestFile) return
+  const { owner, repo, branch } = _githubRepoInfo.value
+  const tk = storage.getSettings().githubToken || undefined
+
+  failedDescIds.value = new Set([...failedDescIds.value].filter(id => id !== skillId))
+  loadingDescIds.value = new Set([...loadingDescIds.value, skillId])
+
+  try {
+    const content = await fetchWithTimeout(fetchGitHubFile(owner, repo, manifestFile, branch, tk), 20000)
+    const fm = parseFrontmatter(content)
+    const dirName = skill.path === '.' ? repo : skill.path!.split('/').pop() || skill.path!
+    if (fm.name) skill.name = fm.name
+    skill.description = fm.description || ''
+    skill.author = fm.author || skill.author
+    skill.tags = fm.tags ? fm.tags.split(',').map((t) => t.trim()).filter(Boolean) : skill.tags
+    skill.readme = content
+    fetchedDescIds.value = new Set([...fetchedDescIds.value, skillId])
+    storage.saveGitHubSkills(activePresetId.value, allEntries.value.filter(s => s.description), allEntries.value.every(s => s.description))
+  } catch {
+    failedDescIds.value = new Set([...failedDescIds.value, skillId])
+    showToast('技能描述加载失败', 'warning')
+  }
+  loadingDescIds.value = new Set([...loadingDescIds.value].filter(id => id !== skillId))
+}
+
+function onCardClick(skill: Skill) {
+  if (failedDescIds.value.has(skill.id)) retryDescription(skill.id)
+  selectedSkill.value = skill
+}
+
 function onKeydown(e: KeyboardEvent) { if (e.key === 'Escape' && (searchActive.value || isLocalSearchActive.value)) { searchQuery.value = ''; exitSearch() } }
-onMounted(() => { downloadedIds.value = storage.getDownloadedIds(); fetchCurrentSkills(); loadLocalIcons(); window.addEventListener('keydown', onKeydown); window.addEventListener('resize', fillViewport) })
-onActivated(() => { downloadedIds.value = storage.getDownloadedIds(); if (props.storeId !== activePresetId.value) { activePresetId.value = props.storeId; storage.savePageState('skill-store', { presetId: props.storeId }); resetVisibleCount(); fetchCurrentSkills(); } else { exitSearch(); resetVisibleCount(); fetchCurrentSkills(); } window.addEventListener('keydown', onKeydown); window.addEventListener('resize', fillViewport); nextTick(fillViewport) })
+onMounted(() => { downloadedIds.value = storage.getDownloadedIds(); fetchCurrentSkills(); loadLocalIcons(); window.addEventListener('keydown', onKeydown); window.addEventListener('resize', fillViewport); storage.enrichDownloadedDescriptions() })
+onActivated(() => { downloadedIds.value = storage.getDownloadedIds(); storage.enrichDownloadedDescriptions(); if (props.storeId !== activePresetId.value) { activePresetId.value = props.storeId; storage.savePageState('skill-store', { presetId: props.storeId }); resetVisibleCount(); fetchCurrentSkills(); } else { exitSearch(); resetVisibleCount(); fetchCurrentSkills(); } window.addEventListener('keydown', onKeydown); window.addEventListener('resize', fillViewport); nextTick(fillViewport) })
 onDeactivated(() => { stopLoadingDots(); if (scrollObserver) { scrollObserver.disconnect(); scrollObserver = null } window.removeEventListener('keydown', onKeydown); window.removeEventListener('resize', fillViewport); if (searchDebounceTimer) { clearTimeout(searchDebounceTimer); searchDebounceTimer = null } })
 onUnmounted(() => { stopLoadingDots(); if (scrollObserver) { scrollObserver.disconnect(); scrollObserver = null } window.removeEventListener('keydown', onKeydown); window.removeEventListener('resize', fillViewport); if (searchDebounceTimer) { clearTimeout(searchDebounceTimer); searchDebounceTimer = null } })
 
@@ -243,7 +332,7 @@ function fetchCurrentSkills(force = false) {
     allEntries.value = []; totalCount.value = 0
     startLoadingDots()
     if (id === 'skills-sh') fetchSkillsSh()
-    else if (preset.url) fetchGitHubSkills(preset.url, preset.directory)
+    else if (preset.url) fetchGitHubSkills(preset.url, preset.directory, undefined, force)
     return
   }
   if (!custom) {
@@ -257,7 +346,7 @@ function fetchCurrentSkills(force = false) {
   }
   allEntries.value = []; totalCount.value = 0
   startLoadingDots()
-  if (custom.type === 'git-repo') fetchGitHubSkills(custom.url!, custom.directory, custom.branch)
+  if (custom.type === 'git-repo') fetchGitHubSkills(custom.url!, custom.directory, custom.branch, force)
   else if (custom.type === 'marketplace-json') fetchMarketplaceSkills(custom, force)
   else if (custom.type === 'well-known-index') fetchWellKnownIndexSkills(custom, force)
   else if (custom.type === 'local-dir') fetchLocalDirSkills(custom)
@@ -283,10 +372,20 @@ async function fetchSkillsSh() {
     const res = await skillsSh.fetchLeaderboard(leaderboardFilter.value)
     if (activePresetId.value !== presetId) return
     const skills = res.entries.map(skillsSh.leaderboardEntryToSkill)
-    const cachedMap = new Map(storage.getCachedSkills().map(s => [s.id, s]))
+    const ghSourceIds = [
+      ...presets.filter(p => p.url).map(p => p.id),
+      ...storage.getStoreSources().filter(s => s.type === 'git-repo').map(s => s.id),
+    ]
+    const cachedMap = new Map<string, Skill>()
+    for (const src of ghSourceIds) {
+      const gh = storage.getGitHubCache(src)
+      if (gh) gh.skills.forEach(s => {
+        if (s.description || s.shortDescription) cachedMap.set(s.id.toLowerCase(), s)
+      })
+    }
     skills.forEach(s => {
       s.storeSourceId = presetId
-      const cached = cachedMap.get(s.id)
+      const cached = cachedMap.get(s.id.toLowerCase())
       if (cached) {
         if (!s.description && cached.description) s.description = cached.description
         if (!s.shortDescription && cached.shortDescription) s.shortDescription = cached.shortDescription
@@ -314,54 +413,82 @@ function onModalImported() { downloadedIds.value = storage.getDownloadedIds(); s
 
 
 
-async function fetchGitHubSkills(url: string, directory?: string, branch?: string) {
+// 受限并发池：持续投喂，避免"等一批再下一批"的串行等待
+
+
+async function fetchGitHubSkills(url: string, directory?: string, branch?: string, force = false) {
   const presetId = activePresetId.value
-  loading.value = true; error.value = ''; allEntries.value = []; totalCount.value = 0; sourceSkills.value = []
+  error.value = ''
+  const info = parseGitHubUrl(url)
+  if (!info) { error.value = 'Invalid GitHub URL'; loading.value = false; stopLoadingDots(); return }
+  const repoKey = `${info.owner}/${info.repo}`
+  const effectiveBranch = branch || info.defaultBranch
+
+  // 1) stale-while-revalidate：先秒显缓存的卡片
+  const cached = storage.getGitHubCache(presetId)
+  let hasFreshCache = false
+  if (cached && cached.skills.length) {
+    cached.skills.forEach(s => s.storeSourceId = presetId)
+    allEntries.value = cached.skills
+    sourceSkills.value = cached.skills
+    totalCount.value = cached.skills.length
+    skillsCache.value[presetId] = cached.skills
+    totalCountCache.value[presetId] = cached.skills.length
+    loading.value = false; stopLoadingDots()
+    hasFreshCache = Date.now() - cached.fetchedAt < GITHUB_TTL
+    // 仅当缓存新鲜且描述已全部加载完整时才跳过后台请求；
+    // 若缓存不完整（懒加载未跑完就重启），需继续抓取以重建懒加载机制补齐描述
+    if (hasFreshCache && cached.complete && !force) return
+  } else {
+    allEntries.value = []; totalCount.value = 0; sourceSkills.value = []
+    loading.value = true; startLoadingDots()
+  }
+
   try {
-    const info = parseGitHubUrl(url)
-    if (!info) { error.value = 'Invalid GitHub URL'; loading.value = false; stopLoadingDots(); return }
-    const effectiveBranch = branch || info.defaultBranch
     const token = storage.getSettings().githubToken || undefined
     const tree = await fetchGitHubRepoTree(info.owner, info.repo, effectiveBranch, token)
     if (activePresetId.value !== presetId) return
-    const dirPrefix = directory ? `${directory}/` : ''
     const skillDirs = detectSkillDirectories(tree).filter(
       (sd) => directory ? sd.dir === directory || sd.dir.startsWith(directory + '/') : true
     )
-    totalCount.value = skillDirs.length
+
+    // 2) 骨架首屏：用目录名 + 已缓存描述立即渲染所有卡片，不等 SKILL.md
+    const cachedMap = new Map((cached?.skills || []).map(s => [s.id, s]))
+    githubManifestMap.clear()
+    const skeletons: Skill[] = skillDirs.map((sd) => {
+      const dirName = sd.dir === '.' ? info.repo : sd.dir.split('/').pop() || sd.dir
+      const id = `${repoKey}/${dirName}`
+      githubManifestMap.set(id, sd.manifestFile)
+      const prev = cachedMap.get(id)
+      const builtinCategory = lookupBuiltinCategory(repoKey, dirName)
+      return {
+        id, name: prev?.name || dirName, description: prev?.description || '',
+        author: prev?.author || '', tags: prev?.tags || [],
+        source: 'github', sourceUrl: `https://github.com/${repoKey}`, repo: repoKey,
+        path: sd.dir, category: prev?.category || builtinCategory || inferCategory(dirName, ''),
+        iconUrl: lookupBuiltinIcon(repoKey, dirName), readme: prev?.readme,
+        storeSourceId: presetId, branch: effectiveBranch,
+      } as Skill
+    })
+    if (activePresetId.value !== presetId) return
+    allEntries.value = skeletons
+    sourceSkills.value = skeletons
+    totalCount.value = skeletons.length
     loading.value = false; stopLoadingDots()
-    for (let i = 0; i < skillDirs.length; ) {
-      if (activePresetId.value !== presetId) { return }
-      const { remaining } = getRateLimitState()
-      const batchSize = remaining > 100 ? 8 : remaining > 30 ? 4 : remaining > 10 ? 2 : 1
-      const batch = skillDirs.slice(i, i + batchSize)
-      const results = await Promise.allSettled(batch.map(async (sd) => {
-        const token = storage.getSettings().githubToken || undefined
-        const content = await fetchWithTimeout(fetchGitHubFile(info.owner, info.repo, sd.manifestFile, effectiveBranch, token), 10000)
-        const fm = parseFrontmatter(content)
-        const dirName = sd.dir === '.' ? info.repo : sd.dir.split('/').pop() || sd.dir
-        const tags = fm.tags ? fm.tags.split(',').map((t) => t.trim()).filter(Boolean) : []
-        const builtinCategory = lookupBuiltinCategory(`${info.owner}/${info.repo}`, dirName)
-        const category = builtinCategory || inferCategory(dirName, fm.description || '')
-        const iconUrl = lookupBuiltinIcon(`${info.owner}/${info.repo}`, dirName)
-        const skill: Skill = { id: `${info.owner}/${info.repo}/${dirName}`, name: fm.name || dirName, description: fm.description || '', author: fm.author || '', tags, source: 'github', sourceUrl: `https://github.com/${info.owner}/${info.repo}`, repo: `${info.owner}/${info.repo}`, path: sd.dir, category, iconUrl, readme: content, storeSourceId: presetId, branch: effectiveBranch }
-        return skill
-      }))
-      if (activePresetId.value !== presetId) { return }
-      const seen = new Map(allEntries.value.map(s => [s.id, s]))
-      for (const r of results) {
-        if (r.status === 'fulfilled' && !seen.has(r.value.id)) {
-          seen.set(r.value.id, r.value)
-        }
-      }
-      allEntries.value = Array.from(seen.values())
-      sourceSkills.value = allEntries.value
-      i += batchSize
-    }
-    if (activePresetId.value !== presetId) { return }
-    skillsCache.value[presetId] = allEntries.value; totalCountCache.value[presetId] = allEntries.value.length
-    storage.saveCachedSkills(allEntries.value)
-  } catch (err: any) { error.value = err.message; loading.value = false; stopLoadingDots() }
+    // 3) 设置 IntersectionObserver，滚动到视口内时按需加载描述
+    _githubRepoInfo.value = { owner: info.owner, repo: info.repo, branch: effectiveBranch, presetId }
+    const pending = skeletons.filter(s => !s.description)
+    pending.forEach(s => { loadingDescIds.value = new Set([...loadingDescIds.value, s.id]) })
+
+    // 只保存有描述的 skill 到缓存，避免空描述的 skeleton 被持久化；
+    // pending 为空说明描述已全部就绪，标记缓存完整
+    storage.saveGitHubSkills(presetId, skeletons.filter(s => s.description), pending.length === 0)
+
+    if (pending.length > 0) nextTick(setupGitHubDescriptionObserver)
+  } catch (err: any) {
+    if (!hasFreshCache && !allEntries.value.length) error.value = err.message
+    loading.value = false; stopLoadingDots()
+  }
 }
 
 function applyWellKnownIndexSkills(skills: Skill[], presetId: string) {
@@ -580,7 +707,10 @@ const importedSkills = computed(() => {
       if (!ids.has(s.id)) continue
       const cs = cachedMap.get(s.id)
       if (!cs || cs.storeSourceId !== activePresetId.value) continue
-      idMap.set(s.id, s)
+      const merged = cs && !s.description && cs.description
+        ? { ...s, description: cs.description }
+        : s
+      idMap.set(s.id, merged)
     }
   }
   for (const s of cached) {
@@ -661,7 +791,6 @@ async function onSearch() {
 }
 
 async function fetchSearchDescriptions(skills: Skill[]) {
-  if (!fetchGitHubDesc.value) return
   const promises = skills
     .filter(skill => !(skill.description || skill.shortDescription) && !fetchedDescIds.value.has(skill.id))
     .map(async (skill) => {
@@ -1076,12 +1205,7 @@ function confirmDeleteStore() {
               </svg>
             </button>
           </div>
-          <button class="toolbar-icon-btn" :class="{ active: fetchGitHubDesc }" @click="fetchGitHubDesc = !fetchGitHubDesc; storage.savePageState('skill-store', { presetId: activePresetId, fetchGitHubDesc: fetchGitHubDesc }); if (fetchGitHubDesc && activePresetId === 'skills-sh') setupDescriptionObserver(); else if (scrollObserver) { scrollObserver.disconnect(); scrollObserver = null }" :title="fetchGitHubDesc ? 'GitHub 描述：已开启' : 'GitHub 描述：已关闭'">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/>
-              <path d="m9 12 2 2 4-4"/>
-            </svg>
-          </button>
+
           <button class="toolbar-icon-btn" :disabled="loading" @click="fetchCurrentSkills(true)" title="刷新">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
@@ -1187,10 +1311,11 @@ function confirmDeleteStore() {
               :description="skill.description"
               :short-description="skill.shortDescription"
               :loading-description="loadingDescIds.has(skill.id)"
+              :description-error="failedDescIds.has(skill.id)"
               :avatar-icon="skill.iconUrl"
               :source-tag="currentSource ? { label: currentSource.label || getActivePreset()?.name || '', icon: currentSource.icon || '', color: 'hsl(var(--primary))', bg: 'hsl(var(--primary) / 0.1)' } : null"
               :extra-source-tag="isWellKnownSkill(skill) ? { label: 'Web', color: 'hsl(150 50% 30%)', bg: 'hsl(150 40% 92%)' } : skill.repo ? { label: 'Git', color: 'hsl(210 50% 35%)', bg: 'hsl(210 40% 92%)' } : null"
-              @click="selectedSkill = skill"
+              @click="onCardClick(skill)"
             >
               <template #actions>
                 <a v-if="getSkillUrl(skill)" :href="getSkillUrl(skill)" target="_blank" class="card-action-btn" title="打开链接" @click.stop>
@@ -1230,11 +1355,11 @@ function confirmDeleteStore() {
               :name="skill.name"
               :description="skill.description"
               :short-description="skill.shortDescription"
-
+              :description-error="failedDescIds.has(skill.id)"
               :avatar-icon="skill.iconUrl"
               :source-tag="currentSource ? { label: currentSource.label || getActivePreset()?.name || '', icon: currentSource.icon || '', color: 'hsl(var(--primary))', bg: 'hsl(var(--primary) / 0.1)' } : null"
               :extra-source-tag="isWellKnownSkill(skill) ? { label: 'Web', color: 'hsl(150 50% 30%)', bg: 'hsl(150 40% 92%)' } : skill.repo ? { label: 'Git', color: 'hsl(210 50% 35%)', bg: 'hsl(210 40% 92%)' } : null"
-              @click="selectedSkill = skill"
+              @click="onCardClick(skill)"
             >
               <template #actions>
                 <a v-if="getSkillUrl(skill)" :href="getSkillUrl(skill)" target="_blank" class="card-action-btn" title="打开链接" @click.stop>
@@ -1265,12 +1390,12 @@ function confirmDeleteStore() {
               :description="skill.description"
               :short-description="skill.shortDescription"
               :loading-description="loadingDescIds.has(skill.id)"
-
+              :description-error="failedDescIds.has(skill.id)"
               :avatar-icon="skill.iconUrl"
               :show-chinese-tag="isChineseContent(skill.description || '')"
               :show-translated-tag="getLanguageTags(skill).showTranslatedTag"
               :source-tag="currentSource ? { label: currentSource.label || getActivePreset()?.name || '', icon: currentSource.icon || '', color: 'hsl(142 50% 35%)', bg: 'hsl(142 50% 50% / 0.25)' } : null"
-              @click="selectedSkill = skill"
+              @click="onCardClick(skill)"
             >
               <template #actions>
                 <a v-if="getSkillUrl(skill)" :href="getSkillUrl(skill)" target="_blank" class="card-action-btn" title="打开链接" @click.stop>
@@ -1308,10 +1433,11 @@ function confirmDeleteStore() {
               :description="skill.description"
               :short-description="skill.shortDescription"
               :loading-description="loadingDescIds.has(skill.id)"
+              :description-error="failedDescIds.has(skill.id)"
               :avatar-icon="skill.iconUrl"
               :source-tag="currentSource ? { label: currentSource.label || getActivePreset()?.name || '', icon: currentSource.icon || '', color: 'hsl(var(--primary))', bg: 'hsl(var(--primary) / 0.1)' } : null"
               :extra-source-tag="isWellKnownSkill(skill) ? { label: 'Web', color: 'hsl(150 50% 30%)', bg: 'hsl(150 40% 92%)' } : skill.repo ? { label: 'Git', color: 'hsl(210 50% 35%)', bg: 'hsl(210 40% 92%)' } : null"
-              @click="selectedSkill = skill"
+              @click="onCardClick(skill)"
             >
               <template #actions>
                 <a v-if="getSkillUrl(skill)" :href="getSkillUrl(skill)" target="_blank" class="card-action-btn" title="打开链接" @click.stop>

@@ -644,9 +644,7 @@ watch(activeTab, () => {
               <div class="col-time">{{ record.status === 'running' ? formatQueueTime(new Date(record.downloadedAt).getTime()) : formatTime(record.downloadedAt) }}</div>
             </div>
           </div>
-          <div v-if="queue.some(i => i.status === 'success' || i.status === 'error')" class="clear-bar">
-            <button class="clear-btn" @click="clearCompleted">清除已完成</button>
-          </div>
+
         </template>
       </div>
 
@@ -718,7 +716,6 @@ watch(activeTab, () => {
         <div v-if="hasStuckItems" class="stuck-bar">
           <span class="stuck-bar-text">{{ translationQueue.length }} 项翻译在队列中</span>
           <button class="resume-all-btn" @click="resumeAllStuck">继续全部</button>
-          <button class="clear-all-stuck-btn" @click="clearAll">清除全部</button>
         </div>
         <div v-if="translationsTotal === 0" class="empty">
           <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color: hsl(var(--muted-foreground) / 0.4)">
@@ -778,9 +775,6 @@ watch(activeTab, () => {
                 <template v-else>
                   <button class="stuck-resume-btn" @click.stop="resumeTranslation(item)" title="继续翻译">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                  </button>
-                  <button class="stuck-clear-btn" @click.stop="clearStuckItem(item)" title="清除">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                   </button>
                 </template>
               </div>
@@ -850,9 +844,7 @@ watch(activeTab, () => {
               </div>
             </div>
           </div>
-          <div v-if="failuresTotal > 0" class="clear-bar">
-            <button class="clear-btn" @click="clearAllFailureRecords">清除所有失败记录</button>
-          </div>
+
         </template>
       </div>
     </div>

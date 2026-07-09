@@ -69,6 +69,30 @@ const buckets: BucketDef[] = [
     filterKey: 'source', filterLabel: '来源',
   },
   {
+    key: 'github_cache', label: 'GitHub 缓存',
+    getData: () => {
+      const all = storage.getAllGitHubCaches()
+      const rows: any[] = []
+      for (const [sourceId, cache] of Object.entries(all)) {
+        for (const skill of cache.skills) {
+          rows.push({ ...skill, _source: sourceId, _fetchedAt: new Date(cache.fetchedAt).toLocaleString() })
+        }
+      }
+      return rows
+    },
+    viewType: 'table',
+    groupKey: '_source', groupLabel: '源',
+    columns: [
+      { key: '_source', label: '源', width: '100px' },
+      { key: 'name', label: '名称', width: 'minmax(100px,1fr)' },
+      { key: 'description', label: '描述', width: 'minmax(120px,2fr)', render: (v: string) => v?.slice(0, 80) || '暂无描述' },
+      { key: 'author', label: '作者', width: '100px' },
+      { key: 'tags', label: '标签', width: '120px', render: (v: string[]) => v?.join(', ') || '' },
+      { key: '_fetchedAt', label: '缓存时间', width: '140px' },
+    ],
+    filterKey: '_source', filterLabel: '源',
+  },
+  {
     key: 'install_records', label: '安装记录',
     getData: () => storage.getInstallRecords(),
     viewType: 'table',
@@ -83,13 +107,19 @@ const buckets: BucketDef[] = [
     key: 'downloaded_ids', label: '已下载 ID',
     getData: () => storage.getDownloadedIds(),
     viewType: 'table',
-    columns: [{ key: 'id', label: '序号', width: '1fr', render: (_v: any, _row: any, i?: number) => `#${(i ?? 0) + 1} (${typeof _v === 'string' ? _v : JSON.stringify(_v)})` }],
+    columns: [
+      { key: 'index', label: '序号', width: '60px', render: (_v: any, _row: any, i?: number) => `#${(i ?? 0) + 1}` },
+      { key: 'value', label: 'ID', width: '1fr' }
+    ],
   },
   {
     key: 'favorite_ids', label: '收藏 ID',
     getData: () => storage.getFavoriteIds(),
     viewType: 'table',
-    columns: [{ key: 'id', label: '序号', width: '1fr', render: (_v: any, _row: any, i?: number) => `#${(i ?? 0) + 1} (${typeof _v === 'string' ? _v : JSON.stringify(_v)})` }],
+    columns: [
+      { key: 'index', label: '序号', width: '60px', render: (_v: any, _row: any, i?: number) => `#${(i ?? 0) + 1}` },
+      { key: 'value', label: 'ID', width: '1fr' }
+    ],
   },
   {
     key: 'store_sources', label: '商店源',
@@ -161,28 +191,6 @@ function getCountInfo(bucket: BucketDef): string {
   return `${data}`
 }
 
-function getNestedSummary(bucket: BucketDef): { topLabel: string; groups: { key: string; count: number }[] }[] {
-  if (bucket.key === 'cached_skills') {
-    const data = bucket.getData() as Skill[]
-    if (!data.length) return []
-    const bySource = groupBy(data, s => s.source || '未知')
-    const result: { topLabel: string; groups: { key: string; count: number }[] }[] = []
-    for (const s of bySource) {
-      if (s.key === 'marketplace-json') {
-        const subGroups = groupBy(data.filter(d => d.source === 'marketplace-json'), d => d.storeSourceId || '未知')
-        result.push({ topLabel: s.key, groups: subGroups })
-      } else if (s.key === 'well-known-index') {
-        const subGroups = groupBy(data.filter(d => d.source === 'well-known-index'), d => d.storeSourceId || '未知')
-        result.push({ topLabel: s.key, groups: subGroups })
-      } else {
-        result.push({ topLabel: s.key, groups: [{ key: '', count: s.count }] })
-      }
-    }
-    return result
-  }
-  return []
-}
-
 // ===== Modal state =====
 const modalBucket = ref<BucketDef | null>(null)
 const showJsonModal = ref(false)
@@ -213,6 +221,12 @@ const tableData = computed(() => {
   if (!bucket) return []
   const data = bucket.getData()
   if (!Array.isArray(data)) return Object.entries(data || {}).map(([k, v]) => ({ key: k, value: v }))
+  
+  // 处理原始值数组（如字符串数组）
+  if (data.length > 0 && typeof data[0] !== 'object') {
+    return data.map((item: any, index: number) => ({ index, value: item }))
+  }
+  
   let items = data as any[]
   if (bucket.filterKey && tableFilter.value !== 'all') {
     items = items.filter((item: any) => (item[bucket.filterKey!] || '') === tableFilter.value)
@@ -233,6 +247,15 @@ const tableColumnDefs = computed<ColumnDef[]>(() => {
   if (bucket.columns?.length) return bucket.columns as any
   const data = bucket.getData()
   if (!Array.isArray(data) || data.length === 0) return []
+  
+  // 如果数据是原始值数组，返回默认列配置
+  if (data.length > 0 && typeof data[0] !== 'object') {
+    return [
+      { key: 'index', label: '序号', width: '60px' },
+      { key: 'value', label: '值', width: '1fr' }
+    ]
+  }
+  
   return Object.keys(data[0]).map(k => ({ key: k, label: k, width: 'minmax(80px,1fr)' }))
 })
 
@@ -264,6 +287,29 @@ function deleteSelectedItems() {
   if (!Array.isArray(allData)) return
 
   const indices = Array.from(tableSelected.value).sort((a, b) => b - a)
+  const count = indices.length
+
+  const labels: Record<string, string> = {
+    cached_skills: '缓存技能',
+    github_cache: 'GitHub 缓存',
+    install_records: '安装记录',
+    failure_records: '失败记录',
+    downloaded_ids: '已下载 ID',
+  }
+  const label = labels[bucket.key] || bucket.label
+
+  confirmDelete.value = {
+    title: `删除 ${label}`,
+    message: `确定要删除选中的 <strong>${count}</strong> 条记录吗？此操作不可撤销。`,
+    onConfirm: () => {
+      doDelete(bucket, indices)
+      confirmDelete.value = null
+    },
+  }
+}
+
+function doDelete(bucket: BucketDef, indices: number[]) {
+  const allData = bucket.getData()
   if (bucket.key === 'cached_skills') {
     const idsToRemove = indices.map(i => (tableData.value[i] as Skill).id)
     const remaining = (allData as Skill[]).filter(s => !idsToRemove.includes(s.id))
@@ -278,6 +324,22 @@ function deleteSelectedItems() {
     for (const i of indices) {
       storage.removeFailureRecord(records[i].id)
     }
+  } else if (bucket.key === 'github_cache') {
+    const rows = tableData.value
+    const toRemove: Record<string, string[]> = {}
+    for (const i of indices) {
+      const row = rows[i]
+      const src = row._source
+      if (!toRemove[src]) toRemove[src] = []
+      toRemove[src].push(row.id)
+    }
+    for (const [src, ids] of Object.entries(toRemove)) {
+      storage.clearGitHubCacheSkills(src, ids)
+    }
+  } else if (bucket.key === 'downloaded_ids') {
+    for (const i of indices) {
+      storage.removeDownloadedId(tableData.value[i].value)
+    }
   }
   tableSelected.value = new Set()
   // Force reactive update
@@ -285,7 +347,7 @@ function deleteSelectedItems() {
   refreshSummary()
 }
 
-const manageableBucketKeys = ['cached_skills','install_records','failure_records','downloaded_ids','translations','desc_translations']
+const manageableBucketKeys = ['cached_skills','github_cache','install_records','failure_records','downloaded_ids','translations','desc_translations']
 
 const dataSummary = computed(() => {
   summaryVersion.value
@@ -304,6 +366,18 @@ const dataSummary = computed(() => {
 
 const summaryVersion = ref(0)
 function refreshSummary() { summaryVersion.value++ }
+
+const cleanupMessage = ref('')
+function cleanupOrphanedIds() {
+  const removed = storage.cleanOrphanedDownloadedIds()
+  if (removed > 0) {
+    cleanupMessage.value = `已清理 ${removed} 个孤儿 ID`
+    refreshSummary()
+  } else {
+    cleanupMessage.value = '没有需要清理的孤儿 ID'
+  }
+  setTimeout(() => cleanupMessage.value = '', 3000)
+}
 
 // ===== Cleanup by source =====
 function confirmCleanupBySource(source: string) {
@@ -347,6 +421,8 @@ function confirmClearAll(bucket: BucketDef) {
         for (const r of records) storage.removeInstallRecord(r.skillId, r.platformId)
       } else if (bucket.key === 'failure_records') {
         storage.clearFailureRecords()
+      } else if (bucket.key === 'github_cache') {
+        storage.clearAllGitHubCaches()
       } else if (bucket.key === 'downloaded_ids') {
         storage.getDownloadedIds().forEach(id => storage.removeDownloadedId(id))
       } else if (bucket.key === 'translations') {
@@ -384,68 +460,65 @@ function confirmKeepOnlyDownloaded() {
 
 <template>
   <div class="settings-scroll">
-    <div class="dm-hero">
-      <div>
-        <h1 class="settings-page-title">数据管理</h1>
-        <p class="settings-page-desc">查看和管理本地缓存的应用数据</p>
-      </div>
-      <div class="dm-summary-grid">
-        <div v-for="item in dataSummary" :key="item.label" class="dm-summary-card">
-          <span class="dm-summary-label">{{ item.label }}</span>
-          <strong class="dm-summary-value">{{ item.value }}</strong>
-          <span class="dm-summary-hint">{{ item.hint }}</span>
+    <h1 class="settings-page-title">数据管理</h1>
+    <p class="settings-page-desc">查看和管理本地缓存的应用数据</p>
+
+    <!-- Summary -->
+    <div class="setting-section">
+      <h3 class="setting-section-title">数据概览</h3>
+      <div class="setting-card">
+        <div class="setting-row" v-for="item in dataSummary" :key="item.label">
+          <div class="setting-row-info">
+            <div class="setting-row-label">{{ item.label }}</div>
+            <div class="setting-row-desc">{{ item.hint }}</div>
+          </div>
+          <span class="dm-stat-value">{{ item.value }}</span>
         </div>
       </div>
     </div>
 
+    <!-- Buckets -->
     <div class="setting-section">
       <h3 class="setting-section-title">缓存数据一览</h3>
-      <div class="dm-grid">
+      <div class="setting-card">
         <div
           v-for="bucket in buckets"
           :key="`${bucket.key}-${summaryVersion}`"
-          class="dm-card"
+          class="setting-row"
         >
-          <div class="dm-card-main">
-            <div class="dm-card-info">
-              <div class="dm-card-label-row">
-                <span class="dm-card-label">{{ bucket.label }}</span>
-                <span class="dm-card-count">{{ getCountInfo(bucket) }}</span>
-                <span class="dm-card-size">{{ estimateSize(bucket.getData()) }}</span>
-              </div>
-
-              <!-- Nested summary for cached_skills -->
-              <div v-if="bucket.key === 'cached_skills'" class="dm-nested-summary">
-                <div v-for="sg in getNestedSummary(bucket)" :key="sg.topLabel" class="dm-ns-group">
-                  <span class="dm-ns-top">{{ sg.topLabel }}: {{ sg.groups.reduce((sum, g) => sum + g.count, 0) }}</span>
-                  <div v-if="sg.groups.length > 1" class="dm-ns-subs">
-                    <span v-for="g in sg.groups" :key="g.key" class="dm-ns-sub">
-                      {{ g.key || '(无来源)' }}: {{ g.count }}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Flat summary for others -->
-              <div v-else class="dm-flat-summary">
-                <div v-for="sg in getSummary(bucket)" :key="sg.label" class="dm-flat-item">
-                  {{ sg.label }}: {{ sg.count }}
-                </div>
-              </div>
+          <div class="setting-row-info">
+            <div class="setting-row-label">{{ bucket.label }}</div>
+            <div class="setting-row-desc">
+              {{ getCountInfo(bucket) }} 条 · {{ estimateSize(bucket.getData()) }}
             </div>
 
-            <div class="dm-card-actions">
-              <button class="dm-btn" @click="openModal(bucket)">查看</button>
-              <button
-                v-if="manageableBucketKeys.includes(bucket.key)"
-                class="dm-btn dm-btn-danger"
-                @click="confirmClearAll(bucket)"
-              >清空</button>
-            </div>
+
+          </div>
+
+          <div class="dm-row-actions">
+            <button class="btn" @click="openModal(bucket)">查看</button>
+            <button
+              v-if="bucket.key === 'downloaded_ids'"
+              class="btn"
+              @click="cleanupOrphanedIds"
+            >清理孤儿ID</button>
+            <button
+              v-if="manageableBucketKeys.includes(bucket.key)"
+              class="btn btn-danger"
+              @click="confirmClearAll(bucket)"
+            >清空</button>
           </div>
         </div>
       </div>
     </div>
+
+    <!-- Cleanup message -->
+    <Teleport to="body">
+      <div v-if="cleanupMessage" class="dm-cleanup-toast">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        <span>{{ cleanupMessage }}</span>
+      </div>
+    </Teleport>
 
     <!-- ===== Modal (table / json / kv) ===== -->
     <Teleport to="body">
@@ -457,7 +530,6 @@ function confirmKeepOnlyDownloaded() {
               <p class="dm-modal-subtitle">{{ tableData.length }} 条记录 · {{ estimateSize(modalBucket.getData()) }}</p>
             </div>
             <div class="dm-modal-header-btn">
-              <!-- Source-level cleanup for cached_skills -->
               <button class="dm-btn-close" @click="closeModal">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
@@ -465,64 +537,45 @@ function confirmKeepOnlyDownloaded() {
           </div>
 
           <div class="dm-modal-body">
-            <!-- Keep-only-downloaded (top action bar) -->
-            <div v-if="modalBucket.key === 'cached_skills'" class="dm-top-bar">
-              <div class="dm-top-bar-info">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-                非已下载技能将从缓存中移除，仅保留<strong>{{ storage.getCachedSkills().filter(s => storage.isDownloaded(s.id)).length }}</strong> 个已下载技能
-              </div>
-              <button class="dm-btn dm-btn-keep" @click="confirmKeepOnlyDownloaded">
-                保留我的 Skill
-              </button>
-            </div>
-
             <!-- Table view -->
             <template v-if="modalBucket.viewType === 'table'">
-              <!-- Filter bar -->
-              <div v-if="filterOptions.length > 0 || modalBucket.key === 'cached_skills'" class="dm-filter-bar">
-                <select v-if="filterOptions.length > 0" v-model="tableFilter" class="dm-select">
-                  <option value="all">全部{{ modalBucket.filterLabel ? ` ${modalBucket.filterLabel}` : '' }}</option>
-                  <option v-for="opt in filterOptions" :key="opt" :value="opt">{{ opt }}</option>
-                </select>
-                <div class="dm-search-box">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                  <input v-model="tableSearch" type="text" placeholder="搜索..." class="dm-search-input" />
+              <!-- Fixed toolbar -->
+              <div class="dm-toolbar">
+                <!-- Filter bar -->
+                <div v-if="filterOptions.length > 0 || modalBucket.key === 'cached_skills'" class="dm-filter-row">
+                  <select v-if="filterOptions.length > 0" v-model="tableFilter" class="dm-select">
+                    <option value="all">全部{{ modalBucket.filterLabel ? ` ${modalBucket.filterLabel}` : '' }}</option>
+                    <option v-for="opt in filterOptions" :key="opt" :value="opt">{{ opt }}</option>
+                  </select>
+                  <div class="dm-search-box">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    <input v-model="tableSearch" type="text" placeholder="搜索..." class="dm-search-input" />
+                  </div>
+                  <span class="dm-filter-spacer"></span>
+                  <button
+                    v-if="modalBucket.key === 'cached_skills'"
+                    class="btn btn-primary"
+                    @click="confirmKeepOnlyDownloaded"
+                  >保留我的 Skill</button>
                 </div>
-                <!-- StoreSource cleanup in filter -->
-                <template v-if="modalBucket.key === 'cached_skills'">
-                  <span class="dm-filter-sep">|</span>
+                <!-- Batch actions -->
+                <div class="dm-batch-row">
+                  <label class="dm-batch-check">
+                    <input type="checkbox" :checked="allSelected" @change="toggleAll" />
+                    全选
+                  </label>
+                  <span class="dm-batch-info">已选 {{ tableSelected.size }} / {{ tableData.length }}</span>
+                  <span class="dm-batch-spacer"></span>
                   <button
-                    v-for="sg in getNestedSummary(({ key: 'cached_skills', getData: () => storage.getCachedSkills() }) as BucketDef).find(s => s.topLabel === 'marketplace-json')?.groups || []"
-                    :key="sg.key"
-                    class="dm-btn dm-btn-sm"
-                    :title="`清理 ${sg.key} 的缓存`"
-                    @click="confirmCleanupByStoreSource(sg.key)"
-                  >{{ sg.key?.replace(/^[^-]+-/, '') || '?' }}: {{ sg.count }}</button>
-                  <button
-                    v-for="sg in getNestedSummary(({ key: 'cached_skills', getData: () => storage.getCachedSkills() }) as BucketDef).find(s => s.topLabel === 'well-known-index')?.groups || []"
-                    :key="sg.key"
-                    class="dm-btn dm-btn-sm"
-                    :title="`清理 ${sg.key} 的缓存`"
-                    @click="confirmCleanupByStoreSource(sg.key)"
-                  >{{ sg.key?.replace(/^[^-]+-/, '') || '?' }}: {{ sg.count }}</button>
-                </template>
-              </div>
-              <!-- Batch actions -->
-              <div v-if="tableData.length > 0" class="dm-batch-bar">
-                <label class="dm-batch-check">
-                  <input type="checkbox" :checked="allSelected" @change="toggleAll" />
-                  全选
-                </label>
-                <span class="dm-batch-info">已选 {{ tableSelected.size }} / {{ tableData.length }}</span>
-                <button
-                  v-if="tableSelected.size > 0"
-                  class="dm-btn dm-btn-danger dm-btn-sm"
-                  @click="deleteSelectedItems"
-                >删除选中</button>
+                    class="btn btn-danger btn-sm"
+                    :class="{ 'dm-btn-visible': tableSelected.size > 0 }"
+                    @click="deleteSelectedItems"
+                  >删除选中</button>
+                </div>
               </div>
 
-              <!-- Table -->
-              <div class="dm-table-wrap">
+              <!-- Scrollable table -->
+              <div class="dm-table-scroll">
                 <table class="dm-table">
                   <thead>
                     <tr>
@@ -612,193 +665,69 @@ function confirmKeepOnlyDownloaded() {
 </template>
 
 <style scoped>
-.dm-hero {
-  margin-bottom: 24px;
-}
-.dm-summary-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 16px;
-}
-.dm-summary-card {
-  padding: 12px 14px;
-  border: 1px solid hsl(var(--border));
-  border-radius: 14px;
-  background: linear-gradient(180deg, hsl(var(--card)), hsl(var(--muted) / 0.28));
-  box-shadow: var(--shadow-sm);
-}
-.dm-summary-label,
-.dm-summary-hint {
-  display: block;
-  font-size: 11px;
-  color: hsl(var(--muted-foreground));
-}
-.dm-summary-value {
-  display: block;
-  margin: 4px 0 2px;
-  font-size: 22px;
-  line-height: 1;
-  color: hsl(var(--foreground));
-  font-variant-numeric: tabular-nums;
-}
-.dm-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 12px;
-}
-.dm-card {
-  min-height: 132px;
-  padding: 16px;
-  border: 1px solid hsl(var(--border));
-  border-radius: 16px;
-  background: hsl(var(--card));
-  box-shadow: var(--shadow-sm);
-  transition: border-color var(--duration-base) var(--ease-standard), transform var(--duration-base) var(--ease-standard), box-shadow var(--duration-base) var(--ease-standard);
-}
-.dm-card:hover {
-  border-color: hsl(var(--ring) / 0.35);
-  box-shadow: var(--shadow);
-  transform: translateY(-1px);
-}
-.dm-card-main {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  gap: 14px;
-}
-.dm-card-info {
-  flex: 1;
-  min-width: 0;
-}
-.dm-card-label-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: start;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-.dm-card-label {
-  font-size: 14px;
+/* 共享的 settings 基础样式（标题/卡片/行/按钮）统一使用全局 src/styles/settings.css，
+   此处只保留数据管理特有的 dm-* 样式。 */
+
+/* Stat value (right side of summary rows) */
+.dm-stat-value {
+  font-size: 13px;
   font-weight: 700;
   color: hsl(var(--foreground));
-}
-.dm-card-count {
-  grid-row: span 2;
-  font-size: 24px;
-  line-height: 1;
-  font-weight: 800;
-  color: hsl(var(--primary));
   font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
 }
-.dm-card-size {
-  font-size: 11px;
-  color: hsl(var(--muted-foreground));
-}
-.dm-nested-summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 4px;
-}
-.dm-ns-group {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.dm-ns-top {
-  font-size: 11px;
-  font-weight: 600;
-  color: hsl(var(--foreground));
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: hsl(var(--muted));
-  white-space: nowrap;
-}
-.dm-ns-subs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 3px;
-  margin-left: 4px;
-}
-.dm-ns-sub {
-  font-size: 10px;
-  color: hsl(var(--muted-foreground));
-  padding: 1px 5px;
-  border-radius: 3px;
-  background: hsl(var(--muted) / 0.5);
-  white-space: nowrap;
-}
-.dm-flat-summary {
+
+/* Bucket row chips (source breakdown) */
+.dm-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  margin-top: 4px;
+  margin-top: 6px;
 }
-.dm-flat-item {
-  font-size: 11px;
+.dm-chip {
+  font-size: 12px;
   color: hsl(var(--muted-foreground));
   padding: 2px 6px;
   border-radius: 4px;
   background: hsl(var(--muted) / 0.5);
-}
-.dm-card-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: auto;
-}
-.dm-btn {
-  min-height: 32px;
-  padding: 6px 14px;
-  font-size: 12px;
-  font-weight: 600;
-  border: 1px solid hsl(var(--border));
-  border-radius: 8px;
-  background: hsl(var(--card));
-  color: hsl(var(--foreground));
-  cursor: pointer;
-  transition: background var(--duration-base) var(--ease-standard), border-color var(--duration-base) var(--ease-standard), color var(--duration-base) var(--ease-standard), transform var(--duration-quick) var(--ease-standard);
   white-space: nowrap;
 }
-.dm-btn:hover {
-  border-color: hsl(var(--ring));
-  background: hsl(var(--accent));
-  color: hsl(var(--accent-foreground));
+.dm-chip-sub {
+  color: hsl(var(--muted-foreground) / 0.8);
 }
-.dm-btn:active {
-  transform: translateY(1px);
+.dm-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
-.dm-btn:focus-visible,
 .dm-btn-close:focus-visible,
 .dm-select:focus-visible,
 .dm-search-input:focus-visible {
   outline: 2px solid hsl(var(--ring) / 0.7);
   outline-offset: 2px;
 }
-.dm-btn-danger {
-  color: hsl(var(--destructive));
-  border-color: hsl(var(--destructive) / 0.3);
+.btn-danger.btn-sm {
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
 }
-.dm-btn-danger:hover {
-  background: hsl(var(--destructive) / 0.08);
-  border-color: hsl(var(--destructive));
-}
-.dm-btn-sm {
-  padding: 3px 8px;
-  font-size: 11px;
+.btn-danger.dm-btn-visible {
+  opacity: 1;
+  pointer-events: auto;
+  visibility: visible;
 }
 
 /* Modal */
 .dm-overlay {
   position: fixed;
   inset: 0;
-  background: hsl(0 0% 0% / 0.5);
+  background: hsl(0 0% 0% / 0.55);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
-  backdrop-filter: blur(4px);
+  backdrop-filter: blur(6px);
 }
 .dm-modal {
   width: min(1100px, 94vw);
@@ -807,28 +736,42 @@ function confirmKeepOnlyDownloaded() {
   flex-direction: column;
   background: hsl(var(--card));
   border: 1px solid hsl(var(--border));
-  border-radius: 18px;
-  box-shadow: 0 24px 64px hsl(0 0% 0% / 0.2);
+  border-radius: 16px;
+  box-shadow: 0 32px 80px hsl(0 0% 0% / 0.25), 0 0 0 1px hsl(var(--border) / 0.5);
   overflow: hidden;
+  animation: dm-modal-in 0.2s ease-out;
+}
+@keyframes dm-modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
 .dm-modal-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 18px;
+  padding: 16px 20px;
   border-bottom: 1px solid hsl(var(--border));
   gap: 12px;
+  background: hsl(var(--muted) / 0.3);
 }
 .dm-modal-title {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
   color: hsl(var(--foreground));
   margin: 0;
 }
 .dm-modal-subtitle {
   margin: 4px 0 0;
-  font-size: 12px;
+  font-size: 11px;
+  font-weight: 500;
   color: hsl(var(--muted-foreground));
+  letter-spacing: 0.02em;
 }
 .dm-modal-header-btn {
   display: flex;
@@ -838,10 +781,10 @@ function confirmKeepOnlyDownloaded() {
   justify-content: flex-end;
 }
 .dm-btn-close {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  border: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid transparent;
   background: transparent;
   color: hsl(var(--muted-foreground));
   cursor: pointer;
@@ -853,56 +796,90 @@ function confirmKeepOnlyDownloaded() {
 }
 .dm-btn-close:hover {
   background: hsl(var(--muted));
+  border-color: hsl(var(--border));
   color: hsl(var(--foreground));
 }
 .dm-modal-body {
   flex: 1;
-  overflow: auto;
-  padding: 14px 18px 18px;
+  overflow: hidden;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
 }
 
-/* Filter bar */
-.dm-filter-bar {
+/* Toolbar (fixed at top of modal body) */
+.dm-toolbar {
   position: sticky;
-  top: -14px;
-  z-index: 3;
+  top: 0;
+  z-index: 10;
+  background: hsl(var(--card));
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid hsl(var(--border));
+}
+.dm-filter-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: -2px 0 12px;
-  padding: 8px 0;
+  gap: 10px;
   flex-wrap: wrap;
-  background: hsl(var(--card));
+}
+.dm-filter-spacer {
+  flex: 1;
+  min-width: 0;
+}
+.dm-batch-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: hsl(var(--primary) / 0.06);
+  border: 1px solid hsl(var(--primary) / 0.15);
+  min-height: 38px;
+}
+.dm-batch-spacer {
+  flex: 1;
 }
 .dm-select {
-  min-height: 34px;
-  padding: 6px 10px;
+  min-height: 32px;
+  padding: 6px 28px 6px 10px;
   font-size: 12px;
+  font-weight: 500;
   border: 1px solid hsl(var(--border));
   border-radius: 8px;
   background: hsl(var(--card));
   color: hsl(var(--foreground));
   outline: none;
   cursor: pointer;
+  transition: border-color var(--duration-base) var(--ease-standard);
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+}
+.dm-select:hover {
+  border-color: hsl(var(--ring) / 0.6);
 }
 .dm-select:focus {
   border-color: hsl(var(--ring));
 }
 .dm-search-box {
-  min-height: 34px;
+  min-height: 32px;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   padding: 6px 10px;
   border: 1px solid hsl(var(--border));
   border-radius: 8px;
   color: hsl(var(--muted-foreground));
-  background: hsl(var(--background));
+  background: hsl(var(--card));
   flex: 1;
-  max-width: 320px;
+  max-width: 280px;
+  transition: border-color var(--duration-base) var(--ease-standard);
 }
 .dm-search-box:focus-within {
   border-color: hsl(var(--ring));
+  background: hsl(var(--background));
 }
 .dm-search-input {
   border: none;
@@ -912,49 +889,45 @@ function confirmKeepOnlyDownloaded() {
   color: hsl(var(--foreground));
   width: 100%;
 }
-.dm-filter-sep {
-  color: hsl(var(--border));
-  font-size: 12px;
+.dm-search-input::placeholder {
+  color: hsl(var(--muted-foreground) / 0.7);
 }
 
-/* Batch bar */
-.dm-batch-bar {
-  position: sticky;
-  top: 42px;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
-  padding: 8px 10px;
-  border: 1px solid hsl(var(--border));
-  border-radius: 10px;
-  background: hsl(var(--muted) / 0.35);
-  backdrop-filter: blur(8px);
-}
+/* Batch check */
 .dm-batch-check {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   font-size: 12px;
+  font-weight: 500;
   color: hsl(var(--foreground));
   cursor: pointer;
+  user-select: none;
 }
 .dm-batch-check input {
   accent-color: hsl(var(--primary));
+  width: 14px;
+  height: 14px;
 }
 .dm-batch-info {
   font-size: 11px;
   color: hsl(var(--muted-foreground));
+  padding: 2px 8px;
+  background: hsl(var(--muted) / 0.5);
+  border-radius: 4px;
 }
 
-/* Table */
-.dm-table-wrap {
+/* Scrollable table */
+.dm-table-scroll {
+  flex: 1;
   overflow: auto;
+  margin: 12px 20px 20px;
   border: 1px solid hsl(var(--border));
   border-radius: 12px;
   background: hsl(var(--card));
 }
+
+/* Table */
 .dm-table {
   width: 100%;
   min-width: 720px;
@@ -965,54 +938,60 @@ function confirmKeepOnlyDownloaded() {
 .dm-th {
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 10;
   text-align: left;
   font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
   color: hsl(var(--muted-foreground));
-  padding: 10px 8px;
-  border-bottom: 1px solid hsl(var(--border));
-  background: hsl(var(--muted) / 0.45);
+  padding: 10px 12px;
+  border-bottom: 2px solid hsl(var(--border));
+  background: hsl(var(--muted));
   white-space: nowrap;
 }
 .dm-th-check {
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 11;
   width: 36px;
-  padding: 10px 6px;
-  border-bottom: 1px solid hsl(var(--border));
-  background: hsl(var(--muted) / 0.45);
+  padding: 10px 8px;
+  border-bottom: 2px solid hsl(var(--border));
+  background: hsl(var(--muted));
 }
 .dm-th-check input, .dm-td-check input {
   accent-color: hsl(var(--primary));
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
 }
 .dm-tr {
   transition: background var(--duration-base) var(--ease-standard);
 }
 .dm-tr:hover {
-  background: hsl(var(--muted) / 0.3);
+  background: hsl(var(--muted) / 0.4);
 }
 .dm-tr.selected {
-  background: hsl(var(--primary) / 0.05);
+  background: hsl(var(--primary) / 0.08);
 }
 .dm-td {
-  padding: 8px;
-  border-bottom: 1px solid hsl(var(--border) / 0.5);
+  padding: 10px 12px;
+  border-bottom: 1px solid hsl(var(--border) / 0.4);
   color: hsl(var(--foreground));
-  vertical-align: top;
+  vertical-align: middle;
   word-break: break-word;
-  line-height: 1.45;
+  line-height: 1.5;
 }
 .dm-td-check {
-  padding: 8px 6px;
-  border-bottom: 1px solid hsl(var(--border) / 0.5);
+  padding: 10px 8px;
+  border-bottom: 1px solid hsl(var(--border) / 0.4);
 }
 .dm-empty {
-  padding: 40px 24px;
+  padding: 48px 24px;
   text-align: center;
   color: hsl(var(--muted-foreground));
   font-size: 13px;
-  background: hsl(var(--muted) / 0.18);
+  background: hsl(var(--muted) / 0.15);
 }
 
 /* KV view */
@@ -1045,56 +1024,6 @@ function confirmKeepOnlyDownloaded() {
   font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
 }
 
-/* Top action bar */
-.dm-top-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-  padding: 10px 14px;
-  border-radius: 10px;
-  background: hsl(var(--primary) / 0.08);
-  border: 1px solid hsl(var(--primary) / 0.15);
-}
-.dm-top-bar-info {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: hsl(var(--foreground));
-  line-height: 1.5;
-}
-.dm-top-bar-info svg {
-  flex-shrink: 0;
-  color: hsl(var(--primary));
-}
-.dm-top-bar-info strong {
-  color: hsl(var(--primary));
-  font-weight: 700;
-}
-.dm-btn-keep {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 16px;
-  font-size: 13px;
-  font-weight: 700;
-  border-radius: 8px;
-  border: none;
-  background: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: opacity var(--duration-base) var(--ease-standard), transform var(--duration-quick) var(--ease-standard);
-}
-.dm-btn-keep:hover {
-  opacity: 0.9;
-}
-.dm-btn-keep svg {
-  flex-shrink: 0;
-}
-
 /* Confirm override z-index */
 .dm-confirm-override {
   position: fixed;
@@ -1103,6 +1032,35 @@ function confirmKeepOnlyDownloaded() {
   align-items: center;
   justify-content: center;
   z-index: 1100;
+}
+
+/* Cleanup toast */
+.dm-cleanup-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  box-shadow: 0 8px 24px hsl(0 0% 0% / 0.15);
+  z-index: 1300;
+  font-size: 13px;
+  font-weight: 500;
+  color: hsl(var(--foreground));
+  animation: dm-toast-in 0.2s ease-out;
+}
+.dm-cleanup-toast svg {
+  color: hsl(var(--primary));
+  flex-shrink: 0;
+}
+@keyframes dm-toast-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
 /* JSON view */
@@ -1188,15 +1146,12 @@ function confirmKeepOnlyDownloaded() {
   line-height: 1.5;
 }
 @media (max-width: 760px) {
-  .dm-summary-grid,
-  .dm-grid {
-    grid-template-columns: 1fr;
-  }
-  .dm-card-main,
-  .dm-top-bar,
-  .dm-detail-field {
+  .setting-row {
     flex-direction: column;
     align-items: stretch;
+  }
+  .dm-row-actions {
+    justify-content: flex-end;
   }
   .dm-modal {
     width: 96vw;

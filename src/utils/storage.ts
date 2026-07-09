@@ -51,12 +51,14 @@ const KEYS = {
   WELLKNOWN_CACHE: 'wellknown_cache',
   WELLKNOWN_CACHE_VERSION: 'wellknown_cache_version',
   MARKETPLACE_CACHE: 'marketplace_cache',
+  GITHUB_CACHE: 'github_cache',
 }
 
 const WELLKNOWN_CACHE_VERSION = 1
 
 export const MARKETPLACE_TTL = 86400000 // 24 小时
 export const WELL_KNOWN_TTL = 86400000 // 24 小时
+export const GITHUB_TTL = 3600000 // 1 小时
 
 interface SessionDownload {
   skillId: string
@@ -231,6 +233,7 @@ export const storage = {
       autoTranslate: false,
       translationTimeout: 300,
       resumeTranslation: true,
+      showDataManagement: false,
       translationExtraBody: {},
     }
     let saved: Partial<AppSettings> | null = null
@@ -343,6 +346,42 @@ export const storage = {
     dbSet(KEYS.WELLKNOWN_CACHE_VERSION, WELLKNOWN_CACHE_VERSION)
   },
 
+  // === GitHub Store Cache (stale-while-revalidate) ===
+  getGitHubCache(id: string): { skills: Skill[]; fetchedAt: number; complete?: boolean } | null {
+    const all = dbGet<Record<string, { skills: Skill[]; fetchedAt: number; complete?: boolean }>>(KEYS.GITHUB_CACHE)
+    return all?.[id] || null
+  },
+  getAllGitHubCaches(): Record<string, { skills: Skill[]; fetchedAt: number; complete?: boolean }> {
+    return dbGet<Record<string, { skills: Skill[]; fetchedAt: number; complete?: boolean }>>(KEYS.GITHUB_CACHE) || {}
+  },
+  // complete 表示所有 skill 的描述都已加载完整；懒加载未跑完时为 false，
+  // 供 stale-while-revalidate 判断是否需要继续补齐缺失的描述
+  saveGitHubSkills(id: string, skills: Skill[], complete = false): void {
+    const all = dbGet<Record<string, { skills: Skill[]; fetchedAt: number; complete?: boolean }>>(KEYS.GITHUB_CACHE) || {}
+    all[id] = { skills, fetchedAt: Date.now(), complete }
+    dbSet(KEYS.GITHUB_CACHE, all)
+  },
+  clearGitHubCacheSource(sourceId: string): void {
+    const all = dbGet<Record<string, { skills: Skill[]; fetchedAt: number }>>(KEYS.GITHUB_CACHE) || {}
+    delete all[sourceId]
+    dbSet(KEYS.GITHUB_CACHE, all)
+  },
+  clearGitHubCacheSkills(sourceId: string, skillIds: string[]): void {
+    const all = dbGet<Record<string, { skills: Skill[]; fetchedAt: number }>>(KEYS.GITHUB_CACHE) || {}
+    const entry = all[sourceId]
+    if (!entry) return
+    entry.skills = entry.skills.filter(s => !skillIds.includes(s.id))
+    if (entry.skills.length === 0) {
+      delete all[sourceId]
+    } else {
+      all[sourceId] = entry
+    }
+    dbSet(KEYS.GITHUB_CACHE, all)
+  },
+  clearAllGitHubCaches(): void {
+    dbSet(KEYS.GITHUB_CACHE, {})
+  },
+
   // === Favorites (with Set cache for O(1) lookup) ===
   getFavoriteIds(): string[] {
     return dbGet<string[]>(KEYS.FAVORITE_IDS) || []
@@ -414,6 +453,39 @@ export const storage = {
   isDownloaded(id: string): boolean {
     return this.getDownloadedSet().has(id)
   },
+  enrichDownloadedDescriptions(): boolean {
+    let changed = false
+    const userData = window.ztools.getPath('userData')
+    const cached = this.getCachedSkills()
+    const downloadedSet = this.getDownloadedSet()
+    for (const skill of cached) {
+      if (!downloadedSet.has(skill.id)) continue
+      try {
+        const skillDir = window.services.pathJoin(userData, 'skills-repo', skill.id)
+        const files = window.services.readDir(skillDir)
+        const skillMd = files.find((f: any) => f.name === 'SKILL.md' || f.name === 'skill.md')
+        if (skillMd) {
+          const parsed = window.services.parseSkillFile(skillMd.path)
+          if (parsed?.manifest?.description) {
+            if (parsed.manifest.description !== skill.description) {
+              skill.description = parsed.manifest.description
+              changed = true
+            }
+            continue
+          }
+        }
+      } catch { }
+      const cleaned = cleanDescription(skill.description)
+      if (cleaned !== skill.description) {
+        skill.description = cleaned || ''
+        changed = true
+      }
+    }
+    if (changed) {
+      this.replaceCachedSkills(cached)
+    }
+    return changed
+  },
   cleanStaleCachedSkills(): void {
     const repoRoot = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo')
     const cached = this.getCachedSkills()
@@ -435,9 +507,28 @@ export const storage = {
 
     const aliveInstallRecords = this.getInstallRecords().filter((r) => aliveDownloadedSet.has(r.skillId))
 
+    // 清理在 cached_skills 中不存在对应条目的 downloaded_ids
+    const cachedIdSet = new Set(aliveCached.map(s => s.id))
+    const syncedDownloaded = aliveDownloaded.filter(id => cachedIdSet.has(id))
+
     if (aliveCached.length !== cached.length) { dbSet(KEYS.CACHED_SKILLS, aliveCached); invalidateCachedSkills() }
-    if (aliveDownloaded.length !== ids.length) { dbSet(KEYS.DOWNLOADED_IDS, aliveDownloaded); invalidateDownloadedCache() }
+    if (syncedDownloaded.length !== ids.length) { dbSet(KEYS.DOWNLOADED_IDS, syncedDownloaded); invalidateDownloadedCache() }
     if (aliveInstallRecords.length !== this.getInstallRecords().length) dbSet(KEYS.INSTALLED_SKILLS, aliveInstallRecords)
+  },
+  cleanOrphanedDownloadedIds(): number {
+    const cached = this.getCachedSkills()
+    const ids = this.getDownloadedIds()
+    const cachedIdSet = new Set(cached.map(s => s.id))
+
+    // 移除在 cached_skills 中不存在对应条目的 downloaded_id
+    const cleaned = ids.filter(id => cachedIdSet.has(id))
+
+    if (cleaned.length !== ids.length) {
+      dbSet(KEYS.DOWNLOADED_IDS, cleaned)
+      invalidateDownloadedCache()
+    }
+
+    return ids.length - cleaned.length
   },
 
   updateChineseTags(): void {

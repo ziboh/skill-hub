@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onActivated, onUnmounted, inject, watch, nextTick, reactive } from 'vue'
-import { storage, cleanDescription } from '../../utils/storage'
+import { storage } from '../../utils/storage'
 import type { Skill, SkillIdentity } from '../../types'
 import { defaultPlatforms } from '../../data/platforms'
 import { useSettings } from '../../composables/useSettings'
@@ -69,34 +69,7 @@ function refreshData() {
 }
 
 async function enrichLocalDescriptions() {
-  let changed = false
-  const userData = window.ztools.getPath('userData')
-  for (const skill of allSkills.value) {
-    if (!downloadedIds.value.includes(skill.id)) continue
-    try {
-      const skillDir = window.services.pathJoin(userData, 'skills-repo', skill.id)
-      const files = window.services.readDir(skillDir)
-      const skillMd = files.find((f: any) => f.name === 'SKILL.md' || f.name === 'skill.md')
-      if (skillMd) {
-        const parsed = window.services.parseSkillFile(skillMd.path)
-        if (parsed?.manifest?.description) {
-          const newDesc = parsed.manifest.description
-          if (newDesc !== skill.description) {
-            skill.description = newDesc
-            changed = true
-          }
-          continue
-        }
-      }
-    } catch { }
-    const cleaned = cleanDescription(skill.description)
-    if (cleaned !== skill.description) {
-      skill.description = cleaned || ''
-      changed = true
-    }
-  }
-  if (changed) {
-    storage.saveCachedSkills(allSkills.value.map(s => ({ ...s })))
+  if (storage.enrichDownloadedDescriptions()) {
     storage.updateChineseTags()
     allSkills.value = storage.getCachedSkills()
   }

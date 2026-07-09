@@ -1,0 +1,220 @@
+/* Shared Settings UI building blocks.
+   Used by all Settings sub-pages so the visual language stays consistent. */
+
+.settings-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 24px 32px;
+  max-width: 720px;
+}
+
+.settings-page-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: hsl(var(--foreground));
+  margin-bottom: 4px;
+}
+
+.settings-page-desc {
+  font-size: 13px;
+  color: hsl(var(--muted-foreground));
+  margin-bottom: 28px;
+}
+
+.setting-section {
+  margin-bottom: 24px;
+}
+
+.setting-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: hsl(var(--foreground) / 0.7);
+  letter-spacing: 0.02em;
+  margin-bottom: 12px;
+}
+
+.setting-card {
+  background: hsl(var(--app-settings-card-bg));
+  border: 1px solid hsl(var(--app-settings-card-border));
+  border-radius: var(--radius);
+  padding: 16px;
+  box-shadow: hsl(var(--app-settings-card-shadow));
+}
+
+.setting-card-desc {
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+  margin-bottom: 14px;
+  line-height: 1.5;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.setting-row + .setting-row {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid hsl(var(--border) / 0.6);
+}
+
+.setting-row-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.setting-row-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+
+.setting-row-desc {
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+  margin-top: 2px;
+  line-height: 1.4;
+}
+
+/* Toggle switch */
+.toggle-switch {
+  position: relative;
+  width: 44px;
+  height: 26px;
+  border-radius: 13px;
+  border: 2px solid hsl(var(--border));
+  background: hsl(var(--muted));
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all var(--duration-base) var(--ease-standard);
+}
+
+.toggle-switch.on {
+  background: hsl(var(--primary));
+  border-color: hsl(var(--primary));
+}
+
+.toggle-switch:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  transition: transform var(--duration-base) var(--ease-standard);
+}
+
+.toggle-switch.on .toggle-thumb {
+  transform: translateX(18px);
+}
+
+/* Generic buttons (shared across settings pages) */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  background: hsl(var(--card));
+  color: hsl(var(--foreground) / 0.8);
+  cursor: pointer;
+  transition: all var(--duration-base) var(--ease-standard);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.btn:hover {
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+}
+
+.btn:active {
+  transform: scale(0.98);
+}
+
+.btn:focus-visible {
+  outline: 2px solid hsl(var(--ring) / 0.7);
+  outline-offset: 2px;
+}
+
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 11px;
+  min-height: 28px;
+}
+
+.btn-primary {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  border-color: hsl(var(--primary));
+}
+
+.btn-primary:hover {
+  background: hsl(var(--primary) / 0.9);
+  color: hsl(var(--primary-foreground));
+}
+
+.btn-danger {
+  color: hsl(var(--destructive));
+  border-color: hsl(var(--destructive) / 0.3);
+  background: hsl(var(--destructive) / 0.04);
+}
+
+.btn-danger:hover {
+  background: hsl(var(--destructive));
+  color: hsl(var(--destructive-foreground));
+  border-color: hsl(var(--destructive));
+}
+
+/* Cleanup (general "数据清理" + data management) */
+.cleanup-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 16px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid hsl(var(--destructive) / 0.3);
+  border-radius: 8px;
+  background: transparent;
+  color: hsl(var(--destructive));
+  cursor: pointer;
+  transition: all var(--duration-base) var(--ease-standard);
+}
+
+.cleanup-btn:hover {
+  background: hsl(var(--destructive));
+  color: hsl(var(--destructive-foreground));
+}
+
+.cleanup-result {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 10px 14px;
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+  background: hsl(var(--muted));
+  border-radius: 8px;
+}
+
+.cleanup-result-icon {
+  color: hsl(142, 70%, 45%);
+  font-weight: 600;
+}

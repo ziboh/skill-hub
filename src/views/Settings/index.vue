@@ -124,6 +124,17 @@ const sections = [
   { id: 'data', label: '数据管理', icon: '💾' },
 ]
 
+const visibleSections = computed(() => {
+  if (settings.showDataManagement) return sections
+  return sections.filter(s => s.id !== 'data')
+})
+
+watch(() => settings.showDataManagement, (val) => {
+  if (!val && activeSection.value === 'data') {
+    activeSection.value = 'general'
+  }
+})
+
 const themeModes: { id: ThemeMode; label: string; icon: string }[] = [
   { id: 'light', label: '浅色', icon: '☀️' },
   { id: 'dark', label: '深色', icon: '🌙' },
@@ -1280,7 +1291,7 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
       </div>
       <nav class="settings-nav">
         <button
-          v-for="s in sections"
+          v-for="s in visibleSections"
           :key="s.id"
           class="settings-nav-item"
           :class="{ active: activeSection === s.id }"
@@ -1541,6 +1552,26 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
               <div v-if="cleanupResult" class="cleanup-result">
                 <span class="cleanup-result-icon">✓</span>
                 已扫描并清理：发现 {{ cleanupResult.found }} 个，删除 {{ cleanupResult.deleted }} 个
+              </div>
+            </div>
+          </div>
+
+          <!-- Show Data Management -->
+          <div class="setting-section">
+            <h3 class="setting-section-title">数据管理</h3>
+            <div class="setting-card">
+              <div class="setting-row">
+                <div class="setting-row-info">
+                  <div class="setting-row-label">显示数据管理</div>
+                  <div class="setting-row-desc">在侧边栏中显示数据管理页面入口</div>
+                </div>
+                <button
+                  class="toggle-switch"
+                  :class="{ on: settings.showDataManagement }"
+                  @click="updateSettings({ showDataManagement: !settings.showDataManagement })"
+                >
+                  <span class="toggle-thumb"></span>
+                </button>
               </div>
             </div>
           </div>
@@ -2395,7 +2426,7 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
       </template>
 
       <!-- ===== DATA ===== -->
-      <template v-if="activeSection === 'data'">
+      <template v-if="activeSection === 'data' && settings.showDataManagement">
         <DataManagement />
       </template>
     </div>
@@ -2528,31 +2559,6 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
   flex-direction: column;
 }
 
-.settings-scroll {
-  flex: 1;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 24px 32px;
-  max-width: 720px;
-}
-
-.settings-page-title {
-  font-size: 22px;
-  font-weight: 700;
-  color: hsl(var(--foreground));
-  margin-bottom: 4px;
-}
-
-.settings-page-desc {
-  font-size: 13px;
-  color: hsl(var(--muted-foreground));
-  margin-bottom: 28px;
-}
-
-.setting-section {
-  margin-bottom: 24px;
-}
-
 .highlight-section {
   animation: highlight-pulse 2s ease-out;
 }
@@ -2560,22 +2566,6 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
 @keyframes highlight-pulse {
   0% { box-shadow: 0 0 0 4px hsl(var(--primary) / 0.4); }
   100% { box-shadow: none; }
-}
-
-.setting-section-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: hsl(var(--foreground) / 0.7);
-  letter-spacing: 0.02em;
-  margin-bottom: 12px;
-}
-
-.setting-card {
-  background: hsl(var(--app-settings-card-bg));
-  border: 1px solid hsl(var(--app-settings-card-border));
-  border-radius: var(--radius);
-  padding: 16px;
-  box-shadow: hsl(var(--app-settings-card-shadow));
 }
 
 /* Segmented Control */
@@ -2774,13 +2764,6 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
   color: hsl(var(--muted-foreground));
 }
 
-.setting-card-desc {
-  font-size: 12px;
-  color: hsl(var(--muted-foreground));
-  margin-bottom: 14px;
-  line-height: 1.5;
-}
-
 /* Option Grid (Font Size, Motion) */
 .option-grid {
   display: grid;
@@ -2825,77 +2808,6 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
 .option-meta {
   font-size: 11px;
   opacity: 0.7;
-}
-
-/* Toggle Switch */
-.toggle-switch {
-  position: relative;
-  width: 44px;
-  height: 26px;
-  border-radius: 13px;
-  border: 2px solid hsl(var(--border));
-  background: hsl(var(--muted));
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: all var(--duration-base) var(--ease-standard);
-}
-
-.toggle-switch.on {
-  background: hsl(var(--primary));
-  border-color: hsl(var(--primary));
-}
-
-.toggle-switch:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-.toggle-thumb {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
-  transition: transform var(--duration-base) var(--ease-standard);
-}
-
-.toggle-switch.on .toggle-thumb {
-  transform: translateX(18px);
-}
-
-/* Setting Row */
-.setting-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.setting-row + .setting-row {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid hsl(var(--border) / 0.6);
-}
-
-.setting-row-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.setting-row-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: hsl(var(--foreground));
-}
-
-.setting-row-desc {
-  font-size: 12px;
-  color: hsl(var(--muted-foreground));
-  margin-top: 2px;
-  line-height: 1.4;
 }
 
 /* Mode Grid */
@@ -3020,43 +2932,6 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
 .token-link:hover { text-decoration: underline; }
 
 /* Cleanup */
-.cleanup-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 16px;
-  font-size: 12px;
-  font-weight: 500;
-  border: 1px solid hsl(var(--destructive) / 0.3);
-  border-radius: 8px;
-  background: transparent;
-  color: hsl(var(--destructive));
-  cursor: pointer;
-  transition: all var(--duration-base) var(--ease-standard);
-}
-
-.cleanup-btn:hover {
-  background: hsl(var(--destructive));
-  color: hsl(var(--destructive-foreground));
-}
-
-.cleanup-result {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 12px;
-  padding: 10px 14px;
-  font-size: 12px;
-  color: hsl(var(--muted-foreground));
-  background: hsl(var(--muted));
-  border-radius: 8px;
-}
-
-.cleanup-result-icon {
-  color: hsl(142, 70%, 45%);
-  font-weight: 600;
-}
-
 /* Agent */
 .agent-toolbar {
   display: flex;

@@ -122,6 +122,7 @@ export interface AppSettings {
   autoTranslate: boolean
   translationTimeout: number
   resumeTranslation: boolean
+  showDataManagement: boolean
   translationExtraBody?: Record<string, any>
 }
 

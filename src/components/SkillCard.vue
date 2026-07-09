@@ -24,10 +24,12 @@ const props = withDefaults(defineProps<{
   badges?: { text: string; type: string }[]
   duplicateBadge?: { count: number } | null
   showSymlinkBadge?: boolean
+  descriptionError?: boolean
 }>(),
 {
   description: '暂无描述',
   loadingDescription: false,
+  descriptionError: false,
   selected: false,
   showBatchCheckbox: false,
   showActions: true,
@@ -151,6 +153,10 @@ watch(() => props.installedPlatforms, () => {
     </div>
     <h3 class="card-name">{{ name }}</h3>
     <p v-if="loadingDescription && !shortDescription && !description" class="card-desc"><span class="desc-shimmer"></span></p>
+    <p v-else-if="descriptionError && !shortDescription && !description" class="card-desc card-desc-error">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      加载失败，点击重试
+    </p>
     <p v-else class="card-desc">{{ shortDescription || description || '暂无描述' }}</p>
     <slot name="after-desc" />
   </div>
@@ -168,6 +174,8 @@ watch(() => props.installedPlatforms, () => {
   transition: all var(--duration-base) var(--ease-standard);
   position: relative;
   min-height: 120px;
+  content-visibility: auto;
+  contain-intrinsic-height: 120px;
 }
 
 .skill-card:hover {
@@ -508,6 +516,18 @@ watch(() => props.installedPlatforms, () => {
   -webkit-box-orient: vertical;
   overflow: hidden;
   min-height: 36px;
+}
+
+.card-desc-error {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: hsl(var(--destructive));
+  cursor: pointer;
+}
+
+.card-desc-error:hover {
+  text-decoration: underline;
 }
 
 @keyframes shimmer {
