@@ -68,6 +68,7 @@ function togglePlatform(id: string) {
 function deleteSkill() {
   const dir = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', props.skill.id)
   try { window.services.removeFile(dir) } catch {}
+  window.services.removeEmptyAncestors(dir)
 
   if (removeDistributed.value && selectedPlatforms.value.size > 0) {
     for (const record of installRecords.value) {

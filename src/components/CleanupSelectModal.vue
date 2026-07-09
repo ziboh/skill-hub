@@ -62,6 +62,7 @@ function deleteSelected() {
   for (const path of selected.value) {
     try {
       window.services.removeFile(path)
+      window.services.removeEmptyAncestors(path)
     } catch (e) {
       console.error('[cleanup] Failed to delete', path, e)
     }

@@ -54,6 +54,7 @@ interface Services {
   readFileText: (filePath: string) => string | null
   writeFile: (filePath: string, content: string) => void
   removeFile: (filePath: string) => void
+  removeEmptyAncestors: (filePath: string) => void
   copyFile: (src: string, dest: string) => void
   stat: (p: string) => StatResult
 

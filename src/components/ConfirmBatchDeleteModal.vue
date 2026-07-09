@@ -67,6 +67,7 @@ function deleteSkills() {
   for (const skill of props.skills) {
     const dir = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', skill.id)
     try { window.services.removeFile(dir) } catch {}
+    window.services.removeEmptyAncestors(dir)
 
     if (removeDistributed.value && selectedPlatforms.value.size > 0) {
       const records = storage.getInstalledForSkill(skill.id)

@@ -260,6 +260,25 @@ window.services = {
       }
     }
   },
+  removeEmptyAncestors(filePath) {
+    const full = expandPath(filePath)
+    if (!full) return
+    const stopDir = expandPath(path.join(window.ztools.getPath('userData'), 'skills-repo'))
+    let dir = path.dirname(full)
+    while (dir.length >= stopDir.length && dir.startsWith(stopDir)) {
+      try {
+        const entries = fs.readdirSync(dir)
+        if (entries.length === 0) {
+          fs.rmdirSync(dir)
+          dir = path.dirname(dir)
+        } else {
+          break
+        }
+      } catch {
+        break
+      }
+    }
+  },
   copyFile(src, dest) {
     const fullSrc = expandPath(src)
     const fullDest = expandPath(dest)
