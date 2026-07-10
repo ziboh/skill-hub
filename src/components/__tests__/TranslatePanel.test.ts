@@ -1,7 +1,6 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import TranslatePanel from '../TranslatePanel.vue'
-import { computeDescriptionHash } from '../../utils/translate'
 import { storage } from '../../utils/storage'
 import type { Skill } from '../../types'
 
@@ -14,8 +13,7 @@ let currentTestSkills: Skill[] | undefined
 
 function setupStorageSkills(skills: Skill[] = sampleSkills) {
   currentTestSkills = skills
-  window.ztools.dbStorage.setItem('sm_cached_skills', JSON.stringify(skills))
-  window.ztools.dbStorage.setItem('sm_downloaded_ids', JSON.stringify(skills.map(s => s.id)))
+  window.ztools.dbStorage.setItem('sm_downloaded_skills', JSON.stringify(skills))
 }
 
 function setupSettings(overrides: Record<string, unknown> = {}) {
@@ -26,18 +24,12 @@ function setupSettings(overrides: Record<string, unknown> = {}) {
   }))
 }
 
-function setupTranslationCache(descEntries: Record<string, string> = {}, contentEntries: Record<string, string> = {}) {
-  const descCache: Record<string, { translatedDesc: string; updatedAt: number }> = {}
-  for (const [id, desc] of Object.entries(descEntries)) {
-    descCache[id] = { translatedDesc: desc, updatedAt: Date.now() }
+function setupTranslationCache(entries: Record<string, { translatedDesc?: string; translatedContent?: string; sourceContent?: string; mode?: string }> = {}) {
+  const cache: Record<string, any> = {}
+  for (const [key, data] of Object.entries(entries)) {
+    cache[key] = { ...data, updatedAt: Date.now() }
   }
-  window.ztools.dbStorage.setItem('sm_translations_desc', JSON.stringify(descCache))
-
-  const contentCache: Record<string, { sourceContent: string; translatedContent: string; mode: string; updatedAt: number }> = {}
-  for (const [id, content] of Object.entries(contentEntries)) {
-    contentCache[id] = { sourceContent: '', translatedContent: content, mode: 'immersive', updatedAt: Date.now() }
-  }
-  window.ztools.dbStorage.setItem('sm_translations', JSON.stringify(contentCache))
+  window.ztools.dbStorage.setItem('sm_translations', JSON.stringify(cache))
 }
 
 function createWrapper() {
@@ -240,11 +232,12 @@ describe('Translation status detection', () => {
 
   test('already translated (desc) shows 已翻译 and button enabled', async () => {
     setupModel()
+    const readme = '# Skill Done\n\nSome content'
     const skills = [
-      makeSkill({ id: 'skill-done', name: 'Skill Done', description: 'An English description' }),
+      makeSkill({ id: 'skill-done', name: 'Skill Done', description: 'An English description', readme }),
     ]
     setupStorageSkills(skills)
-    setupTranslationCache({ [computeDescriptionHash('An English description')]: '已翻译的描述' })
+    setupTranslationCache({ [readme]: { translatedDesc: '已翻译的描述' } })
 
     vi.mocked(window.services.pathExists).mockReturnValue(false)
 
@@ -267,7 +260,7 @@ describe('Translation status detection', () => {
       makeSkill({ id: 'skill-done2', name: 'Skill Done2', description: 'An English description', path: '/skills/done2' }),
     ]
     setupStorageSkills(skills)
-    setupTranslationCache({}, { 'Original English content': '已翻译的内容' })
+    setupTranslationCache({ 'Original English content': { translatedContent: '已翻译的内容', sourceContent: 'Original English content', mode: 'immersive' } })
 
     vi.mocked(window.services.pathExists).mockReturnValue(true)
     vi.mocked(window.services.readFile).mockReturnValue('Original English content')
@@ -303,8 +296,9 @@ describe('Translation status detection', () => {
 
   test('translating skill shows 翻译中 label', async () => {
     setupModel()
+    const readme = '# Skill Trans\n\nAn English skill for testing'
     const skills = [
-      makeSkill({ id: 'skill-trans', name: 'Skill Trans', description: 'An English skill' }),
+      makeSkill({ id: 'skill-trans', name: 'Skill Trans', description: 'An English skill', readme }),
     ]
     setupStorageSkills(skills)
 
@@ -312,7 +306,7 @@ describe('Translation status detection', () => {
 
     const { useTranslationQueue } = await import('../../composables/useTranslationQueue')
     const { addTranslation } = useTranslationQueue()
-    addTranslation(computeDescriptionHash('An English skill'), 'desc', 'Skill Trans')
+    addTranslation(readme, 'desc', 'Skill Trans')
 
     const wrapper = createWrapper()
     await wrapper.vm.$nextTick()
@@ -323,8 +317,9 @@ describe('Translation status detection', () => {
 
   test('queued skill shows 排队中 label', async () => {
     setupModel()
+    const readme = '# Skill Queue\n\nTest content'
     const skills = [
-      makeSkill({ id: 'skill-queue', name: 'Skill Queue', description: 'An English skill' }),
+      makeSkill({ id: 'skill-queue', name: 'Skill Queue', description: 'An English skill', readme }),
     ]
     setupStorageSkills(skills)
 
@@ -332,8 +327,8 @@ describe('Translation status detection', () => {
 
     const { useTranslationQueue } = await import('../../composables/useTranslationQueue')
     const { addTranslation, queue } = useTranslationQueue()
-    addTranslation('Skill Queue', 'content', 'Skill Queue')
-    addTranslation(computeDescriptionHash('An English skill'), 'desc', 'Skill Queue')
+    addTranslation(readme, 'content', 'Skill Queue')
+    addTranslation(readme, 'desc', 'Skill Queue')
 
     queue.value = queue.value.map(item => ({
       ...item,
@@ -358,7 +353,7 @@ describe('Translation status detection', () => {
     vi.mocked(window.services.pathExists).mockReturnValue(true)
     vi.mocked(window.services.readFile).mockReturnValue('Original English content')
     vi.mocked(window.services.hashContent).mockImplementation((content: string) => content)
-    setupTranslationCache({}, { 'Original English content': '已翻译的内容' })
+    setupTranslationCache({ 'Original English content': { translatedContent: '已翻译的内容', sourceContent: 'Original English content', mode: 'immersive' } })
 
     const wrapper = createWrapper()
     const typeButtons = wrapper.findAll('.segment-btn')
@@ -368,7 +363,7 @@ describe('Translation status detection', () => {
 
     const badge = getStatusBadge(wrapper, 'Skill Content Only')
     expect(badge).toBe('待翻译')
-    expect(storage.getDescTranslationByHash(computeDescriptionHash('An English description'))).toBeNull()
+    expect(storage.getDescTranslationByHash('An English description')).toBeNull()
   })
 
   test('Chinese skill with English tags shows 中文', async () => {

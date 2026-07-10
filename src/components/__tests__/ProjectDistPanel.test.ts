@@ -13,9 +13,9 @@ vi.mock('../../data/platforms', () => ({
 vi.mock('../../utils/storage', () => ({
   storage: {
     getPlatformConfigs: vi.fn(() => []),
-    getInstallRecords: vi.fn(() => []),
-    saveInstallRecord: vi.fn(),
-    removeInstallRecord: vi.fn(),
+    getDistributeRecords: vi.fn(() => []),
+    saveDistributeRecord: vi.fn(),
+    removeDistributeRecord: vi.fn(),
   },
 }))
 

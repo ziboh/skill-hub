@@ -86,14 +86,14 @@ async function deploy() {
         } else {
           window.services.copyFile(sourceDir, targetDir)
         }
-        storage.saveInstallRecord({
+        storage.saveDistributeRecord({
           skillId: skill.id,
           platformId: pid,
           mode: installMode.value,
           scope: 'global',
           targetPath: targetDir,
           sourceDir,
-          installedAt: new Date().toISOString(),
+          distributedAt: new Date().toISOString(),
         })
         deployResults.value.push({ skill: skill.name, platform: platform.name, status: 'ok', msg: installMode.value === 'symlink' ? '已链接' : '已复制' })
       } catch (err: any) {

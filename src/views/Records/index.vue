@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onActivated, onDeactivated, inject, watch } from 'vue'
 import { storage } from '../../utils/storage'
 import { useSettings } from '../../composables/useSettings'
-import type { InstallRecord, ModelConfig, FailureRecord, FailureType, ErrorCategory } from '../../types'
+import type { DistributeRecord, ModelConfig, FailureRecord, FailureType, ErrorCategory } from '../../types'
 import { defaultPlatforms } from '../../data/platforms'
 import { KeyCurrentRoute } from '../../inject-keys'
 import { useDownloadQueue } from '../../composables/useDownloadQueue'
@@ -38,18 +38,14 @@ const failureRecords = ref<FailureRecord[]>([])
 const failureTypeFilter = ref<FailureType | 'all'>('all')
 
 const sessionDownloads = computed(() => storage.getSessionDownloads())
-const installRecords = ref<InstallRecord[]>([])
-const translations = ref<Record<string, { sourceContent: string; translatedContent: string; mode: string; updatedAt: number }>>({})
-const descTranslations = ref<Record<string, { translatedDesc: string; updatedAt: number; skillName?: string }>>({})
+const distributeRecords = ref<DistributeRecord[]>([])
+const translations = ref<Record<string, { sourceContent?: string; translatedContent?: string; translatedDesc?: string; mode?: string; updatedAt: number; skillName?: string }>>({})
 
 function getSkillNameByHash(hash: string): string {
-  const contentCache = storage.getTranslationByHash(hash)
-  if (contentCache?.skillName) return contentCache.skillName
-  const descCache = storage._readDescTranslationCache()
-  if (descCache[hash]?.skillName) return descCache[hash].skillName
+  const cache = storage.getTranslationByHash(hash)
+  if (cache?.skillName) return cache.skillName
   const skills = storage.getCachedSkills()
   for (const s of skills) {
-    // 使用整个 SKILL.md 文件的哈希
     if (s.readme) {
       if (window.services.hashContent(s.readme.replace(/\r\n/g, '\n').replace(/\r/g, '\n')) === hash) return s.name
     }
@@ -122,12 +118,12 @@ function executeBatchDelete() {
     const [type, ...rest] = key.split(':')
     if (type === 'dist') {
       const [skillId, platformId, scope] = rest
-      storage.removeInstallRecord(skillId, platformId, scope || undefined)
+      storage.removeDistributeRecord(skillId, platformId, scope || undefined)
     } else if (type === 'content') {
-      storage.removeTranslationByHash(rest[0])
+      storage.removeTranslationByHash(rest[0], 'content')
       removeTranslation(rest[0], 'content')
     } else if (type === 'desc') {
-      storage.removeDescTranslationByHash(rest[0])
+      storage.removeTranslationByHash(rest[0], 'desc')
       removeTranslation(rest[0], 'desc')
     } else if (type === 'failure') {
       storage.removeFailureRecord(rest[0])
@@ -138,7 +134,7 @@ function executeBatchDelete() {
   showBatchDeleteConfirm.value = false
 }
 
-function confirmDeleteDist(record: InstallRecord) {
+function confirmDeleteDist(record: DistributeRecord) {
   deleteTarget.value = { type: 'dist', data: record }
   showDeleteConfirm.value = true
 }
@@ -193,19 +189,14 @@ function executeDelete() {
   if (!deleteTarget.value) return
   if (deleteTarget.value.type === 'dist') {
     const r = deleteTarget.value.data
-    storage.removeInstallRecord(r.skillId, r.platformId, r.scope)
+    storage.removeDistributeRecord(r.skillId, r.platformId, r.scope)
   } else if (deleteTarget.value.type === 'failure') {
     const r = deleteTarget.value.data
     storage.removeFailureRecord(r.id)
   } else {
     const item = deleteTarget.value.data
-    if (item.type === 'content') {
-      storage.removeTranslationByHash(item.skillId)
-      removeTranslation(item.skillId, 'content')
-    } else {
-      storage.removeDescTranslationByHash(item.skillId)
-      removeTranslation(item.skillId, 'desc')
-    }
+    storage.removeTranslationByHash(item.skillId, item.type)
+    removeTranslation(item.skillId, item.type)
   }
   loadData()
   showDeleteConfirm.value = false
@@ -242,11 +233,9 @@ watch(cacheVersion, () => {
 })
 
 function loadData() {
-  installRecords.value = storage.getInstallRecords()
+  distributeRecords.value = storage.getDistributeRecords()
   const cacheRaw = storage._readTranslationCache()
   translations.value = cacheRaw
-  const descRaw = storage._readDescTranslationCache()
-  descTranslations.value = descRaw
   failureRecords.value = storage.getFailureRecords()
 }
 
@@ -274,13 +263,8 @@ function getTranslationModel(): ModelConfig | null {
 }
 
 function resumeTranslation(item: { skillId: string; type: 'content' | 'desc' }) {
-  const hash = item.skillId
-  if (item.type === 'desc') {
-    storage.removeDescTranslationByHash(hash)
-  } else {
-    storage.removeTranslationByHash(hash)
-  }
-  addTranslation(hash, item.type)
+  storage.removeTranslationByHash(item.skillId, item.type)
+  addTranslation(item.skillId, item.type)
 }
 
 function clearStuckItem(item: { skillId: string; type: 'content' | 'desc' }) {
@@ -364,7 +348,7 @@ function getProjectName(platformId: string): string {
   return project?.name || pid
 }
 
-function getDistPlatformId(record: InstallRecord): string {
+function getDistPlatformId(record: DistributeRecord): string {
   const normalized = record.targetPath.replace(/\\/g, '/').toLowerCase()
   for (const p of defaultPlatforms) {
     if (p.projectPath && normalized.includes(p.projectPath.replace(/\\/g, '/').toLowerCase())) {
@@ -434,11 +418,11 @@ const downloadsPaged = computed(() => {
   return downloadsList.value.slice(start, start + pageSize.value)
 })
 
-const distTotal = computed(() => installRecords.value.length)
+const distTotal = computed(() => distributeRecords.value.length)
 const distPages = computed(() => Math.max(1, Math.ceil(distTotal.value / pageSize.value)))
 const distPaged = computed(() => {
-  const sorted = [...installRecords.value].sort((a, b) => {
-    const diff = new Date(a.installedAt).getTime() - new Date(b.installedAt).getTime()
+  const sorted = [...distributeRecords.value].sort((a, b) => {
+    const diff = new Date(a.distributedAt).getTime() - new Date(b.distributedAt).getTime()
     return sortDirection.value === 'asc' ? diff : -diff
   })
   const start = (currentPage.value - 1) * pageSize.value
@@ -459,10 +443,12 @@ const translationsList = computed(() => {
     })
   }
   for (const [hash, data] of Object.entries(translations.value)) {
-    list.push({ skillId: hash, skillName: getSkillNameByHash(hash), type: 'content', preview: data.translatedContent, status: 'done', updatedAt: data.updatedAt || 0 })
-  }
-  for (const [hash, data] of Object.entries(descTranslations.value)) {
-    list.push({ skillId: hash, skillName: getSkillNameByHash(hash), type: 'desc', preview: data.translatedDesc, status: 'done', updatedAt: data.updatedAt || 0 })
+    if (data.translatedContent) {
+      list.push({ skillId: hash, skillName: getSkillNameByHash(hash), type: 'content', preview: data.translatedContent, status: 'done', updatedAt: data.updatedAt || 0 })
+    }
+    if (data.translatedDesc) {
+      list.push({ skillId: hash, skillName: getSkillNameByHash(hash), type: 'desc', preview: data.translatedDesc, status: 'done', updatedAt: data.updatedAt || 0 })
+    }
   }
   list.sort((a, b) => {
     const order: Record<string, number> = { translating: 0, pending: 1, done: 2 }
@@ -701,7 +687,7 @@ watch(activeTab, () => {
               <div class="col-mode">
                 <span class="mode-badge" :class="record.mode">{{ record.mode === 'symlink' ? '链接' : '复制' }}</span>
               </div>
-              <div class="col-time">{{ formatTime(record.installedAt) }}</div>
+              <div class="col-time">{{ formatTime(record.distributedAt) }}</div>
               <div class="col-action">
                 <button class="delete-btn" @click.stop="confirmDeleteDist(record)" title="删除">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>

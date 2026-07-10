@@ -4,7 +4,7 @@ import { KeyShowToast, KeyMarkAgentSkillsDirty } from '../inject-keys'
 import { detectPlatforms } from '../data/platforms'
 import { storage } from '../utils/storage'
 import { normalizePath } from '../utils/path'
-import type { Skill, InstallMode, InstallRecord } from '../types'
+import type { Skill, InstallMode, DistributeRecord } from '../types'
 import ProviderIcon from './ProviderIcon.vue'
 import ConfirmModal from './ConfirmModal.vue'
 import { useDownloadQueue } from '../composables/useDownloadQueue'
@@ -27,7 +27,7 @@ const markAgentSkillsDirty = inject(KeyMarkAgentSkillsDirty, () => {})
 const { addInstall, updateItem } = useDownloadQueue()
 
 const selectedPlatforms = ref<string[]>([])
-const installRecords = ref<InstallRecord[]>([])
+const distributeRecords = ref<DistributeRecord[]>([])
 const installLog = ref<{ platform: string; status: 'ok' | 'error' | 'pending'; msg: string }[]>([])
 const refreshTick = ref(0)
 
@@ -72,9 +72,9 @@ const sourcePlatformIds = computed(() => {
 })
 
 function isInstalled(platformId: string): boolean {
-  const hasRecord = installRecords.value.some((r) => r.platformId === platformId && (!(r as any).scope || (r as any).scope === 'global'))
+  const hasRecord = distributeRecords.value.some((r) => r.platformId === platformId && (!(r as any).scope || (r as any).scope === 'global'))
   if (!hasRecord) return false
-  const record = installRecords.value.find((r) => r.platformId === platformId)
+  const record = distributeRecords.value.find((r) => r.platformId === platformId)
   if (!record?.targetPath) return true
   if (!window.services.pathExists(record.targetPath)) return false
   const files = window.services.readDir(record.targetPath)
@@ -85,16 +85,16 @@ const uninstalledPlatforms = computed(() => platforms.value.filter((p) => !isIns
 const totalUninstalled = computed(() => uninstalledPlatforms.value.length)
 
 function loadInstallStatus() {
-  const allRecords = storage.getInstalledForSkill(props.skill.id)
+  const allRecords = storage.getDistributedForSkill(props.skill.id)
   const valid = allRecords.filter((r) => {
     if (r.targetPath && window.services.pathExists(r.targetPath)) {
       const files = window.services.readDir(r.targetPath)
       if (files.some((f: any) => f.name === 'SKILL.md' || f.name === 'skill.md')) return true
     }
-    storage.removeInstallRecord(r.skillId, r.platformId, 'global')
+    storage.removeDistributeRecord(r.skillId, r.platformId, 'global')
     return false
   })
-  installRecords.value = valid
+  distributeRecords.value = valid
 }
 
 const confirmUninstall = ref(false)
@@ -112,17 +112,17 @@ function cancelUninstall() {
 
 async function uninstall() {
   const pid = uninstallPlatformId.value
-  const record = installRecords.value.find((r) => r.platformId === pid)
+  const record = distributeRecords.value.find((r) => r.platformId === pid)
   if (!record) { cancelUninstall(); return }
 
   try {
     if (record.targetPath && window.services.pathExists(record.targetPath)) {
       window.services.removeFile(record.targetPath)
     }
-    storage.removeInstallRecord(props.skill.id, pid, 'global')
+    storage.removeDistributeRecord(props.skill.id, pid, 'global')
     loadInstallStatus()
     refreshTick.value++
-    const stillExists = installRecords.value.some((r) => r.platformId === pid)
+    const stillExists = distributeRecords.value.some((r) => r.platformId === pid)
     if (stillExists) {
       showToast('卸载失败：记录删除异常', 'error')
     } else {
@@ -188,7 +188,7 @@ async function install() {
       window.services.mkdir(targetDir)
       if (props.installMode === 'symlink') { window.services.createSymlink(sourceDir, targetDir); addLog(pid, 'ok', `Symlink: ${targetDir}`) }
       else { window.services.copyFile(sourceDir, targetDir); addLog(pid, 'ok', `Copied: ${targetDir}`) }
-      storage.saveInstallRecord({ skillId: props.skill.id, platformId: pid, mode: props.installMode, scope: 'global', targetPath: targetDir, sourceDir, installedAt: new Date().toISOString() })
+      storage.saveDistributeRecord({ skillId: props.skill.id, platformId: pid, mode: props.installMode, scope: 'global', targetPath: targetDir, sourceDir, distributedAt: new Date().toISOString() })
       installedNames.push(platform.name)
     } catch (err: any) {
       addLog(pid, 'error', err.message)

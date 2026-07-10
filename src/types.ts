@@ -15,6 +15,7 @@ export interface Skill {
   path?: string
   homepage?: string
   readme?: string
+  readmeCachedAt?: number
   category?: string
   installCount?: number
   iconUrl?: string
@@ -23,6 +24,8 @@ export interface Skill {
   canonicalId?: string
   branch?: string
   installUrl?: string
+  downloaded?: boolean
+  isFavorited?: boolean
 }
 
 export interface SkillSourceLocation {
@@ -60,14 +63,14 @@ export interface PlatformInfo {
   notes?: string
 }
 
-export interface InstallRecord {
+export interface DistributeRecord {
   skillId: string
   platformId: string
   mode: InstallMode
   scope?: 'global' | 'project'
   targetPath: string
   sourceDir: string
-  installedAt: string
+  distributedAt: string
   updatedAt?: string
 }
 

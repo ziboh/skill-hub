@@ -16,7 +16,7 @@ export function addChineseTag(tags: string[], content?: string): string[] {
   return result
 }
 
-const STORAGE_KEY = 'sh_skill_registry'
+const STORAGE_KEY = 'sm_skill_registry'
 
 
 export function loadRegistry(): Map<string, SkillIdentity> {

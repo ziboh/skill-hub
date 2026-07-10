@@ -3,7 +3,7 @@ import { ref, computed, inject } from 'vue'
 import { storage } from '../../utils/storage'
 import { KeyShowToast } from '../../inject-keys'
 import ConfirmModal from '../../components/ConfirmModal.vue'
-import type { Skill, InstallRecord, StoreSource, FailureRecord } from '../../types'
+import type { Skill, DistributeRecord, StoreSource, FailureRecord } from '../../types'
 
 const showToast = inject(KeyShowToast, () => {})
 
@@ -50,28 +50,43 @@ interface BucketDef {
   columns?: { key: string; label: string; width?: string; render?: (v: any, row?: any, i?: number) => string }[]
   filterKey?: string
   filterLabel?: string
+  searchField?: string
 }
 
 const buckets: BucketDef[] = [
   {
-    key: 'cached_skills', label: '缓存技能',
+    key: 'downloaded_skills', label: '已下载技能',
     getData: () => storage.getCachedSkills(),
     viewType: 'table',
     groupKey: 'source', groupLabel: '来源',
+    searchField: 'name',
     columns: [
-      { key: 'name', label: '名称', width: 'minmax(100px,1fr)' },
-      { key: 'author', label: '作者', width: '100px' },
-      { key: 'source', label: '类型', width: '100px' },
-      { key: 'storeSourceId', label: '商店源', width: '120px' },
-      { key: 'tags', label: '标签', width: '120px', render: (v: string[]) => v?.join(', ') || '' },
-      { key: 'userTags', label: '用户标签', width: '100px', render: (v: string[]) => v?.join(', ') || '' },
+      { key: 'name', label: '名称', width: 'auto' },
+      { key: 'author', label: '作者', width: '80px' },
+      { key: 'source', label: '类型', width: '70px' },
+      { key: 'storeSourceId', label: '商店源', width: '90px' },
+      { key: 'tags', label: '标签', width: '90px', render: (v: string[]) => v?.join(', ') || '' },
+      { key: 'userTags', label: '用户标签', width: '80px', render: (v: string[]) => v?.join(', ') || '' },
     ],
     filterKey: 'source', filterLabel: '来源',
   },
   {
     key: 'github_cache', label: 'GitHub 缓存',
+    getData: () => Object.values(storage.getGitHubCache()),
+    viewType: 'table',
+    searchField: 'name',
+    columns: [
+      { key: 'id', label: 'ID', width: 'auto' },
+      { key: 'name', label: '名称', width: 'auto' },
+      { key: 'description', label: '描述', width: 'auto', render: (v: string) => v?.slice(0, 80) || '-' },
+      { key: 'shortDescription', label: '短描述', width: 'auto', render: (v: string) => v?.slice(0, 60) || '-' },
+      { key: 'author', label: '作者', width: '80px' },
+    ],
+  },
+  {
+    key: 'web_cache', label: 'Web 缓存',
     getData: () => {
-      const all = storage.getAllGitHubCaches()
+      const all = storage.getAllWebCaches()
       const rows: any[] = []
       for (const [sourceId, cache] of Object.entries(all)) {
         for (const skill of cache.skills) {
@@ -82,43 +97,25 @@ const buckets: BucketDef[] = [
     },
     viewType: 'table',
     groupKey: '_source', groupLabel: '源',
+    searchField: 'name',
     columns: [
-      { key: '_source', label: '源', width: '100px' },
-      { key: 'name', label: '名称', width: 'minmax(100px,1fr)' },
-      { key: 'description', label: '描述', width: 'minmax(120px,2fr)', render: (v: string) => v?.slice(0, 80) || '暂无描述' },
-      { key: 'author', label: '作者', width: '100px' },
-      { key: 'tags', label: '标签', width: '120px', render: (v: string[]) => v?.join(', ') || '' },
-      { key: '_fetchedAt', label: '缓存时间', width: '140px' },
+      { key: '_source', label: '源', width: '80px' },
+      { key: 'name', label: '名称', width: 'auto' },
+      { key: 'description', label: '描述', width: 'auto', render: (v: string) => v?.slice(0, 80) || '暂无描述' },
+      { key: 'readme', label: 'SKILL.md', width: '70px', render: (v: string) => v ? '✓' : '' },
+      { key: '_fetchedAt', label: '缓存时间', width: '120px' },
     ],
     filterKey: '_source', filterLabel: '源',
   },
   {
-    key: 'install_records', label: '安装记录',
-    getData: () => storage.getInstallRecords(),
+    key: 'distribute_records', label: '分发记录',
+    getData: () => storage.getDistributeRecords(),
     viewType: 'table',
     columns: [
-      { key: 'skillId', label: 'Skill ID', width: 'minmax(80px,1fr)' },
-      { key: 'platformId', label: '平台', width: '100px' },
+      { key: 'skillId', label: 'Skill ID', width: 'auto' },
+      { key: 'platformId', label: '平台', width: '80px' },
       { key: 'mode', label: '模式', width: '60px' },
-      { key: 'installedAt', label: '安装时间', width: '140px' },
-    ],
-  },
-  {
-    key: 'downloaded_ids', label: '已下载 ID',
-    getData: () => storage.getDownloadedIds(),
-    viewType: 'table',
-    columns: [
-      { key: 'index', label: '序号', width: '60px', render: (_v: any, _row: any, i?: number) => `#${(i ?? 0) + 1}` },
-      { key: 'value', label: 'ID', width: '1fr' }
-    ],
-  },
-  {
-    key: 'favorite_ids', label: '收藏 ID',
-    getData: () => storage.getFavoriteIds(),
-    viewType: 'table',
-    columns: [
-      { key: 'index', label: '序号', width: '60px', render: (_v: any, _row: any, i?: number) => `#${(i ?? 0) + 1}` },
-      { key: 'value', label: 'ID', width: '1fr' }
+      { key: 'distributedAt', label: '分发时间', width: '120px' },
     ],
   },
   {
@@ -126,9 +123,9 @@ const buckets: BucketDef[] = [
     getData: () => storage.getStoreSources(),
     viewType: 'table',
     columns: [
-      { key: 'name', label: '名称', width: 'minmax(80px,1fr)' },
-      { key: 'type', label: '类型', width: '100px' },
-      { key: 'url', label: 'URL', width: 'minmax(100px,2fr)', render: (v: string) => v?.replace(/^https?:\/\//, '') || '-' },
+      { key: 'name', label: '名称', width: 'auto' },
+      { key: 'type', label: '类型', width: '80px' },
+      { key: 'url', label: 'URL', width: 'auto', render: (v: string) => v?.replace(/^https?:\/\//, '') || '-' },
       { key: 'enabled', label: '启用', width: '50px', render: (v: boolean) => v ? '✓' : '✗' },
     ],
   },
@@ -137,26 +134,38 @@ const buckets: BucketDef[] = [
     getData: () => storage.getPlatformConfigs(),
     viewType: 'table',
     columns: [
-      { key: 'name', label: '名称', width: 'minmax(80px,1fr)' },
+      { key: 'name', label: '名称', width: 'auto' },
       { key: 'id', label: 'ID', width: '80px' },
       { key: 'enabled', label: '启用', width: '50px', render: (v: boolean) => v ? '✓' : '✗' },
       { key: 'detected', label: '已检测', width: '60px', render: (v: boolean) => v ? '✓' : '✗' },
     ],
   },
   {
-    key: 'scanned_skills', label: '扫描技能路径',
-    getData: () => storage.getScannedSkills(),
-    viewType: 'json',
-  },
-  {
-    key: 'translations', label: '翻译缓存',
-    getData: () => storage.getTranslationCaches(),
-    viewType: 'kv',
-  },
-  {
-    key: 'desc_translations', label: '描述翻译缓存',
-    getData: () => storage.getDescTranslationCaches(),
-    viewType: 'kv',
+    key: 'translations', label: '翻译缓存（含描述与内容）',
+    getData: () => {
+      const cache = storage.getTranslationCaches()
+      return Object.entries(cache || {}).map(([hash, val]) => ({
+        hash,
+        skillName: val.skillName || '',
+        mode: val.mode || '',
+        updatedAt: val.updatedAt ? new Date(val.updatedAt).toLocaleString() : '',
+        hasContent: val.translatedContent ? '✓' : '',
+        hasDesc: val.translatedDesc ? '✓' : '',
+        descTranslation: (val.translatedDesc || '').slice(0, 100),
+        contentTranslation: (val.translatedContent || '').slice(0, 100),
+      }))
+    },
+    viewType: 'table',
+    columns: [
+      { key: 'skillName', label: '技能名', width: 'auto' },
+      { key: 'mode', label: '模式', width: '56px' },
+      { key: 'hasContent', label: '内容', width: '40px' },
+      { key: 'hasDesc', label: '描述', width: '40px' },
+      { key: 'descTranslation', label: '描述译文', width: 'auto' },
+      { key: 'contentTranslation', label: '内容译文', width: 'auto' },
+      { key: 'updatedAt', label: '更新时间', width: '130px' },
+    ],
+    searchField: 'skillName',
   },
   {
     key: 'failure_records', label: '失败记录',
@@ -165,11 +174,41 @@ const buckets: BucketDef[] = [
     groupKey: 'type', groupLabel: '类型',
     columns: [
       { key: 'type', label: '类型', width: '80px' },
-      { key: 'skillName', label: '技能', width: 'minmax(80px,1fr)' },
-      { key: 'error', label: '错误', width: 'minmax(100px,2fr)' },
-      { key: 'timestamp', label: '时间', width: '140px', render: (v: number) => v ? new Date(v).toLocaleString() : '-' },
+      { key: 'skillName', label: '技能', width: 'auto' },
+      { key: 'error', label: '错误', width: 'auto' },
+      { key: 'timestamp', label: '时间', width: '120px', render: (v: number) => v ? new Date(v).toLocaleString() : '-' },
     ],
     filterKey: 'type', filterLabel: '类型',
+  },
+  {
+    key: 'registered_projects', label: '注册项目',
+    getData: () => storage.getRegisteredProjects(),
+    viewType: 'table',
+    searchField: 'name',
+    columns: [
+      { key: 'name', label: '名称', width: 'auto' },
+      { key: 'rootDir', label: '根目录', width: 'auto', render: (v: string) => v?.slice(-40) || '-' },
+      { key: '_skillCount', label: '技能数', width: '60px', render: (_v: any, row: any) => String(row.skills?.length ?? 0) },
+    ],
+  },
+  {
+    key: 'platform_order', label: '平台排序',
+    getData: () => storage.getPlatformOrder(),
+    viewType: 'table',
+    columns: [
+      { key: 'index', label: '序号', width: '60px', render: (_v: any, _row: any, i?: number) => `#${(i ?? 0) + 1}` },
+      { key: 'value', label: '平台 ID', width: 'auto' },
+    ],
+  },
+  {
+    key: 'settings', label: '应用设置',
+    getData: () => storage.getSettings(),
+    viewType: 'json',
+  },
+  {
+    key: 'page_state', label: '页面状态',
+    getData: () => storage.getAllPageStates(),
+    viewType: 'kv',
   },
 ]
 
@@ -233,9 +272,16 @@ const tableData = computed(() => {
   }
   if (tableSearch.value) {
     const q = tableSearch.value.toLowerCase()
-    items = items.filter((item: any) =>
-      Object.values(item).some(v => String(v ?? '').toLowerCase().includes(q))
-    )
+    if (bucket.searchField) {
+      const field = bucket.searchField
+      items = items.filter((item: any) =>
+        String(item[field] ?? '').toLowerCase().includes(q)
+      )
+    } else {
+      items = items.filter((item: any) =>
+        Object.values(item).some(v => String(v ?? '').toLowerCase().includes(q))
+      )
+    }
   }
   return items
 })
@@ -252,11 +298,11 @@ const tableColumnDefs = computed<ColumnDef[]>(() => {
   if (data.length > 0 && typeof data[0] !== 'object') {
     return [
       { key: 'index', label: '序号', width: '60px' },
-      { key: 'value', label: '值', width: '1fr' }
+      { key: 'value', label: '值', width: 'auto' }
     ]
   }
   
-  return Object.keys(data[0]).map(k => ({ key: k, label: k, width: 'minmax(80px,1fr)' }))
+  return Object.keys(data[0]).map(k => ({ key: k, label: k, width: 'auto' }))
 })
 
 const filterOptions = computed(() => {
@@ -290,11 +336,13 @@ function deleteSelectedItems() {
   const count = indices.length
 
   const labels: Record<string, string> = {
-    cached_skills: '缓存技能',
+    downloaded_skills: '已下载技能',
     github_cache: 'GitHub 缓存',
-    install_records: '安装记录',
+    web_cache: 'Web 缓存',
+    distribute_records: '分发记录',
     failure_records: '失败记录',
-    downloaded_ids: '已下载 ID',
+    registered_projects: '注册项目',
+    platform_order: '平台排序',
   }
   const label = labels[bucket.key] || bucket.label
 
@@ -310,14 +358,14 @@ function deleteSelectedItems() {
 
 function doDelete(bucket: BucketDef, indices: number[]) {
   const allData = bucket.getData()
-  if (bucket.key === 'cached_skills') {
+      if (bucket.key === 'downloaded_skills') {
     const idsToRemove = indices.map(i => (tableData.value[i] as Skill).id)
     const remaining = (allData as Skill[]).filter(s => !idsToRemove.includes(s.id))
     storage.replaceCachedSkills(remaining)
-  } else if (bucket.key === 'install_records') {
-    const records = allData as InstallRecord[]
+  } else if (bucket.key === 'distribute_records') {
+    const records = allData as DistributeRecord[]
     for (const i of indices) {
-      storage.removeInstallRecord(records[i].skillId, records[i].platformId)
+      storage.removeDistributeRecord(records[i].skillId, records[i].platformId)
     }
   } else if (bucket.key === 'failure_records') {
     const records = allData as FailureRecord[]
@@ -325,6 +373,11 @@ function doDelete(bucket: BucketDef, indices: number[]) {
       storage.removeFailureRecord(records[i].id)
     }
   } else if (bucket.key === 'github_cache') {
+    const idsToRemove = indices.map(i => (tableData.value[i] as Skill).id)
+    for (const id of idsToRemove) {
+      storage.removeGitHubSkill(id)
+    }
+  } else if (bucket.key === 'web_cache') {
     const rows = tableData.value
     const toRemove: Record<string, string[]> = {}
     for (const i of indices) {
@@ -334,12 +387,29 @@ function doDelete(bucket: BucketDef, indices: number[]) {
       toRemove[src].push(row.id)
     }
     for (const [src, ids] of Object.entries(toRemove)) {
-      storage.clearGitHubCacheSkills(src, ids)
+      const cached = storage.getWebCache(src)
+      if (cached) {
+        const remaining = cached.skills.filter(s => !ids.includes(s.id))
+        if (remaining.length === 0) {
+          storage.clearWebCache(src)
+        } else {
+          storage.saveWebSkills(src, remaining)
+        }
+      }
     }
-  } else if (bucket.key === 'downloaded_ids') {
+  } else if (bucket.key === 'registered_projects') {
+    const all = allData as any[]
+    const remaining = all.filter((_, i) => !indices.includes(i))
+    storage.saveRegisteredProjects(remaining)
+  } else if (bucket.key === 'translations') {
+    const rows = tableData.value
     for (const i of indices) {
-      storage.removeDownloadedId(tableData.value[i].value)
+      storage.removeTranslationByHash(rows[i].hash)
     }
+  } else if (bucket.key === 'platform_order') {
+    const all = allData as string[]
+    const remaining = all.filter((_, i) => !indices.includes(i))
+    storage.savePlatformOrder(remaining)
   }
   tableSelected.value = new Set()
   // Force reactive update
@@ -347,7 +417,7 @@ function doDelete(bucket: BucketDef, indices: number[]) {
   refreshSummary()
 }
 
-const manageableBucketKeys = ['cached_skills','github_cache','install_records','failure_records','downloaded_ids','translations','desc_translations']
+const manageableBucketKeys = ['downloaded_skills','github_cache','web_cache','distribute_records','failure_records','translations','registered_projects','platform_order','page_state']
 
 const dataSummary = computed(() => {
   summaryVersion.value
@@ -366,18 +436,6 @@ const dataSummary = computed(() => {
 
 const summaryVersion = ref(0)
 function refreshSummary() { summaryVersion.value++ }
-
-const cleanupMessage = ref('')
-function cleanupOrphanedIds() {
-  const removed = storage.cleanOrphanedDownloadedIds()
-  if (removed > 0) {
-    cleanupMessage.value = `已清理 ${removed} 个孤儿 ID`
-    refreshSummary()
-  } else {
-    cleanupMessage.value = '没有需要清理的孤儿 ID'
-  }
-  setTimeout(() => cleanupMessage.value = '', 3000)
-}
 
 // ===== Cleanup by source =====
 function confirmCleanupBySource(source: string) {
@@ -414,23 +472,26 @@ function confirmClearAll(bucket: BucketDef) {
     title: `清空 ${label}`,
     message: `确定要清空所有 <strong>${label}</strong> 吗？此操作不可撤销。`,
     onConfirm: () => {
-      if (bucket.key === 'cached_skills') {
+  if (bucket.key === 'downloaded_skills') {
         storage.replaceCachedSkills([])
-      } else if (bucket.key === 'install_records') {
-        const records = storage.getInstallRecords()
-        for (const r of records) storage.removeInstallRecord(r.skillId, r.platformId)
+      } else if (bucket.key === 'distribute_records') {
+        const records = storage.getDistributeRecords()
+        for (const r of records) storage.removeDistributeRecord(r.skillId, r.platformId)
       } else if (bucket.key === 'failure_records') {
         storage.clearFailureRecords()
+      } else if (bucket.key === 'web_cache') {
+        storage.clearAllWebCaches()
       } else if (bucket.key === 'github_cache') {
-        storage.clearAllGitHubCaches()
-      } else if (bucket.key === 'downloaded_ids') {
-        storage.getDownloadedIds().forEach(id => storage.removeDownloadedId(id))
+        storage.clearGitHubCache()
       } else if (bucket.key === 'translations') {
         const keys = Object.keys(storage.getTranslationCaches())
         keys.forEach(h => storage.removeTranslationByHash(h))
-      } else if (bucket.key === 'desc_translations') {
-        const keys = Object.keys(storage.getDescTranslationCaches())
-        keys.forEach(h => storage.removeDescTranslationByHash(h))
+      } else if (bucket.key === 'registered_projects') {
+        storage.saveRegisteredProjects([])
+      } else if (bucket.key === 'platform_order') {
+        storage.savePlatformOrder([])
+      } else if (bucket.key === 'page_state') {
+        ;(window as any).ztools.dbStorage.setItem('sm_page_state', JSON.stringify({}))
       }
       refreshSummary()
       closeModal()
@@ -440,21 +501,7 @@ function confirmClearAll(bucket: BucketDef) {
 
 function confirmKeepOnlyDownloaded() {
   const all = storage.getCachedSkills()
-  const downloaded = all.filter(s => storage.isDownloaded(s.id))
-  const toRemove = all.length - downloaded.length
-  if (toRemove === 0) {
-    showToast('没有非已下载的缓存技能需要清理', 'info')
-    return
-  }
-  confirmDelete.value = {
-    title: '保留我的 Skill',
-    message: `将删除 <strong>${toRemove}</strong> 个非已下载的缓存技能，保留 <strong>${downloaded.length}</strong> 个。此操作不可撤销。`,
-    onConfirm: () => {
-      storage.replaceCachedSkills(downloaded)
-      refreshSummary()
-      closeModal()
-    }
-  }
+  showToast('所有技能均为已下载技能，无需清理', 'info')
 }
 </script>
 
@@ -498,11 +545,6 @@ function confirmKeepOnlyDownloaded() {
           <div class="dm-row-actions">
             <button class="btn" @click="openModal(bucket)">查看</button>
             <button
-              v-if="bucket.key === 'downloaded_ids'"
-              class="btn"
-              @click="cleanupOrphanedIds"
-            >清理孤儿ID</button>
-            <button
               v-if="manageableBucketKeys.includes(bucket.key)"
               class="btn btn-danger"
               @click="confirmClearAll(bucket)"
@@ -511,14 +553,6 @@ function confirmKeepOnlyDownloaded() {
         </div>
       </div>
     </div>
-
-    <!-- Cleanup message -->
-    <Teleport to="body">
-      <div v-if="cleanupMessage" class="dm-cleanup-toast">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-        <span>{{ cleanupMessage }}</span>
-      </div>
-    </Teleport>
 
     <!-- ===== Modal (table / json / kv) ===== -->
     <Teleport to="body">
@@ -542,7 +576,7 @@ function confirmKeepOnlyDownloaded() {
               <!-- Fixed toolbar -->
               <div class="dm-toolbar">
                 <!-- Filter bar -->
-                <div v-if="filterOptions.length > 0 || modalBucket.key === 'cached_skills'" class="dm-filter-row">
+                <div v-if="filterOptions.length > 0 || modalBucket.searchField" class="dm-filter-row">
                   <select v-if="filterOptions.length > 0" v-model="tableFilter" class="dm-select">
                     <option value="all">全部{{ modalBucket.filterLabel ? ` ${modalBucket.filterLabel}` : '' }}</option>
                     <option v-for="opt in filterOptions" :key="opt" :value="opt">{{ opt }}</option>
@@ -553,7 +587,7 @@ function confirmKeepOnlyDownloaded() {
                   </div>
                   <span class="dm-filter-spacer"></span>
                   <button
-                    v-if="modalBucket.key === 'cached_skills'"
+                    v-if="modalBucket.key === 'downloaded_skills'"
                     class="btn btn-primary"
                     @click="confirmKeepOnlyDownloaded"
                   >保留我的 Skill</button>
@@ -930,7 +964,7 @@ function confirmKeepOnlyDownloaded() {
 /* Table */
 .dm-table {
   width: 100%;
-  min-width: 720px;
+  table-layout: fixed;
   border-collapse: separate;
   border-spacing: 0;
   font-size: 12px;

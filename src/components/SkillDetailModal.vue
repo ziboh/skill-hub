@@ -33,13 +33,22 @@ const showPickModal = ref(false)
 const pickSkills = ref<{ name: string; description: string; dir: string }[]>([])
 let pickSkillResolve: ((dir: string | null) => void) | null = null
 
-const favorites = ref<string[]>([])
-const isFavorited = computed(() => props.skill && favorites.value.includes(props.skill.id))
-function loadFavorites() { favorites.value = storage.getFavoriteIds() }
+// 当前显示的收藏状态（用于在toggleFavorite后立即更新UI）
+const currentFavoriteState = ref<boolean>(false)
+
+// 监听skill变化，同步收藏状态
+watch(() => props.skill?.isFavorited, (val) => {
+  currentFavoriteState.value = val ?? false
+}, { immediate: true })
+
+const isFavorited = computed(() => currentFavoriteState.value)
 function toggleFavorite() {
   if (!props.skill) return
-  storage.toggleFavorite(props.skill.id)
-  loadFavorites()
+  // 记录当前收藏状态，toggleFavorite会翻转它
+  const wasFavorited = currentFavoriteState.value
+  storage.toggleFavorite(props.skill.id, { name: props.skill.name, description: props.skill.description, author: props.skill.author, tags: props.skill.tags, source: props.skill.source })
+  // 手动更新当前显示的状态
+  currentFavoriteState.value = !wasFavorited
 }
 
 const copyStatus = ref<Record<string, boolean>>({})
@@ -97,11 +106,49 @@ async function fetchContent() {
     loading.value = false
     return
   }
+    // Well-known / marketplace-json 技能优先从 web 缓存读取 readme
+    const isWebSkill = isWellKnownSkill(props.skill) || (props.skill.source === 'marketplace-json' && !props.skill.repo && props.skill.sourceUrl)
+    if (isWebSkill) {
+      const webCachedReadme = storage.getCachedWebSkillReadme(props.skill.id)
+      if (webCachedReadme) {
+        props.skill.readme = webCachedReadme
+        const fm = parseFrontmatter(webCachedReadme)
+        if (fm.description) props.skill.description = fm.description
+        const normalized = webCachedReadme.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+        const bodyMatch = normalized.match(/^---\n[\s\S]*?\n---\n?([\s\S]*)$/)
+        skillName.value = props.skill.name
+        skillDesc.value = fm.description || extractChineseSummary(webCachedReadme) || ''
+        rawContent.value = normalized
+        skillContent.value = bodyMatch ? bodyMatch[1].trim() : webCachedReadme
+        loading.value = false
+        return
+      }
+    }
+
+    // Check persistent readme cache (24h TTL)
+    const cachedContent = storage.getCachedReadme(props.skill.id)
+    if (cachedContent) {
+      props.skill.readme = cachedContent
+      const fm = parseFrontmatter(cachedContent)
+      if (fm.description) props.skill.description = fm.description
+      const normalized = cachedContent.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+      const bodyMatch = normalized.match(/^---\n[\s\S]*?\n---\n?([\s\S]*)$/)
+      skillName.value = props.skill.name
+      skillDesc.value = fm.description || extractChineseSummary(cachedContent) || props.skill.description || ''
+      rawContent.value = normalized
+      skillContent.value = bodyMatch ? bodyMatch[1].trim() : cachedContent
+      loading.value = false
+      return
+    }
   const pageState = storage.getPageState('skill-store')
   const shouldFetchFromGitHub = pageState?.fetchGitHubDesc !== false
   if (shouldFetchFromGitHub && props.skill.repo) {
     const result = await fetchSkillDetailFromSkill(props.skill, storage.getSettings().githubToken || undefined)
     if (result) {
+      props.skill.readme = result.content
+      props.skill.readmeCachedAt = Date.now()
+      if (result.description) props.skill.description = result.description
+      storage.saveGitHubSkills([props.skill])
       skillName.value = props.skill.name
       skillDesc.value = result.description
       const normalized2 = result.content.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
@@ -122,6 +169,10 @@ async function fetchContent() {
           const text = await resp.text()
           if (text && (text.includes('#') || text.includes('---'))) {
             const fm = parseFrontmatter(text)
+            props.skill.readme = text
+            props.skill.readmeCachedAt = Date.now()
+            if (fm.description) props.skill.description = fm.description
+            storage.saveGitHubSkills([props.skill])
             skillName.value = props.skill.name
             skillDesc.value = fm.description || props.skill.description || ''
             const normalized3 = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
@@ -138,8 +189,12 @@ async function fetchContent() {
     if (isWellKnownSkill(props.skill)) {
       const result = await downloadSkillFromWebsite(props.skill)
       if (result) {
+        props.skill.readme = result.skillMd
+        props.skill.readmeCachedAt = Date.now()
+        storage.saveWebSkillReadme(props.skill, result.skillMd)
         const normalized = result.skillMd.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
         const fm = parseFrontmatter(normalized)
+        if (fm.description) props.skill.description = fm.description
         const bodyMatch = normalized.match(/^---\n[\s\S]*?\n---\n?([\s\S]*)$/)
         skillName.value = props.skill.name
         skillDesc.value = fm.description || extractChineseSummary(normalized) || props.skill.description || ''
@@ -153,8 +208,12 @@ async function fetchContent() {
     if (props.skill.source === 'marketplace-json' && !props.skill.repo && props.skill.sourceUrl) {
       const result = await downloadDirectFromStore(props.skill)
       if (result) {
+        props.skill.readme = result.skillMd
+        props.skill.readmeCachedAt = Date.now()
+        storage.saveWebSkillReadme(props.skill, result.skillMd)
         const normalized = result.skillMd.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
         const fm = parseFrontmatter(normalized)
+        if (fm.description) props.skill.description = fm.description
         const bodyMatch = normalized.match(/^---\n[\s\S]*?\n---\n?([\s\S]*)$/)
         skillName.value = props.skill.name
         skillDesc.value = fm.description || extractChineseSummary(normalized) || props.skill.description || ''
@@ -172,8 +231,8 @@ async function fetchContent() {
   loading.value = false
 }
 
-onMounted(() => { fetchContent(); loadFavorites() })
-watch(() => props.skill?.id, () => { fetchContent(); loadFavorites() })
+onMounted(() => { fetchContent() })
+watch(() => props.skill?.id, () => { fetchContent() })
 
 function collectAllSkillDirs(root: string): string[] {
   const results: string[] = []
@@ -370,7 +429,7 @@ async function handleImport() {
           </div>
         </div>
         <div class="header-toolbar">
-          <button v-if="isDownloaded" class="toolbar-icon-btn" :class="{ favorited: isFavorited }" :title="isFavorited ? '取消收藏' : '收藏'" @click="toggleFavorite">
+          <button v-if="isDownloaded" class="toolbar-icon-btn" :class="{ favorited: isFavorited }" :title="isFavorited ? '取消收藏' : '收藏'" @click="toggleFavorite()">
             <svg width="16" height="16" viewBox="0 0 24 24" :fill="isFavorited ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
           </button>
           <button class="toolbar-icon-btn close-btn" title="关闭" @click="emit('close')">
@@ -439,6 +498,8 @@ async function handleImport() {
 .header-toolbar { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .toolbar-icon-btn { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 1px solid hsl(var(--border)); border-radius: 8px; background: hsl(var(--card)); color: hsl(var(--muted-foreground)); cursor: pointer; transition: all var(--duration-base) var(--ease-standard); }
 .toolbar-icon-btn:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
+.toolbar-icon-btn:disabled { opacity: 0.35; cursor: default; }
+.toolbar-icon-btn.disabled { opacity: 0.35; cursor: not-allowed; pointer-events: none; }
 .toolbar-icon-btn.favorited { color: #f59e0b; border-color: hsl(48 96% 50% / 0.4); }
 .toolbar-icon-btn.close-btn:hover { color: hsl(var(--destructive)); border-color: hsl(var(--destructive) / 0.3); background: hsl(var(--destructive) / 0.06); }
 

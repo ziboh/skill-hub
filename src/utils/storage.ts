@@ -1,9 +1,9 @@
-import type { InstallRecord, StoreSource, AppSettings, PlatformInfo, Skill, RegisteredProject, ModelConfig, FailureRecord, FailureType } from '../types'
+import type { DistributeRecord, StoreSource, AppSettings, PlatformInfo, Skill, SkillSource, RegisteredProject, ModelConfig, FailureRecord, FailureType } from '../types'
 import { BUILTIN_PROVIDERS } from '../data/ai-providers'
 
 const PREFIX = 'sm_'
 
-export function cleanDescription(desc: string): string {
+function cleanDescription(desc: string): string {
   if (!desc) return desc
   if (desc.startsWith('[') && desc.endsWith(']')) {
     desc = desc.slice(1, -1).trim()
@@ -35,30 +35,46 @@ function dbGet<T = any>(key: string): T | null {
   }
 }
 
+const STRIPPED_FIELDS: (keyof Skill)[] = ['shortDescription', 'homepage', 'readmeCachedAt', 'installCount', 'iconUrl', 'canonicalId', 'installUrl']
+
+function stripSkillFields(skill: Skill): Skill {
+  const copy = { ...skill }
+  for (const f of STRIPPED_FIELDS) delete copy[f]
+  return copy
+}
+
+function migrateOldCachedSkills(): void {
+  try {
+    const raw = window.ztools.dbStorage.getItem(PREFIX + KEYS.OLD_CACHED_SKILLS)
+    if (!raw) return
+    const old: Skill[] = JSON.parse(raw)
+    const downloaded = old.filter(s => s.downloaded).map(s => stripSkillFields(s))
+    if (downloaded.length > 0) {
+      window.ztools.dbStorage.setItem(PREFIX + KEYS.DOWNLOADED_SKILLS, JSON.stringify(downloaded))
+    }
+    window.ztools.dbStorage.removeItem(PREFIX + KEYS.OLD_CACHED_SKILLS)
+    console.log(`[storage] migrated ${old.length} cached skills → ${downloaded.length} downloaded skills`)
+  } catch (e) {
+    console.warn('[storage] migrateOldCachedSkills failed:', e)
+  }
+}
+
 const KEYS = {
-  INSTALLED_SKILLS: 'installed_skills',
+  DISTRIBUTED_SKILLS: 'distributed_skills',
   STORE_SOURCES: 'store_sources',
   PLATFORM_CONFIGS: 'platform_configs',
   PLATFORM_ORDER: 'platform_order',
   SETTINGS: 'settings',
-  SCANNED_SKILLS: 'scanned_skills',
-  CACHED_SKILLS: 'cached_skills',
-  FAVORITE_IDS: 'favorite_ids',
-  DOWNLOADED_IDS: 'downloaded_ids',
+  DOWNLOADED_SKILLS: 'downloaded_skills',
+  OLD_CACHED_SKILLS: 'cached_skills',
   REGISTERED_PROJECTS: 'registered_projects',
   TRANSLATIONS: 'translations',
   FAILURE_RECORDS: 'failure_records',
-  WELLKNOWN_CACHE: 'wellknown_cache',
-  WELLKNOWN_CACHE_VERSION: 'wellknown_cache_version',
-  MARKETPLACE_CACHE: 'marketplace_cache',
   GITHUB_CACHE: 'github_cache',
+  WEB_CACHE: 'web_cache',
 }
 
-const WELLKNOWN_CACHE_VERSION = 1
-
-export const MARKETPLACE_TTL = 86400000 // 24 小时
-export const WELL_KNOWN_TTL = 86400000 // 24 小时
-export const GITHUB_TTL = 3600000 // 1 小时
+const README_TTL = 43200000 // 12 小时
 
 interface SessionDownload {
   skillId: string
@@ -68,20 +84,31 @@ interface SessionDownload {
 }
 
 const _sessionDownloads: SessionDownload[] = []
-let _onSessionDownload: ((download: SessionDownload) => void) | null = null
 
 // Cache state (module-level, survives between method calls)
-let _installRecordsCache: InstallRecord[] | null = null
-let _installedSkillSetCache: Set<string> | null = null
+let _distributeRecordsCache: DistributeRecord[] | null = null
+let _distributedSkillSetCache: Set<string> | null = null
 let _cachedSkillsCache: Skill[] | null = null
-let _downloadedIdsCache: string[] | null = null
-let _downloadedSetCache: Set<string> | null = null
-let _favoriteSetCache: Set<string> | null = null
 
-function invalidateInstallCache() { _installRecordsCache = null; _installedSkillSetCache = null }
+function invalidateDistributeCache() { _distributeRecordsCache = null; _distributedSkillSetCache = null }
 function invalidateCachedSkills() { _cachedSkillsCache = null }
-function invalidateDownloadedCache() { _downloadedIdsCache = null; _downloadedSetCache = null }
-function invalidateFavoriteCache() { _favoriteSetCache = null }
+
+function initBuiltinProviders(): ModelConfig[] {
+  return BUILTIN_PROVIDERS.map(p => ({
+    id: `builtin-${p.id}`,
+    name: p.name,
+    provider: p.id,
+    baseUrl: p.defaultBaseUrl,
+    apiPath: p.defaultApiPath,
+    apiKeys: [],
+    model: '',
+    isDefault: false,
+    isBuiltin: true,
+    enabled: false,
+    models: [],
+    icon: p.icon,
+  }))
+}
 
 export const storage = {
   // === Session Downloads (temporary, cleared on app restart) ===
@@ -96,53 +123,44 @@ export const storage = {
       downloadedAt: new Date().toISOString(),
     }
     _sessionDownloads.unshift(download)
-    _onSessionDownload?.(download)
-  },
-  onSessionDownload(callback: (download: SessionDownload) => void): void {
-    _onSessionDownload = callback
   },
 
-  // === Install Records (with Set cache) ===
-  getInstallRecords(): InstallRecord[] {
-    if (!_installRecordsCache) _installRecordsCache = dbGet<InstallRecord[]>(KEYS.INSTALLED_SKILLS) || []
-    return _installRecordsCache
+  // === Distribute Records (with Set cache) ===
+  getDistributeRecords(): DistributeRecord[] {
+    if (!_distributeRecordsCache) _distributeRecordsCache = dbGet<DistributeRecord[]>(KEYS.DISTRIBUTED_SKILLS) || []
+    return _distributeRecordsCache
   },
-  getInstalledSkillSet(): Set<string> {
-    if (!_installedSkillSetCache) _installedSkillSetCache = new Set(this.getInstallRecords().map(r => r.skillId))
-    return _installedSkillSetCache
+  getDistributedSkillSet(): Set<string> {
+    if (!_distributedSkillSetCache) _distributedSkillSetCache = new Set(this.getDistributeRecords().map(r => r.skillId))
+    return _distributedSkillSetCache
   },
-  saveInstallRecord(record: InstallRecord): void {
-    const records = this.getInstallRecords()
+  saveDistributeRecord(record: DistributeRecord): void {
+    const records = this.getDistributeRecords()
     const idx = records.findIndex(
       (r) => r.skillId === record.skillId && r.platformId === record.platformId && r.scope === record.scope
     )
     if (idx >= 0) records[idx] = record
     else records.push(record)
-    invalidateInstallCache()
-    dbSet(KEYS.INSTALLED_SKILLS, records)
+    invalidateDistributeCache()
+    dbSet(KEYS.DISTRIBUTED_SKILLS, records)
   },
-  removeInstallRecord(skillId: string, platformId: string, scope?: string): void {
-    const records = this.getInstallRecords().filter(
+  removeDistributeRecord(skillId: string, platformId: string, scope?: string): void {
+    const records = this.getDistributeRecords().filter(
       (r) => !(r.skillId === skillId && r.platformId === platformId && (scope === undefined || r.scope === scope))
     )
-    invalidateInstallCache()
-    dbSet(KEYS.INSTALLED_SKILLS, records)
+    invalidateDistributeCache()
+    dbSet(KEYS.DISTRIBUTED_SKILLS, records)
   },
   removeAllForSkill(skillId: string): void {
-    const records = this.getInstallRecords().filter((r) => r.skillId !== skillId)
-    invalidateInstallCache()
-    dbSet(KEYS.INSTALLED_SKILLS, records)
+    const records = this.getDistributeRecords().filter((r) => r.skillId !== skillId)
+    invalidateDistributeCache()
+    dbSet(KEYS.DISTRIBUTED_SKILLS, records)
   },
-  getInstalledForPlatform(platformId: string): InstallRecord[] {
-    return this.getInstallRecords().filter((r) => r.platformId === platformId)
+  getDistributedForPlatform(platformId: string): DistributeRecord[] {
+    return this.getDistributeRecords().filter((r) => r.platformId === platformId)
   },
-  getInstalledForSkill(skillId: string): InstallRecord[] {
-    return this.getInstallRecords().filter((r) => r.skillId === skillId)
-  },
-  isSkillInstalled(skillId: string, platformId: string): boolean {
-    return this.getInstallRecords().some(
-      (r) => r.skillId === skillId && r.platformId === platformId
-    )
+  getDistributedForSkill(skillId: string): DistributeRecord[] {
+    return this.getDistributeRecords().filter((r) => r.skillId === skillId)
   },
 
   // === Store Sources ===
@@ -166,27 +184,15 @@ export const storage = {
       s.storeSourceId === id ? { ...s, storeSourceId: undefined } : s
     )
     if (updated.length !== cached.length || updated.some((s, i) => s.storeSourceId !== cached[i].storeSourceId)) {
-      dbSet(KEYS.CACHED_SKILLS, updated)
+      dbSet(KEYS.DOWNLOADED_SKILLS, updated)
       _cachedSkillsCache = updated
     }
-    // 清理 Well-Known 索引缓存
-    const wkAll = dbGet<Record<string, any>>(KEYS.WELLKNOWN_CACHE)
-    if (wkAll?.[id]) {
-      delete wkAll[id]
-      dbSet(KEYS.WELLKNOWN_CACHE, wkAll)
-    }
+    this.clearWebCache(id)
   },
 
   // === Platform Configs ===
   getPlatformConfigs(): PlatformInfo[] {
     return dbGet<PlatformInfo[]>(KEYS.PLATFORM_CONFIGS) || []
-  },
-  savePlatformConfig(config: PlatformInfo): void {
-    const configs = this.getPlatformConfigs()
-    const idx = configs.findIndex((c) => c.id === config.id)
-    if (idx >= 0) configs[idx] = config
-    else configs.push(config)
-    dbSet(KEYS.PLATFORM_CONFIGS, configs)
   },
   savePlatformConfigs(configs: PlatformInfo[]): void {
     dbSet(KEYS.PLATFORM_CONFIGS, configs)
@@ -201,23 +207,6 @@ export const storage = {
   },
 
   // === Settings ===
-  initBuiltinProviders(): ModelConfig[] {
-    return BUILTIN_PROVIDERS.map(p => ({
-      id: `builtin-${p.id}`,
-      name: p.name,
-      provider: p.id,
-      baseUrl: p.defaultBaseUrl,
-      apiPath: p.defaultApiPath,
-      apiKeys: [],
-      model: '',
-      isDefault: false,
-      isBuiltin: true,
-      enabled: false,
-      models: [],
-      icon: p.icon,
-    }))
-  },
-
   getSettings(): AppSettings {
     const defaults: AppSettings = {
       defaultInstallMode: 'copy',
@@ -250,11 +239,11 @@ export const storage = {
     const merged = { ...defaults, ...(saved || {}) }
     // Initialize built-in providers if not present
     if (!Array.isArray(merged.aiModels) || merged.aiModels.length === 0) {
-      merged.aiModels = this.initBuiltinProviders()
+      merged.aiModels = initBuiltinProviders()
     } else {
       // Ensure built-in providers exist and have correct structure
       const existingIds = new Set(merged.aiModels.map(m => m.id))
-      const builtinProviders = this.initBuiltinProviders()
+      const builtinProviders = initBuiltinProviders()
       for (const bp of builtinProviders) {
         if (!existingIds.has(bp.id)) {
           merged.aiModels.push(bp)
@@ -269,18 +258,13 @@ export const storage = {
     dbSet(KEYS.SETTINGS, merged)
   },
 
-  // === Scanned Skills Cache ===
-  getScannedSkills(): string[] {
-    return dbGet<string[]>(KEYS.SCANNED_SKILLS) || []
-  },
-  setScannedSkills(paths: string[]): void {
-    dbSet(KEYS.SCANNED_SKILLS, paths)
-  },
-
-  // === Cached Skills (with cache) ===
+  // === Downloaded Skills (已下载/已导入的技能) ===
   getCachedSkills(): Skill[] {
     if (!_cachedSkillsCache) {
-      _cachedSkillsCache = dbGet<Skill[]>(KEYS.CACHED_SKILLS) || []
+      migrateOldCachedSkills()
+      // 清理旧的描述翻译数据库（哈希算法已变，旧数据无法匹配）
+      try { window.ztools.dbStorage.removeItem(PREFIX + KEYS.TRANSLATIONS + '_desc') } catch { /* ignore */ }
+      _cachedSkillsCache = dbGet<Skill[]>(KEYS.DOWNLOADED_SKILLS) || []
     }
     return _cachedSkillsCache
   },
@@ -288,127 +272,195 @@ export const storage = {
     const existing = this.getCachedSkills()
     const map = new Map(existing.map((s) => [s.id, s]))
     for (const s of skills) {
-      const copy = JSON.parse(JSON.stringify(s)) as Skill
+      const copy = stripSkillFields(JSON.parse(JSON.stringify(s)) as Skill)
       copy.description = cleanDescription(copy.description)
-      if (!options?.forceStoreSourceId) {
-        const existingSkill = map.get(copy.id)
-        if (existingSkill && this.isDownloaded(copy.id)) {
+      const existingSkill = map.get(copy.id)
+      if (existingSkill) {
+        if (!options?.forceStoreSourceId) {
           copy.storeSourceId = existingSkill.storeSourceId
         }
       }
       map.set(copy.id, copy)
     }
     invalidateCachedSkills()
-    dbSet(KEYS.CACHED_SKILLS, Array.from(map.values()))
+    dbSet(KEYS.DOWNLOADED_SKILLS, Array.from(map.values()))
   },
   replaceCachedSkills(skills: Skill[]): void {
     invalidateCachedSkills()
-    dbSet(KEYS.CACHED_SKILLS, skills.map(s => {
-      const copy = JSON.parse(JSON.stringify(s)) as Skill
+    dbSet(KEYS.DOWNLOADED_SKILLS, skills.map(s => {
+      const copy = stripSkillFields(JSON.parse(JSON.stringify(s)) as Skill)
       copy.description = cleanDescription(copy.description)
       return copy
     }))
   },
 
-  // === Marketplace Cache (stale-while-revalidate, independent from cached_skills) ===
-  getMarketplaceCache(id: string): { skills: Skill[]; fetchedAt: number } | null {
-    const all = dbGet<Record<string, { skills: Skill[]; fetchedAt: number }>>(KEYS.MARKETPLACE_CACHE)
-    return all?.[id] || null
-  },
-  saveMarketplaceSkills(id: string, skills: Skill[]): void {
-    const all = dbGet<Record<string, { skills: Skill[]; fetchedAt: number }>>(KEYS.MARKETPLACE_CACHE) || {}
-    all[id] = { skills, fetchedAt: Date.now() }
-    dbSet(KEYS.MARKETPLACE_CACHE, all)
-  },
-
-  // === Well-Known Index Cache (stale-while-revalidate) ===
-  getWellKnownCache(id: string): { skills: Skill[]; fetchedAt: number } | null {
-    const cachedVersion = dbGet<number>(KEYS.WELLKNOWN_CACHE_VERSION)
-    if (cachedVersion !== WELLKNOWN_CACHE_VERSION) {
-      dbSet(KEYS.WELLKNOWN_CACHE, {})
-      dbSet(KEYS.WELLKNOWN_CACHE_VERSION, WELLKNOWN_CACHE_VERSION)
-      return null
+  // === GitHub Cache (扁平化描述池，所有 git 类源共用) ===
+  // sm_github_cache -> Record<string, Skill>  (key = skill.id)
+  getGitHubCache(): Record<string, Skill> {
+    const raw = dbGet<Record<string, any>>(KEYS.GITHUB_CACHE)
+    if (!raw) return {}
+    // 检测旧结构 (Record<sourceId, { skills: Skill[] }>) 并迁移
+    for (const val of Object.values(raw)) {
+      if (val && typeof val === 'object' && Array.isArray((val as any).skills)) {
+        const pool: Record<string, Skill> = {}
+        for (const v of Object.values(raw)) {
+          const entry = v as { skills: Skill[] }
+          if (entry.skills) {
+            for (const s of entry.skills) {
+              if (s.description || s.shortDescription) pool[s.id] = s
+            }
+          }
+        }
+        dbSet(KEYS.GITHUB_CACHE, pool)
+        return pool
+      }
     }
-    const all = dbGet<Record<string, { skills: Skill[]; fetchedAt: number }>>(KEYS.WELLKNOWN_CACHE)
-    const cached = all?.[id]
-    if (!cached) return null
-    if (Date.now() - cached.fetchedAt >= WELL_KNOWN_TTL) {
-      delete all[id]
-      dbSet(KEYS.WELLKNOWN_CACHE, all)
-      return null
+    return raw as Record<string, Skill>
+  },
+  saveGitHubSkills(skills: Skill[]): void {
+    const pool = this.getGitHubCache()
+    for (const s of skills) {
+      if (s.description || s.shortDescription || s.readme) {
+        pool[s.id] = s
+      }
     }
-    return cached
+    dbSet(KEYS.GITHUB_CACHE, pool)
   },
-  saveWellKnownSkills(id: string, skills: Skill[]): void {
-    const all = dbGet<Record<string, { skills: Skill[]; fetchedAt: number }>>(KEYS.WELLKNOWN_CACHE) || {}
-    all[id] = { skills, fetchedAt: Date.now() }
-    dbSet(KEYS.WELLKNOWN_CACHE, all)
-    dbSet(KEYS.WELLKNOWN_CACHE_VERSION, WELLKNOWN_CACHE_VERSION)
+  removeGitHubSkill(id: string): void {
+    const pool = this.getGitHubCache()
+    delete pool[id]
+    dbSet(KEYS.GITHUB_CACHE, pool)
   },
-
-  // === GitHub Store Cache (stale-while-revalidate) ===
-  getGitHubCache(id: string): { skills: Skill[]; fetchedAt: number; complete?: boolean } | null {
-    const all = dbGet<Record<string, { skills: Skill[]; fetchedAt: number; complete?: boolean }>>(KEYS.GITHUB_CACHE)
-    return all?.[id] || null
-  },
-  getAllGitHubCaches(): Record<string, { skills: Skill[]; fetchedAt: number; complete?: boolean }> {
-    return dbGet<Record<string, { skills: Skill[]; fetchedAt: number; complete?: boolean }>>(KEYS.GITHUB_CACHE) || {}
-  },
-  // complete 表示所有 skill 的描述都已加载完整；懒加载未跑完时为 false，
-  // 供 stale-while-revalidate 判断是否需要继续补齐缺失的描述
-  saveGitHubSkills(id: string, skills: Skill[], complete = false): void {
-    const all = dbGet<Record<string, { skills: Skill[]; fetchedAt: number; complete?: boolean }>>(KEYS.GITHUB_CACHE) || {}
-    all[id] = { skills, fetchedAt: Date.now(), complete }
-    dbSet(KEYS.GITHUB_CACHE, all)
-  },
-  clearGitHubCacheSource(sourceId: string): void {
-    const all = dbGet<Record<string, { skills: Skill[]; fetchedAt: number }>>(KEYS.GITHUB_CACHE) || {}
-    delete all[sourceId]
-    dbSet(KEYS.GITHUB_CACHE, all)
-  },
-  clearGitHubCacheSkills(sourceId: string, skillIds: string[]): void {
-    const all = dbGet<Record<string, { skills: Skill[]; fetchedAt: number }>>(KEYS.GITHUB_CACHE) || {}
-    const entry = all[sourceId]
-    if (!entry) return
-    entry.skills = entry.skills.filter(s => !skillIds.includes(s.id))
-    if (entry.skills.length === 0) {
-      delete all[sourceId]
-    } else {
-      all[sourceId] = entry
-    }
-    dbSet(KEYS.GITHUB_CACHE, all)
-  },
-  clearAllGitHubCaches(): void {
+  clearGitHubCache(): void {
     dbSet(KEYS.GITHUB_CACHE, {})
   },
 
-  // === Favorites (with Set cache for O(1) lookup) ===
+  // === Readme Cache (在 sm_github_cache 中用 readmeCachedAt 做 TTL 检查) ===
+  getCachedReadme(skillId: string): string | null {
+    const pool = this.getGitHubCache()
+    const cached = pool[skillId]
+    if (!cached?.readme) return null
+    if (!cached.readmeCachedAt || Date.now() - cached.readmeCachedAt > README_TTL) {
+      delete cached.readme
+      delete cached.readmeCachedAt
+      dbSet(KEYS.GITHUB_CACHE, pool)
+      return null
+    }
+    return cached.readme
+  },
+
+  // === Web Cache (统一缓存 marketplace + well-known 源) ===
+  // sm_web_cache -> Record<string, { skills: Skill[]; fetchedAt: number }>
+  getWebCache(id: string): { skills: Skill[]; fetchedAt: number } | null {
+    const all = dbGet<Record<string, { skills: Skill[]; fetchedAt: number }>>(KEYS.WEB_CACHE)
+    return all?.[id] || null
+  },
+  saveWebSkills(id: string, skills: Skill[]): void {
+    const all = dbGet<Record<string, { skills: Skill[]; fetchedAt: number }>>(KEYS.WEB_CACHE) || {}
+    all[id] = { skills, fetchedAt: Date.now() }
+    dbSet(KEYS.WEB_CACHE, all)
+  },
+  getAllWebCaches(): Record<string, { skills: Skill[]; fetchedAt: number }> {
+    return dbGet<Record<string, { skills: Skill[]; fetchedAt: number }>>(KEYS.WEB_CACHE) || {}
+  },
+  saveWebSkillReadme(skill: Skill, readme: string): void {
+    const all = dbGet<Record<string, { skills: Skill[]; fetchedAt: number }>>(KEYS.WEB_CACHE) || {}
+    const sourceId = (skill as any).storeSourceId || 'unknown'
+    if (!all[sourceId]) {
+      all[sourceId] = { skills: [], fetchedAt: Date.now() }
+    }
+    const existing = all[sourceId].skills.find(s => s.id === skill.id)
+    if (existing) {
+      existing.readme = readme
+      existing.readmeCachedAt = Date.now()
+    } else {
+      all[sourceId].skills.push({ ...skill, readme, readmeCachedAt: Date.now() })
+    }
+    dbSet(KEYS.WEB_CACHE, all)
+  },
+  getCachedWebSkillReadme(skillId: string): string | null {
+    const all = dbGet<Record<string, { skills: Skill[]; fetchedAt: number }>>(KEYS.WEB_CACHE) || {}
+    for (const [, entry] of Object.entries(all)) {
+      const skill = entry.skills.find(s => s.id === skillId)
+      if (skill?.readme) {
+        if (!skill.readmeCachedAt || Date.now() - skill.readmeCachedAt > README_TTL) {
+          delete skill.readme
+          delete skill.readmeCachedAt
+          dbSet(KEYS.WEB_CACHE, all)
+          return null
+        }
+        return skill.readme
+      }
+    }
+    return null
+  },
+  clearWebCache(id: string): void {
+    const all = dbGet<Record<string, { skills: Skill[]; fetchedAt: number }>>(KEYS.WEB_CACHE) || {}
+    delete all[id]
+    dbSet(KEYS.WEB_CACHE, all)
+  },
+  clearAllWebCaches(): void {
+    dbSet(KEYS.WEB_CACHE, {})
+  },
+
+  // === Favorites (stored as isFavorited on each Skill) ===
   getFavoriteIds(): string[] {
-    return dbGet<string[]>(KEYS.FAVORITE_IDS) || []
+    return this.getCachedSkills().filter(s => s.isFavorited).map(s => s.id)
   },
-  getFavoriteSet(): Set<string> {
-    if (!_favoriteSetCache) _favoriteSetCache = new Set(this.getFavoriteIds())
-    return _favoriteSetCache
+  toggleFavorite(id: string, meta?: { name?: string; description?: string; author?: string; tags?: string[]; source?: SkillSource }): void {
+    const skills = this.getCachedSkills()
+    let idx = skills.findIndex(s => s.id === id)
+
+    // 如果找不到当前ID，尝试通过name匹配已管理的技能（同步分发后的收藏状态）
+    if (idx < 0 && meta?.name) {
+      const normalizedName = meta.name.toLowerCase()
+      idx = skills.findIndex(s => s.name && s.name.toLowerCase() === normalizedName)
+    }
+
+    if (idx < 0) {
+      const entry: Skill = { id, name: meta?.name || id, description: meta?.description || '', author: meta?.author || '', tags: meta?.tags || [], source: meta?.source || 'local', isFavorited: true }
+      skills.push(entry)
+      invalidateCachedSkills()
+      dbSet(KEYS.DOWNLOADED_SKILLS, skills)
+      return
+    }
+    skills[idx] = { ...skills[idx], isFavorited: !skills[idx].isFavorited }
+    invalidateCachedSkills()
+    dbSet(KEYS.DOWNLOADED_SKILLS, skills)
   },
-  toggleFavorite(id: string): void {
-    const ids = this.getFavoriteIds()
-    const idx = ids.indexOf(id)
-    if (idx >= 0) ids.splice(idx, 1)
-    else ids.push(id)
-    invalidateFavoriteCache()
-    dbSet(KEYS.FAVORITE_IDS, ids)
-  },
-  isFavorite(id: string): boolean {
-    return this.getFavoriteSet().has(id)
+  migrateFavorites(): void {
+    try {
+      const raw = window.ztools.dbStorage.getItem(PREFIX + 'favorite_ids')
+      if (!raw) return
+      const oldIds: string[] = JSON.parse(raw)
+      if (!oldIds.length) return
+      const idSet = new Set(oldIds)
+      const skills = this.getCachedSkills()
+      let changed = false
+      for (let i = 0; i < skills.length; i++) {
+        if (idSet.has(skills[i].id) && !skills[i].isFavorited) {
+          skills[i] = { ...skills[i], isFavorited: true }
+          changed = true
+        }
+      }
+      if (changed) {
+        invalidateCachedSkills()
+        dbSet(KEYS.DOWNLOADED_SKILLS, skills)
+      }
+      window.ztools.dbStorage.removeItem(PREFIX + 'favorite_ids')
+      console.log(`[storage] migrated ${oldIds.length} favorite ids → isFavorited on skills`)
+    } catch (e) {
+      console.warn('[storage] migrateFavorites failed:', e)
+    }
   },
 
   // === User Tags ===
   saveSkillUserTags(skillId: string, userTags: string[]): void {
     const skills = this.getCachedSkills()
-    const skill = skills.find((s) => s.id === skillId)
-    if (skill) {
-      skill.userTags = userTags
-      dbSet(KEYS.CACHED_SKILLS, skills)
+    const idx = skills.findIndex((s) => s.id === skillId)
+    if (idx >= 0) {
+      skills[idx] = { ...stripSkillFields(skills[idx]), userTags }
+      dbSet(KEYS.DOWNLOADED_SKILLS, skills)
     }
   },
 
@@ -418,48 +470,35 @@ export const storage = {
     return skill?.userTags || []
   },
 
-  getAllUserTags(): string[] {
-    const skills = this.getCachedSkills()
-    const tagSet = new Set<string>()
-    for (const s of skills) {
-      if (s.userTags) s.userTags.forEach((t) => tagSet.add(t))
-    }
-    return Array.from(tagSet).sort()
-  },
-
-  // === Downloaded Skills (with Set cache for O(1) lookup) ===
+  // === Downloaded Skills (all skills in this store are downloaded) ===
   getDownloadedIds(): string[] {
-    if (!_downloadedIdsCache) _downloadedIdsCache = dbGet<string[]>(KEYS.DOWNLOADED_IDS) || []
-    return _downloadedIdsCache
+    return this.getCachedSkills().map(s => s.id)
   },
   getDownloadedSet(): Set<string> {
-    if (!_downloadedSetCache) _downloadedSetCache = new Set(this.getDownloadedIds())
-    return _downloadedSetCache
+    return new Set(this.getDownloadedIds())
   },
   addDownloadedId(id: string): void {
-    const ids = this.getDownloadedIds()
-    if (!ids.includes(id)) {
-      const next = [...ids, id]
-      _downloadedIdsCache = next
-      if (_downloadedSetCache) _downloadedSetCache.add(id)
-      dbSet(KEYS.DOWNLOADED_IDS, next)
-    }
+    const skills = this.getCachedSkills()
+    if (skills.some(s => s.id === id)) return
+    skills.push({ id, name: id, description: '', author: '', tags: [], source: 'local' })
+    invalidateCachedSkills()
+    dbSet(KEYS.DOWNLOADED_SKILLS, skills)
   },
   removeDownloadedId(id: string): void {
-    const ids = this.getDownloadedIds().filter((i) => i !== id)
-    invalidateDownloadedCache()
-    dbSet(KEYS.DOWNLOADED_IDS, ids)
+    const skills = this.getCachedSkills()
+    const filtered = skills.filter(s => s.id !== id)
+    if (filtered.length === skills.length) return
+    invalidateCachedSkills()
+    dbSet(KEYS.DOWNLOADED_SKILLS, filtered)
   },
   isDownloaded(id: string): boolean {
-    return this.getDownloadedSet().has(id)
+    return this.getCachedSkills().some(s => s.id === id)
   },
   enrichDownloadedDescriptions(): boolean {
     let changed = false
     const userData = window.ztools.getPath('userData')
     const cached = this.getCachedSkills()
-    const downloadedSet = this.getDownloadedSet()
     for (const skill of cached) {
-      if (!downloadedSet.has(skill.id)) continue
       try {
         const skillDir = window.services.pathJoin(userData, 'skills-repo', skill.id)
         const files = window.services.readDir(skillDir)
@@ -489,46 +528,17 @@ export const storage = {
   cleanStaleCachedSkills(): void {
     const repoRoot = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo')
     const cached = this.getCachedSkills()
-    const ids = this.getDownloadedIds()
-    const downloadedSet = new Set(ids)
 
-    // 已下载的技能：目录必须存在，否则清理
-    const aliveDownloaded = ids.filter((id) => {
-      const dir = window.services.pathJoin(repoRoot, id)
+    // 已下载的技能：目录必须存在，否则移除
+    const alive = cached.filter(skill => {
+      const dir = window.services.pathJoin(repoRoot, skill.id)
       return window.services.pathExists(dir)
     })
-    const aliveDownloadedSet = new Set(aliveDownloaded)
+    if (alive.length !== cached.length) { dbSet(KEYS.DOWNLOADED_SKILLS, alive); invalidateCachedSkills() }
 
-    // 缓存技能：已下载的保留目录存在的，未下载的全部保留（用于商店浏览）
-    const aliveCached = cached.filter((s) => {
-      if (downloadedSet.has(s.id)) return aliveDownloadedSet.has(s.id)
-      return true
-    })
-
-    const aliveInstallRecords = this.getInstallRecords().filter((r) => aliveDownloadedSet.has(r.skillId))
-
-    // 清理在 cached_skills 中不存在对应条目的 downloaded_ids
-    const cachedIdSet = new Set(aliveCached.map(s => s.id))
-    const syncedDownloaded = aliveDownloaded.filter(id => cachedIdSet.has(id))
-
-    if (aliveCached.length !== cached.length) { dbSet(KEYS.CACHED_SKILLS, aliveCached); invalidateCachedSkills() }
-    if (syncedDownloaded.length !== ids.length) { dbSet(KEYS.DOWNLOADED_IDS, syncedDownloaded); invalidateDownloadedCache() }
-    if (aliveInstallRecords.length !== this.getInstallRecords().length) dbSet(KEYS.INSTALLED_SKILLS, aliveInstallRecords)
-  },
-  cleanOrphanedDownloadedIds(): number {
-    const cached = this.getCachedSkills()
-    const ids = this.getDownloadedIds()
-    const cachedIdSet = new Set(cached.map(s => s.id))
-
-    // 移除在 cached_skills 中不存在对应条目的 downloaded_id
-    const cleaned = ids.filter(id => cachedIdSet.has(id))
-
-    if (cleaned.length !== ids.length) {
-      dbSet(KEYS.DOWNLOADED_IDS, cleaned)
-      invalidateDownloadedCache()
-    }
-
-    return ids.length - cleaned.length
+    const aliveIds = new Set(alive.map(s => s.id))
+    const aliveDistributeRecords = this.getDistributeRecords().filter((r) => aliveIds.has(r.skillId))
+    if (aliveDistributeRecords.length !== this.getDistributeRecords().length) dbSet(KEYS.DISTRIBUTED_SKILLS, aliveDistributeRecords)
   },
 
   updateChineseTags(): void {
@@ -543,7 +553,7 @@ export const storage = {
         changed = true
       }
     }
-    if (changed) { dbSet(KEYS.CACHED_SKILLS, skills); invalidateCachedSkills() }
+    if (changed) { dbSet(KEYS.DOWNLOADED_SKILLS, skills); invalidateCachedSkills() }
   },
 
   // === Registered Projects ===
@@ -552,15 +562,6 @@ export const storage = {
   },
   saveRegisteredProjects(projects: RegisteredProject[]): void {
     dbSet(KEYS.REGISTERED_PROJECTS, projects)
-  },
-  addRegisteredProject(project: RegisteredProject): void {
-    const projects = this.getRegisteredProjects()
-    projects.push(project)
-    this.saveRegisteredProjects(projects)
-  },
-  removeRegisteredProject(id: string): void {
-    const projects = this.getRegisteredProjects().filter((p) => p.id !== id)
-    this.saveRegisteredProjects(projects)
   },
   updateRegisteredProject(id: string, patch: Partial<RegisteredProject>): void {
     const projects = this.getRegisteredProjects()
@@ -581,9 +582,12 @@ export const storage = {
     const all = dbGet<Record<string, any>>('page_state')
     return all?.[pageId] ?? null
   },
+  getAllPageStates(): Record<string, any> {
+    return dbGet<Record<string, any>>('page_state') || {}
+  },
 
   // === Translation Cache (keyed by file hash) ===
-  _readTranslationCache(): Record<string, { sourceContent: string; translatedContent: string; mode: string; updatedAt: number }> {
+  _readTranslationCache(): Record<string, { sourceContent?: string; translatedContent?: string; translatedDesc?: string; mode?: string; updatedAt: number; skillName?: string }> {
     let cache: Record<string, any> = {}
     try { cache = dbGet<Record<string, any>>(KEYS.TRANSLATIONS) || {} } catch {
       console.warn('[storage] failed to read translation cache')
@@ -593,76 +597,49 @@ export const storage = {
   _writeTranslationCache(cache: Record<string, any>): void {
     dbSet(KEYS.TRANSLATIONS, cache)
   },
-  getTranslationByHash(hash: string): { sourceContent: string; translatedContent: string; mode: string; updatedAt: number; skillName?: string } | null {
+  getTranslationByHash(hash: string): { sourceContent?: string; translatedContent?: string; translatedDesc?: string; mode?: string; updatedAt: number; skillName?: string } | null {
     const cache = this._readTranslationCache()
     return cache[hash] || null
   },
-  saveTranslationByHash(hash: string, data: { sourceContent: string; translatedContent: string; mode: string; skillName?: string }): void {
+  saveTranslationByHash(hash: string, data: { sourceContent?: string; translatedContent?: string; translatedDesc?: string; mode?: string; skillName?: string }): void {
     const cache = this._readTranslationCache()
-    cache[hash] = { ...data, updatedAt: Date.now() }
+    const existing = cache[hash] || {}
+    cache[hash] = { ...existing, ...data, updatedAt: Date.now() }
     this._writeTranslationCache(cache)
   },
-  removeTranslationByHash(hash: string): void {
+  removeTranslationByHash(hash: string, type?: 'content' | 'desc'): void {
     const cache = this._readTranslationCache()
-    delete cache[hash]
+    const existing = cache[hash]
+    if (!existing) return
+    if (type === 'desc') {
+      delete existing.translatedDesc
+    } else if (type === 'content') {
+      delete existing.sourceContent
+      delete existing.translatedContent
+      delete existing.mode
+    } else {
+      delete cache[hash]
+      this._writeTranslationCache(cache)
+      return
+    }
+    if (!existing.translatedDesc && !existing.translatedContent) {
+      delete cache[hash]
+    }
     this._writeTranslationCache(cache)
   },
-  clearTranslations(): void {
-    this._writeTranslationCache({})
-  },
-  getTranslationCaches(): Record<string, { sourceContent: string; translatedContent: string; mode: string; updatedAt: number; skillName?: string }> {
+  getTranslationCaches(): Record<string, { sourceContent?: string; translatedContent?: string; translatedDesc?: string; mode?: string; updatedAt: number; skillName?: string }> {
     return this._readTranslationCache()
   },
-  getDescTranslationCaches(): Record<string, { translatedDesc: string; updatedAt: number; skillName?: string }> {
-    return this._readDescTranslationCache()
-  },
-
-  // === Description Translation Cache (keyed by descHash) ===
-  _readDescTranslationCache(): Record<string, { translatedDesc: string; updatedAt: number; skillName?: string }> {
-    let cache: Record<string, any> = {}
-    try { cache = dbGet<Record<string, any>>(KEYS.TRANSLATIONS + '_desc') || {} } catch { /* ignore */ }
-    return cache
-  },
-  _writeDescTranslationCache(cache: Record<string, any>): void {
-    dbSet(KEYS.TRANSLATIONS + '_desc', cache)
+  // 描述翻译写入同一缓存（与内容翻译共用 hash key）
+  saveDescTranslationByHash(hash: string, translatedDesc: string, skillName?: string): void {
+    const cache = this._readTranslationCache()
+    const existing = cache[hash] || {}
+    cache[hash] = { ...existing, translatedDesc, updatedAt: Date.now(), skillName }
+    this._writeTranslationCache(cache)
   },
   getDescTranslationByHash(hash: string): string | null {
-    const cache = this._readDescTranslationCache()
+    const cache = this._readTranslationCache()
     return cache[hash]?.translatedDesc || null
-  },
-  saveDescTranslationByHash(hash: string, translatedDesc: string, skillName?: string): void {
-    const cache = this._readDescTranslationCache()
-    cache[hash] = { translatedDesc, updatedAt: Date.now(), skillName }
-    this._writeDescTranslationCache(cache)
-  },
-  removeDescTranslationByHash(hash: string): void {
-    const cache = this._readDescTranslationCache()
-    delete cache[hash]
-    this._writeDescTranslationCache(cache)
-  },
-
-  // === Tags Translation Cache (keyed by file hash) ===
-  _readTagsTranslationCache(): Record<string, { translatedTags: string[]; updatedAt: number }> {
-    let cache: Record<string, any> = {}
-    try { cache = dbGet<Record<string, any>>(KEYS.TRANSLATIONS + '_tags') || {} } catch { /* ignore */ }
-    return cache
-  },
-  _writeTagsTranslationCache(cache: Record<string, any>): void {
-    dbSet(KEYS.TRANSLATIONS + '_tags', cache)
-  },
-  getTranslationTagsByHash(hash: string): string[] | null {
-    const cache = this._readTagsTranslationCache()
-    return cache[hash]?.translatedTags || null
-  },
-  saveTranslationTagsByHash(hash: string, translatedTags: string[]): void {
-    const cache = this._readTagsTranslationCache()
-    cache[hash] = { translatedTags, updatedAt: Date.now() }
-    this._writeTagsTranslationCache(cache)
-  },
-  removeTranslationTagsByHash(hash: string): void {
-    const cache = this._readTagsTranslationCache()
-    delete cache[hash]
-    this._writeTagsTranslationCache(cache)
   },
 
   // === Remove Skill from All Caches ===
@@ -670,12 +647,7 @@ export const storage = {
     const skills = this.getCachedSkills()
     const filtered = skills.filter((s) => s.id !== skillId)
     invalidateCachedSkills()
-    dbSet(KEYS.CACHED_SKILLS, filtered)
-
-    const favorites = this.getFavoriteIds()
-    const favFiltered = favorites.filter((id) => id !== skillId)
-    invalidateFavoriteCache()
-    dbSet(KEYS.FAVORITE_IDS, favFiltered)
+    dbSet(KEYS.DOWNLOADED_SKILLS, filtered)
   },
 
   // === Failure Records ===

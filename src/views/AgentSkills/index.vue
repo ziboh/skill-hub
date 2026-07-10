@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onActivated, watch, inject, unref, onDeactiva
 import { KeyShowToast, KeyDetectedPlatforms, KeyPlatformSkillCounts, KeyRefreshCounts, KeyAgentSkills, KeyUpdateAgentPlatformSkills, KeySelectedAgentPlatformId, KeyIsAgentSkillsDirty } from '../../inject-keys'
 import { detectPlatforms, getPlatformPath, defaultPlatforms } from '../../data/platforms'
 import { storage } from '../../utils/storage'
-import { isChineseContent, computeDescriptionHash } from '../../utils/translate'
+import { isChineseContent } from '../../utils/translate'
 import { useSettings } from '../../composables/useSettings'
 import { getSourceInfo } from '../../utils/source-info'
 import { normalizePath } from '../../utils/path'
@@ -65,8 +65,8 @@ function isInMySkills(skill: any): boolean {
 
 function getPlatFormInstallDirSet(): Set<string> {
   if (!selectedPlatform.value) return new Set()
-  const installed = storage.getInstalledForPlatform(selectedPlatform.value.id)
-  return new Set(installed.map((r) => normalizePath(r.targetPath)))
+  const distributed = storage.getDistributedForPlatform(selectedPlatform.value.id)
+  return new Set(distributed.map((r) => normalizePath(r.targetPath)))
 }
 
 function getBadgeType(skill: any): string {
@@ -246,8 +246,7 @@ function getLanguageTags(skill: any): { showChineseTag: boolean; showTranslatedT
     const raw = skill.content || ''
     const normalized = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
     const fh = window.services.hashContent(normalized)
-    const dh = computeDescriptionHash(desc)
-    const hasTranslation = !!((storage.getDescTranslationByHash(dh) || storage.getDescTranslationByHash(fh)) && storage.getTranslationByHash(fh))
+    const hasTranslation = !!(fh && storage.getTranslationByHash(fh)?.translatedContent)
     return { showChineseTag: false, showTranslatedTag: hasTranslation }
   } catch {
     return { showChineseTag: false, showTranslatedTag: false }
@@ -339,13 +338,13 @@ function executeUninstallByScope() {
   const selected = uninstallScopeOptions.value.filter((o) => o.checked).map((o) => o.scope)
   if (!selected.length) { showToast('请选择至少一个范围', 'warning'); return }
 
-  const records = storage.getInstallRecords().filter(
+  const records = storage.getDistributeRecords().filter(
     (r) => r.targetPath.replace(/\\/g, '/') === dir.replace(/\\/g, '/')
   )
   for (const r of records) {
     const scope = r.scope || 'global'
     if (!selected.includes(scope)) continue
-    storage.removeInstallRecord(r.skillId, r.platformId, r.scope)
+    storage.removeDistributeRecord(r.skillId, r.platformId, r.scope)
   }
 
   if (selected.includes('global')) {
@@ -364,7 +363,7 @@ function executeUninstallByScope() {
 
 function uninstallSkill(skill: any) {
   const dir = skill.dir
-  const allRecords = storage.getInstallRecords().filter(
+  const allRecords = storage.getDistributeRecords().filter(
     (r) => r.targetPath.replace(/\\/g, '/') === dir.replace(/\\/g, '/')
   )
   const hasGlobal = allRecords.some((r) => r.scope !== 'project')
@@ -378,7 +377,7 @@ function uninstallSkill(skill: any) {
 
   try { window.services.removeFile(dir) } catch { showToast('删除失败，请检查文件权限', 'error') }
   refreshCurrent()
-  for (const r of allRecords) storage.removeInstallRecord(r.skillId, r.platformId, r.scope)
+  for (const r of allRecords) storage.removeDistributeRecord(r.skillId, r.platformId, r.scope)
   refreshCounts()
   confirmDeleteDir.value = null
 }
@@ -393,7 +392,7 @@ const uninstallScopeDir = ref<string | null>(null)
 const uninstallScopeSkillName = ref('')
 const uninstallScopeOptions = ref<{ scope: string; label: string; checked: boolean }[]>([])
 function showUninstallScopePicker(dir: string, name: string) {
-  const records = storage.getInstallRecords().filter(
+  const records = storage.getDistributeRecords().filter(
     (r) => r.targetPath.replace(/\\/g, '/') === dir.replace(/\\/g, '/')
   )
   const hasGlobal = records.some((r) => r.scope !== 'project')
@@ -435,10 +434,10 @@ function executeBatchDelete() {
   let failCount = 0
   for (const dir of selectedIds.value) {
     try { window.services.removeFile(dir) } catch { failCount++; continue }
-    const records = storage.getInstallRecords().filter(
+    const records = storage.getDistributeRecords().filter(
       (r) => r.targetPath.replace(/\\/g, '/') === dir.replace(/\\/g, '/')
     )
-    for (const r of records) storage.removeInstallRecord(r.skillId, r.platformId, r.scope)
+    for (const r of records) storage.removeDistributeRecord(r.skillId, r.platformId, r.scope)
   }
   if (failCount > 0) showToast(`${failCount} 个技能删除失败，请检查文件权限`, 'warning')
   refreshCurrent()
@@ -533,14 +532,14 @@ function confirmImportFromMy() {
         }
         window.services.mkdir(dest)
         window.services.copyFile(sourceDir, dest)
-        storage.saveInstallRecord({
+        storage.saveDistributeRecord({
           skillId: skill.id,
           platformId: targetPlatform.id,
           mode: 'copy',
           scope: 'global',
           targetPath: dest,
           sourceDir,
-          installedAt: new Date().toISOString(),
+          distributedAt: new Date().toISOString(),
         })
         importedCount++
       } catch { failCount++ }

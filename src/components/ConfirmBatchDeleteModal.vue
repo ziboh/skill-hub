@@ -30,7 +30,7 @@ const platformNameMap = computed(() => {
 const uniquePlatforms = computed(() => {
   const platformSkillMap = new Map<string, Set<string>>()
   for (const skill of props.skills) {
-    const records = storage.getInstalledForSkill(skill.id)
+    const records = storage.getDistributedForSkill(skill.id)
     for (const r of records) {
       if (!platformSkillMap.has(r.platformId)) platformSkillMap.set(r.platformId, new Set())
       platformSkillMap.get(r.platformId)!.add(skill.id)
@@ -70,7 +70,7 @@ function deleteSkills() {
     window.services.removeEmptyAncestors(dir)
 
     if (removeDistributed.value && selectedPlatforms.value.size > 0) {
-      const records = storage.getInstalledForSkill(skill.id)
+      const records = storage.getDistributedForSkill(skill.id)
       for (const record of records) {
         if (!selectedPlatforms.value.has(record.platformId)) continue
         try {

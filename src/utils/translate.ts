@@ -24,12 +24,6 @@ export function isChineseContent(text: string): boolean {
   return chineseRatio > 0.1
 }
 
-export function isChineseText(text: string): boolean {
-  if (!text) return false
-  if (!/[a-zA-Z]/.test(text)) return true
-  return isChineseContent(text)
-}
-
 const IMMERSIVE_SYSTEM_PROMPT = `You are a professional translator working on complete SKILL.md documents.
 
 Return a valid SKILL.md document in {targetLang}.
@@ -39,7 +33,7 @@ Rules:
 2. In frontmatter, do NOT insert <t>...</t> lines. Keep ALL frontmatter values unchanged (including description, name, etc.) — they are handled by separate translation logic.
 3. After the frontmatter, translate the markdown body in immersive mode: for each heading, paragraph, or list block, output the original block first, then output the translated block wrapped in <t>...</t>.
 4. Do NOT translate fenced code blocks, inline code, command names, file paths, URLs, or YAML keys.
-5. Preserve markdown structure. Output only the final SKILL.md document with no commentary.
+5. Preserve markdown structure. Output only the final SKILL.md document with no commentary. Do NOT wrap the output in markdown code fences.
 
 Example input:
 ---
@@ -70,7 +64,7 @@ Rules:
 2. In frontmatter, keep ALL values unchanged (including description, name, etc.) — they are handled by separate translation logic. Only keep YAML keys unchanged.
 3. Translate the markdown body fully while preserving markdown structure.
 4. Do NOT translate fenced code blocks, inline code, command names, file paths, URLs, or YAML keys.
-5. Output only the translated SKILL.md document with no commentary.`
+5. Output only the translated SKILL.md document with no commentary. Do NOT wrap the output in markdown code fences or any other formatting — return the raw document directly.`
 
 const DESCRIPTION_SYSTEM_PROMPT = `You are a professional translator for skill descriptions.
 
@@ -80,7 +74,7 @@ Rules:
 1. If the text is already in {targetLang} or contains significant {targetLang} content (mixed language), return it EXACTLY as-is without any translation.
 2. Only translate pure foreign language text (e.g., pure English text when target is Chinese).
 3. Keep technical terms, code snippets, identifiers, URLs, and file paths unchanged.
-4. Return ONLY the translated text or original text, no explanations.
+4. Return ONLY the translated text or original text, no explanations. Do NOT wrap the output in markdown code fences — return the plain text directly.
 5. If unsure whether to translate, return the original text as-is.`
 
 export interface ImmersiveSegment {
@@ -97,13 +91,7 @@ export function stripFrontmatter(content: string): string {
 }
 
 export function computeContentHash(content: string): string {
-  const normalized = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
-  const stripped = stripFrontmatter(normalized)
-  return window.services.hashContent(stripped)
-}
-
-export function computeDescriptionHash(description: string): string {
-  return window.services.hashContent(`desc:${description || ''}`)
+  return window.services.hashContent(content.replace(/\r\n/g, '\n').replace(/\r/g, '\n'))
 }
 
 export function renderImmersiveSegments(content: string): ImmersiveSegment[] {
@@ -186,56 +174,10 @@ export async function translateDescription(
   return result.content
 }
 
-const TAGS_SYSTEM_PROMPT = `You are a professional translator for skill tags.
-
-Your task: Translate each tag to {targetLang}, BUT only if it's written in a foreign language.
-
-Rules:
-1. If a tag is already in {targetLang}, return it as-is.
-2. Only translate pure foreign language tags (e.g., English tags when target is Chinese).
-3. Keep technical terms, code-like values, and identifiers unchanged.
-4. Return ONLY the translated tags as a JSON array, no explanations.
-5. If unsure whether to translate a tag, return it as-is.
-6. Example: ["code review", "git", "testing"] → ["代码审查", "git", "测试"]`
-
-export async function translateTags(
-  tags: string[],
-  model: ModelConfig,
-  targetLang?: string,
-): Promise<string[]> {
-  const lang = targetLang || getTargetLang()
-
-  const allChinese = tags.every(t => isChineseText(t))
-  if (allChinese || tags.length === 0) {
-    return tags
-  }
-
-  const systemPrompt = TAGS_SYSTEM_PROMPT.replace(/{targetLang}/g, lang)
-  const extraBody = storage.getSettings().translationExtraBody || {}
-
-  const result = await chatCompletion(
-    model,
-    [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: JSON.stringify(tags) },
-    ],
-    { temperature: 0.3, maxTokens: 512, timeout: getTranslationTimeout(), extraBody },
-  )
-
-  try {
-    const parsed = JSON.parse(result.content)
-    if (Array.isArray(parsed) && parsed.length === tags.length) {
-      return parsed
-    }
-  } catch { /* ignore */ }
-
-  return tags
-}
-
 export function resolveTranslationKey(skill: Skill, skillDir?: string): string {
   const cachedSkills = storage.getCachedSkills()
   const downloadedIds = storage.getDownloadedIds()
-  const installRecords = storage.getInstallRecords()
+  const distributeRecords = storage.getDistributeRecords()
 
   const isMySkill = cachedSkills.some(s => s.id === skill.id) && downloadedIds.includes(skill.id)
   if (isMySkill) {
@@ -244,7 +186,7 @@ export function resolveTranslationKey(skill: Skill, skillDir?: string): string {
 
   if (skillDir) {
     const normalizedDir = skillDir.replace(/\\/g, '/').toLowerCase()
-    const record = installRecords.find(r => {
+    const record = distributeRecords.find(r => {
       const normalizedTarget = r.targetPath.replace(/\\/g, '/').toLowerCase()
       return normalizedTarget.startsWith(normalizedDir) || normalizedDir.startsWith(normalizedTarget)
     })
@@ -254,7 +196,7 @@ export function resolveTranslationKey(skill: Skill, skillDir?: string): string {
   }
 
   const skillName = (skill.name || '').toLowerCase()
-  const matchedRecord = installRecords.find(r => {
+  const matchedRecord = distributeRecords.find(r => {
     const recordSkill = cachedSkills.find(s => s.id === r.skillId)
     if (recordSkill && recordSkill.name.toLowerCase() === skillName) {
       return true

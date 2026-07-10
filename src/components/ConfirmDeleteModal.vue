@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { storage } from '../utils/storage'
-import type { Skill, InstallRecord } from '../types'
+import type { Skill, DistributeRecord } from '../types'
 import { defaultPlatforms } from '../data/platforms'
 import ProviderIcon from './ProviderIcon.vue'
 import { loadRegistry, removeFromRegistry } from '../utils/skill-registry'
@@ -21,8 +21,8 @@ watch(removeDistributed, (val) => {
   }
 })
 
-const installRecords = computed<InstallRecord[]>(() => {
-  return storage.getInstalledForSkill(props.skill.id)
+const distributeRecords = computed<DistributeRecord[]>(() => {
+  return storage.getDistributedForSkill(props.skill.id)
 })
 
 const platformNameMap = computed(() => {
@@ -34,7 +34,7 @@ const platformNameMap = computed(() => {
 const uniquePlatforms = computed(() => {
   const seen = new Set<string>()
   const result: { platformId: string; name: string; mode: string }[] = []
-  for (const record of installRecords.value) {
+  for (const record of distributeRecords.value) {
     if (seen.has(record.platformId)) continue
     seen.add(record.platformId)
     result.push({
@@ -71,7 +71,7 @@ function deleteSkill() {
   window.services.removeEmptyAncestors(dir)
 
   if (removeDistributed.value && selectedPlatforms.value.size > 0) {
-    for (const record of installRecords.value) {
+    for (const record of distributeRecords.value) {
       if (!selectedPlatforms.value.has(record.platformId)) continue
       try {
         window.services.removeFile(record.targetPath)
@@ -104,7 +104,7 @@ function deleteSkill() {
       <div class="confirm-body">
         <p class="confirm-desc">确定要删除 <strong>{{ skill.name }}</strong> 吗？此操作不可撤销。</p>
 
-        <div v-if="installRecords.length" class="distributed-section">
+        <div v-if="distributeRecords.length" class="distributed-section">
           <label class="remove-distributed-label">
             <input type="checkbox" v-model="removeDistributed" class="remove-distributed-checkbox" />
             <span>同时移除已分发的文件</span>

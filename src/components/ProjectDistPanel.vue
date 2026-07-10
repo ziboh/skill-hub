@@ -4,7 +4,7 @@ import { KeyShowToast, KeySelectedProject, KeyRegisteredProjects, KeySelectProje
 import { detectPlatforms } from '../data/platforms'
 import { storage } from '../utils/storage'
 import { normalizePath } from '../utils/path'
-import type { Skill, InstallMode, InstallRecord, RegisteredProject } from '../types'
+import type { Skill, InstallMode, DistributeRecord, RegisteredProject } from '../types'
 import ProviderIcon from './ProviderIcon.vue'
 import ConfirmModal from './ConfirmModal.vue'
 
@@ -34,7 +34,7 @@ const customDirInputValue = ref('')
 const customAgentDirs = ref<{ id: string; name: string; path: string; type: string }[]>([])
 
 const showStatusBadges = computed(() => selectedProjects.value.length === 1)
-const installRecords = ref<InstallRecord[]>([])
+const distributeRecords = ref<DistributeRecord[]>([])
 const installLog = ref<{ platform: string; status: 'ok' | 'error' | 'pending'; msg: string }[]>([])
 
 const platforms = computed(() => {
@@ -134,7 +134,7 @@ function makeRecordKey(agentPath: string, projectId?: string): string {
 
 function isInstalled(agentPath: string, projectId?: string): boolean {
   const key = makeRecordKey(agentPath, projectId)
-  const hasRecord = installRecords.value.some((r) => r.platformId === key && r.scope === 'project')
+  const hasRecord = distributeRecords.value.some((r) => r.platformId === key && r.scope === 'project')
   if (!hasRecord) return false
   const project = primaryProject.value
   if (!project) return true
@@ -150,11 +150,11 @@ const uninstalledAgentDirs = computed(() =>
 const totalUninstalled = computed(() => uninstalledAgentDirs.value.length)
 
 function loadInstallStatus() {
-  const allRecords = storage.getInstallRecords()
+  const allRecords = storage.getDistributeRecords()
   const pids = new Set(selectedProjects.value.map((p) => p.id))
   if (primaryProject.value?.id) pids.add(primaryProject.value.id)
-  if (!pids.size) { installRecords.value = []; physicallyExistingAgentDirs.value = new Set(); return }
-  const valid: InstallRecord[] = []
+  if (!pids.size) { distributeRecords.value = []; physicallyExistingAgentDirs.value = new Set(); return }
+  const valid: DistributeRecord[] = []
   for (const r of allRecords) {
     if (r.scope !== 'project') continue
     let matched = false
@@ -169,9 +169,9 @@ function loadInstallStatus() {
         continue
       }
     }
-    storage.removeInstallRecord(r.skillId, r.platformId, 'project')
+    storage.removeDistributeRecord(r.skillId, r.platformId, 'project')
   }
-  installRecords.value = valid
+  distributeRecords.value = valid
   if (primaryProject.value) {
     physicallyExistingAgentDirs.value = getPhysicallyExistingAgentDirs(primaryProject.value)
   } else {
@@ -198,16 +198,16 @@ async function uninstall() {
   const target = uninstallTarget.value
   if (!target) { cancelUninstall(); return }
   const key = makeRecordKey(target.agentPath, target.projectId)
-  const record = installRecords.value.find((r) => r.platformId === key)
+  const record = distributeRecords.value.find((r) => r.platformId === key)
   if (!record) { cancelUninstall(); return }
 
   try {
     if (record.targetPath && window.services.pathExists(record.targetPath)) {
       window.services.removeFile(record.targetPath)
     }
-    storage.removeInstallRecord(props.skill.id, key, 'project')
+    storage.removeDistributeRecord(props.skill.id, key, 'project')
     loadInstallStatus()
-    const stillExists = installRecords.value.some((r) => r.platformId === key)
+    const stillExists = distributeRecords.value.some((r) => r.platformId === key)
     if (stillExists) {
       showToast('卸载失败：记录删除异常', 'error')
     } else {
@@ -288,10 +288,10 @@ async function install() {
 
         if (!showStatusBadges.value) {
           const key = makeRecordKey(agentPath, project.id)
-          const alreadyInstalled = storage.getInstallRecords().some(
+          const alreadyDistributed = storage.getDistributeRecords().some(
             (r) => r.skillId === props.skill.id && r.platformId === key && r.scope === 'project'
           )
-          if (alreadyInstalled) {
+          if (alreadyDistributed) {
             addLog(`${project.name}/${agentPath}`, 'ok', '已存在，跳过')
             continue
           }
@@ -311,14 +311,14 @@ async function install() {
             addLog(`${project.name}/${agentPath}`, 'error', `拷贝未生效: ${targetDir}`)
             continue
           }
-          storage.saveInstallRecord({
+          storage.saveDistributeRecord({
             skillId: props.skill.id,
             platformId: makeRecordKey(agentPath, project.id),
             mode: props.installMode,
             scope: 'project',
             targetPath: targetDir,
             sourceDir,
-            installedAt: new Date().toISOString(),
+            distributedAt: new Date().toISOString(),
           })
           installedNames.push(`${project.name}/${agentPath}`)
           addLog(`${project.name}/${agentPath}`, 'ok', `源: ${sourceDir} → ${targetDir}`)

@@ -110,10 +110,10 @@ function loadSkillContentForActive() {
   editedInstructions.value = skillContent.value
 }
 
-const installRecords = computed(() => {
+const distributeRecords = computed(() => {
   if (!activeSkill.value || !props.platformId) return []
   const skillDir = normalizePath(activeSkill.value.dir || '')
-  return storage.getInstalledForPlatform(props.platformId).filter((r) =>
+  return storage.getDistributedForPlatform(props.platformId).filter((r) =>
     normalizePath(r.targetPath) === skillDir
   )
 })
@@ -128,8 +128,16 @@ const skill = computed<Skill | null>(() => {
   const s = activeSkill.value
   if (!s) return null
   const manifest = s.manifest
+  const id = props.platformId ? `${props.platformId}/${s.name}` : (manifest?.name || s.name)
+  const cachedSkills = storage.getCachedSkills()
+  // 先通过ID查找，如果找不到则通过name查找（同步分发后的收藏状态）
+  let downloaded = cachedSkills.find(d => d.id === id)
+  if (!downloaded) {
+    const normalizedName = (manifest?.name || s.name || '').toLowerCase()
+    downloaded = cachedSkills.find(d => d.name && d.name.toLowerCase() === normalizedName)
+  }
   return {
-    id: props.platformId ? `${props.platformId}/${s.name}` : (manifest?.name || s.name),
+    id,
     name: manifest?.name || s.name,
     description: manifest?.description || '',
     author: manifest?.author || '未知',
@@ -139,15 +147,15 @@ const skill = computed<Skill | null>(() => {
     path: s.dir,
     readme: s.content || '',
     storeSourceId: props.platformId ? `agent:${props.platformId}` : undefined,
+    isFavorited: downloaded?.isFavorited || false,
   }
 })
 
-const favorites = ref<string[]>([])
-const isFavorited = computed(() => skill.value ? favorites.value.includes(skill.value.id) : false)
+const isFavorited = computed(() => currentFavoriteState.value)
+const isImported = computed(() => isInMySkills.value)
 
 onMounted(() => {
   loadSkillContentForActive()
-  loadFavorites()
   checkImported()
 })
 
@@ -159,14 +167,23 @@ watch(() => props.skill, () => {
   checkImported()
 })
 
-function loadFavorites() {
-  favorites.value = storage.getFavoriteIds()
-}
+// 当前显示的收藏状态（用于在toggleFavorite后立即更新UI）
+const currentFavoriteState = ref<boolean>(false)
+
+// 监听skill变化，同步收藏状态
+watch(() => skill.value, (newSkill) => {
+  if (newSkill) {
+    currentFavoriteState.value = newSkill.isFavorited ?? false
+  }
+}, { immediate: true })
 
 function toggleFavorite() {
   if (!skill.value) return
-  storage.toggleFavorite(skill.value.id)
-  loadFavorites()
+  // 记录当前收藏状态，toggleFavorite会翻转它
+  const wasFavorited = currentFavoriteState.value
+  storage.toggleFavorite(skill.value.id, { name: skill.value.name, description: skill.value.description, author: skill.value.author, tags: skill.value.tags, source: skill.value.source })
+  // 手动更新当前显示的状态
+  currentFavoriteState.value = !wasFavorited
   refreshCounts()
 }
 
@@ -208,10 +225,10 @@ function uninstallSkill() {
   const targetPath = window.services.pathJoin(getSkillDir(), s.name)
   try {
     window.services.removeFile(targetPath)
-    const records = storage.getInstallRecords().filter(
+    const records = storage.getDistributeRecords().filter(
       (r) => r.targetPath.replace(/\\/g, '/') === targetPath.replace(/\\/g, '/')
     )
-    for (const r of records) storage.removeInstallRecord(r.skillId, r.platformId, r.scope)
+    for (const r of records) storage.removeDistributeRecord(r.skillId, r.platformId, r.scope)
     emit('navigate', props.platformId ? 'agent-skills' : 'project-skills',
       props.platformId ? { platformId: props.platformId } : undefined)
     showToast('已删除', 'success')
@@ -372,6 +389,8 @@ function selectPath(index: number) {
       :edited-content="editedInstructions"
       :copy-status="copyStatus"
       :skill-dir="getSkillDirPath"
+      :show-favorite="true"
+      :can-favorite="isImported"
       v-model:active-tab="activeTab"
       @navigate="emit('navigate', $event)"
       @toggle-favorite="toggleFavorite"
@@ -395,18 +414,16 @@ function selectPath(index: number) {
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
           </svg>
         </button>
+        <button class="action-btn" :class="{ favorited: isFavorited, disabled: !isImported }" :disabled="!isImported" :title="!isImported ? '下载后可收藏' : (isFavorited ? '取消收藏' : '收藏')" @click="isImported && toggleFavorite()">
+          <svg width="16" height="16" viewBox="0 0 24 24" :fill="isFavorited ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        </button>
         <button class="action-btn danger" @click="confirmDelete = true" title="删除">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="3 6 5 6 21 6"/>
             <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
           </svg>
         </button>
-        <button class="action-btn close-btn" title="关闭" @click="emit('navigate', props.platformId ? 'agent-skills' : 'project-skills', props.platformId ? { platformId: props.platformId } : undefined)">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="18" y1="6" x2="6" y2="18"/>
-            <line x1="6" y1="6" x2="18" y2="18"/>
-          </svg>
-        </button>
+
       </template>
 
       <template #context-panel>
@@ -490,9 +507,14 @@ function selectPath(index: number) {
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-standard);
 }
-.action-btn:hover {
+.action-btn:hover:not(:disabled) {
   background: hsl(var(--accent));
   color: hsl(var(--foreground));
+}
+.action-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+  pointer-events: none;
 }
 .action-btn.danger:hover {
   color: hsl(var(--destructive));
@@ -504,6 +526,7 @@ function selectPath(index: number) {
   border-color: hsl(var(--destructive) / 0.3);
   background: hsl(var(--destructive) / 0.06);
 }
+.action-btn.favorited { color: #f59e0b; border-color: hsl(48 96% 50% / 0.4); }
 
 .platform-panel { padding: 16px; background: hsl(var(--card)); border: 1px solid hsl(var(--border)); border-radius: 14px; }
 .section-heading { font-size: 11px; font-weight: 700; color: hsl(var(--muted-foreground)); text-transform: uppercase; letter-spacing: 0.2em; }

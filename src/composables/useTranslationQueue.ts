@@ -1,5 +1,5 @@
 import { ref, watch } from 'vue'
-import { translateContent, translateDescription, translateTags, isChineseContent, isChineseText, stripFrontmatter, computeDescriptionHash } from '../utils/translate'
+import { translateContent, translateDescription, isChineseContent, stripFrontmatter } from '../utils/translate'
 import { AIError } from '../utils/ai'
 import { storage } from '../utils/storage'
 import type { ModelConfig, Skill } from '../types'
@@ -174,9 +174,8 @@ function readSkillContent(skill: Skill): string | null {
   return content ? stripFrontmatter(content) : null
 }
 
-function findSkillByHash(skills: Skill[], hash: string, type: 'content' | 'desc'): Skill | null {
+function findSkillByHash(skills: Skill[], hash: string): Skill | null {
   for (const s of skills) {
-    if (type === 'desc' && computeDescriptionHash(s.description || '') === hash) return s
     if (s.readme) {
       if (window.services.hashContent(s.readme.replace(/\r\n/g, '\n').replace(/\r/g, '\n')) === hash) return s
     }
@@ -193,7 +192,7 @@ async function processQueueItem(item: TranslationQueueItem, model: ModelConfig |
   if (!model) throw new Error('翻译模型不可用，对应的供应商或模型已关闭')
 
   const cachedSkills = storage.getCachedSkills()
-  const skill = findSkillByHash(cachedSkills, item.hash, item.type)
+  const skill = findSkillByHash(cachedSkills, item.hash)
   if (!skill && !item.text) return
 
   if (item.type === 'desc') {
@@ -203,16 +202,8 @@ async function processQueueItem(item: TranslationQueueItem, model: ModelConfig |
       const translatedDesc = await translateDescription(descText, model)
       storage.saveDescTranslationByHash(item.hash, translatedDesc, skill?.name || item.skillName)
     }
-    if (skill) {
-      const tags = skill.tags || []
-      const tagHash = item.hash.startsWith('desc:') ? computeDescriptionHash(skill.description || '') : item.hash
-      if (tags.length > 0 && !tags.every(t => isChineseText(t))) {
-        const translatedTags = await translateTags(tags, model)
-        storage.saveTranslationTagsByHash(tagHash, translatedTags)
-      }
-    }
   } else {
-    if (storage.getTranslationByHash(item.hash)) return
+    if (storage.getTranslationByHash(item.hash)?.translatedContent) return
     const contentText = skill ? readSkillContent(skill) : (item.text || '')
     if (contentText && !isChineseContent(contentText)) {
       const translatedContent = await translateContent(contentText, model, 'full')
@@ -309,7 +300,6 @@ export function useTranslationQueue() {
 
       const cachedSkills = storage.getCachedSkills()
       const skill = cachedSkills.find(s => {
-        if (item.type === 'desc') return computeDescriptionHash(s.description || '') === item.hash
         if (s.readme) {
           if (window.services.hashContent(s.readme.replace(/\r\n/g, '\n').replace(/\r/g, '\n')) === item.hash) return true
         }
@@ -333,11 +323,6 @@ export function useTranslationQueue() {
           if (skill.description && !isChineseContent(skill.description)) {
             const translatedDesc = await translateDescription(skill.description, model)
             storage.saveDescTranslationByHash(item.hash, translatedDesc, skill.name)
-          }
-          const tags = skill.tags || []
-          if (tags.length > 0 && !tags.every(t => isChineseText(t))) {
-            const translatedTags = await translateTags(tags, model)
-            storage.saveTranslationTagsByHash(item.hash, translatedTags)
           }
         } else {
           const downloadedIds = storage.getDownloadedIds()

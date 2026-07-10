@@ -13,16 +13,15 @@ export function useFilteredSkills(opts: {
   filterSource: () => string
   filterCategory: () => string
   filterTag: () => string
-  favoriteIds: () => string[]
-  installedSkillIds: () => Set<string>
+  distributedSkillIds: () => Set<string>
   getSourceLabel: (skill: Skill) => string
 }) {
   function applyBaseFilters(list: Skill[]) {
     if (opts.filterSource()) list = list.filter((s) => opts.getSourceLabel(s) === opts.filterSource())
     switch (opts.filterCategory()) {
-      case 'favorites': list = list.filter((s) => opts.favoriteIds().includes(s.id)); break
-      case 'distributed': list = list.filter((s) => opts.installedSkillIds().has(s.id)); break
-      case 'pending': list = list.filter((s) => !opts.installedSkillIds().has(s.id)); break
+      case 'favorites': list = list.filter((s) => s.isFavorited); break
+      case 'distributed': list = list.filter((s) => opts.distributedSkillIds().has(s.id)); break
+      case 'pending': list = list.filter((s) => !opts.distributedSkillIds().has(s.id)); break
     }
     return list
   }

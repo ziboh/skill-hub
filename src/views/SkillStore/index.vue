@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onActivated, onDeactivated, watch, inject, onUnmounted, nextTick } from 'vue'
 import { KeyRefreshCounts, KeyShowToast } from '../../inject-keys'
-import { storage, MARKETPLACE_TTL, WELL_KNOWN_TTL, GITHUB_TTL } from '../../utils/storage'
+import { storage } from '../../utils/storage'
 import { parseGitHubUrl, fetchGitHubRepoTree, fetchGitHubFile, detectSkillDirectories } from '../../utils/github'
 import { parseFrontmatter } from '../../utils/frontmatter'
 import * as skillsSh from '../../utils/skills-sh'
@@ -26,7 +26,7 @@ import { useTheme } from '../../composables/useTheme'
 import { useDownloadQueue } from '../../composables/useDownloadQueue'
 import { useTranslationQueue } from '../../composables/useTranslationQueue'
 import { loadRegistry, registerSkillFromStore, removeFromRegistry } from '../../utils/skill-registry'
-import { isChineseContent, computeContentHash, computeDescriptionHash } from '../../utils/translate'
+import { isChineseContent, computeContentHash } from '../../utils/translate'
 import { isWellKnownSkill, downloadSkillFromWebsite, downloadDirectFromStore, type WellKnownSkillResult } from '../../utils/well-known'
 
 const props = defineProps<{ storeId: string }>()
@@ -102,7 +102,7 @@ const loading = ref(false)
 const error = ref('')
 const downloadedIds = ref<string[]>([])
 const downloading = ref<Set<string>>(new Set())
-const installRecords = ref(storage.getInstallRecords())
+const distributeRecords = ref(storage.getDistributeRecords())
 const storeScrollRef = ref<HTMLElement | null>(null)
 const skillsCache = ref<Record<string, Skill[]>>({})
 const totalCountCache = ref<Record<string, number>>({})
@@ -208,7 +208,7 @@ function setupDescriptionObserver() {
         if (desc && activePresetId.value === 'skills-sh') {
           skill.shortDescription = desc
           fetchedDescIds.value = new Set([...fetchedDescIds.value, skillId])
-          storage.saveCachedSkills([{ ...skill, storeSourceId: activePresetId.value }], { forceStoreSourceId: true })
+          storage.saveGitHubSkills([{ ...skill, storeSourceId: activePresetId.value }])
         }
       }).catch(() => {}).finally(() => {
         loadingDescIds.value = new Set([...loadingDescIds.value].filter(id => id !== skillId))
@@ -253,7 +253,7 @@ function setupGitHubDescriptionObserver() {
         skill.tags = fm.tags ? fm.tags.split(',').map((t) => t.trim()).filter(Boolean) : skill.tags
         skill.readme = content
         fetchedDescIds.value = new Set([...fetchedDescIds.value, skillId])
-        storage.saveGitHubSkills(activePresetId.value, allEntries.value.filter(s => s.description), allEntries.value.every(s => s.description))
+        storage.saveGitHubSkills(allEntries.value.filter(s => s.description))
       } catch {
         failedDescIds.value = new Set([...failedDescIds.value, skillId])
         showToast('技能描述加载失败，点击卡片可重试', 'warning')
@@ -292,7 +292,7 @@ async function retryDescription(skillId: string) {
     skill.tags = fm.tags ? fm.tags.split(',').map((t) => t.trim()).filter(Boolean) : skill.tags
     skill.readme = content
     fetchedDescIds.value = new Set([...fetchedDescIds.value, skillId])
-    storage.saveGitHubSkills(activePresetId.value, allEntries.value.filter(s => s.description), allEntries.value.every(s => s.description))
+    storage.saveGitHubSkills(allEntries.value.filter(s => s.description))
   } catch {
     failedDescIds.value = new Set([...failedDescIds.value, skillId])
     showToast('技能描述加载失败', 'warning')
@@ -372,20 +372,11 @@ async function fetchSkillsSh() {
     const res = await skillsSh.fetchLeaderboard(leaderboardFilter.value)
     if (activePresetId.value !== presetId) return
     const skills = res.entries.map(skillsSh.leaderboardEntryToSkill)
-    const ghSourceIds = [
-      ...presets.filter(p => p.url).map(p => p.id),
-      ...storage.getStoreSources().filter(s => s.type === 'git-repo').map(s => s.id),
-    ]
-    const cachedMap = new Map<string, Skill>()
-    for (const src of ghSourceIds) {
-      const gh = storage.getGitHubCache(src)
-      if (gh) gh.skills.forEach(s => {
-        if (s.description || s.shortDescription) cachedMap.set(s.id.toLowerCase(), s)
-      })
-    }
+    // 从 GitHub 扁平描述池预填描述（所有源共用）
+    const descPool = storage.getGitHubCache()
     skills.forEach(s => {
       s.storeSourceId = presetId
-      const cached = cachedMap.get(s.id.toLowerCase())
+      const cached = descPool[s.id.toLowerCase()] || descPool[s.id]
       if (cached) {
         if (!s.description && cached.description) s.description = cached.description
         if (!s.shortDescription && cached.shortDescription) s.shortDescription = cached.shortDescription
@@ -424,25 +415,11 @@ async function fetchGitHubSkills(url: string, directory?: string, branch?: strin
   const repoKey = `${info.owner}/${info.repo}`
   const effectiveBranch = branch || info.defaultBranch
 
-  // 1) stale-while-revalidate：先秒显缓存的卡片
-  const cached = storage.getGitHubCache(presetId)
-  let hasFreshCache = false
-  if (cached && cached.skills.length) {
-    cached.skills.forEach(s => s.storeSourceId = presetId)
-    allEntries.value = cached.skills
-    sourceSkills.value = cached.skills
-    totalCount.value = cached.skills.length
-    skillsCache.value[presetId] = cached.skills
-    totalCountCache.value[presetId] = cached.skills.length
-    loading.value = false; stopLoadingDots()
-    hasFreshCache = Date.now() - cached.fetchedAt < GITHUB_TTL
-    // 仅当缓存新鲜且描述已全部加载完整时才跳过后台请求；
-    // 若缓存不完整（懒加载未跑完就重启），需继续抓取以重建懒加载机制补齐描述
-    if (hasFreshCache && cached.complete && !force) return
-  } else {
-    allEntries.value = []; totalCount.value = 0; sourceSkills.value = []
-    loading.value = true; startLoadingDots()
-  }
+  loading.value = true; startLoadingDots()
+
+  // 检查是否有缓存的描述可供回退
+  const descPool = storage.getGitHubCache()
+  const hasFreshCache = Object.keys(descPool).length > 0
 
   try {
     const token = storage.getSettings().githubToken || undefined
@@ -452,17 +429,18 @@ async function fetchGitHubSkills(url: string, directory?: string, branch?: strin
       (sd) => directory ? sd.dir === directory || sd.dir.startsWith(directory + '/') : true
     )
 
-    // 2) 骨架首屏：用目录名 + 已缓存描述立即渲染所有卡片，不等 SKILL.md
-    const cachedMap = new Map((cached?.skills || []).map(s => [s.id, s]))
+    // 从扁平描述池预填描述
     githubManifestMap.clear()
     const skeletons: Skill[] = skillDirs.map((sd) => {
       const dirName = sd.dir === '.' ? info.repo : sd.dir.split('/').pop() || sd.dir
       const id = `${repoKey}/${dirName}`
       githubManifestMap.set(id, sd.manifestFile)
-      const prev = cachedMap.get(id)
+      const prev = descPool[id]
       const builtinCategory = lookupBuiltinCategory(repoKey, dirName)
       return {
-        id, name: prev?.name || dirName, description: prev?.description || '',
+        id, name: prev?.name || dirName,
+        description: prev?.description || '',
+        shortDescription: prev?.shortDescription || '',
         author: prev?.author || '', tags: prev?.tags || [],
         source: 'github', sourceUrl: `https://github.com/${repoKey}`, repo: repoKey,
         path: sd.dir, category: prev?.category || builtinCategory || inferCategory(dirName, ''),
@@ -475,14 +453,14 @@ async function fetchGitHubSkills(url: string, directory?: string, branch?: strin
     sourceSkills.value = skeletons
     totalCount.value = skeletons.length
     loading.value = false; stopLoadingDots()
-    // 3) 设置 IntersectionObserver，滚动到视口内时按需加载描述
+    skillsCache.value[presetId] = skeletons; totalCountCache.value[presetId] = skeletons.length
+
+    // 设置 IntersectionObserver，滚动到视口内时按需加载描述
     _githubRepoInfo.value = { owner: info.owner, repo: info.repo, branch: effectiveBranch, presetId }
-    const pending = skeletons.filter(s => !s.description)
+    const pending = skeletons.filter(s => !s.description && !s.shortDescription)
     pending.forEach(s => { loadingDescIds.value = new Set([...loadingDescIds.value, s.id]) })
 
-    // 只保存有描述的 skill 到缓存，避免空描述的 skeleton 被持久化；
-    // pending 为空说明描述已全部就绪，标记缓存完整
-    storage.saveGitHubSkills(presetId, skeletons.filter(s => s.description), pending.length === 0)
+    storage.saveGitHubSkills(skeletons.filter(s => s.description || s.shortDescription))
 
     if (pending.length > 0) nextTick(setupGitHubDescriptionObserver)
   } catch (err: any) {
@@ -508,22 +486,6 @@ async function fetchWellKnownIndexSkills(source: StoreSource, force = false) {
     loading.value = false; error.value = ''
     return
   }
-  if (!force) {
-    const stale = storage.getWellKnownCache(presetId)
-    if (stale) {
-      applyWellKnownIndexSkills(stale.skills, presetId)
-      loading.value = false; error.value = ''
-      if (Date.now() - stale.fetchedAt >= WELL_KNOWN_TTL) {
-        fetchWellKnownIndex(source.url!).then(skills => {
-          if (activePresetId.value !== presetId) return
-          skills.forEach(s => s.storeSourceId = presetId)
-          applyWellKnownIndexSkills(skills, presetId)
-          storage.saveWellKnownSkills(presetId, skills)
-        }).catch(() => {})
-      }
-      return
-    }
-  }
   loading.value = true; error.value = ''
   try {
     const skills = await fetchWellKnownIndex(source.url!)
@@ -537,7 +499,6 @@ async function fetchWellKnownIndexSkills(source: StoreSource, force = false) {
 
     skillsCache.value[presetId] = skills
     totalCountCache.value[presetId] = skills.length
-    storage.saveWellKnownSkills(presetId, skills)
   } catch (err: any) {
     error.value = err.message || '加载 Well-Known 索引失败'
     loading.value = false
@@ -590,23 +551,6 @@ async function fetchMarketplaceSkills(source: StoreSource, force = false) {
     loading.value = false; error.value = ''
     return
   }
-  if (!force) {
-    const stale = storage.getMarketplaceCache(presetId)
-    if (stale) {
-      applyMarketplaceSkills(stale.skills, presetId)
-      loading.value = false; error.value = ''
-      if (Date.now() - stale.fetchedAt >= MARKETPLACE_TTL) {
-        fetch(source.url!).then(res => res.json()).then(data => {
-          if (activePresetId.value !== presetId) return
-          const entries = Array.isArray(data) ? data : (data.skills || data.plugins || data.packages || [])
-          const skills = parseMarketplaceEntries(entries, source, presetId)
-          applyMarketplaceSkills(skills, presetId)
-          storage.saveMarketplaceSkills(presetId, skills)
-        }).catch(() => {})
-      }
-      return
-    }
-  }
   loading.value = true; error.value = ''
   try {
     const res = await fetch(source.url!)
@@ -622,7 +566,6 @@ async function fetchMarketplaceSkills(source: StoreSource, force = false) {
 
     skillsCache.value[presetId] = skills
     totalCountCache.value[presetId] = skills.length
-    storage.saveMarketplaceSkills(presetId, skills)
   } catch (err: any) {
     error.value = err.message || '加载 Marketplace 失败'
     loading.value = false
@@ -689,8 +632,7 @@ function getLanguageTags(skill: any): { showChineseTag: boolean; showTranslatedT
     const raw = skill.content || ''
     const normalized = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
     const fh = window.services.hashContent(normalized)
-    const dh = computeDescriptionHash(desc)
-    const hasTranslation = !!((storage.getDescTranslationByHash(dh) || storage.getDescTranslationByHash(fh)) && storage.getTranslationByHash(fh))
+    const hasTranslation = !!(fh && storage.getTranslationByHash(fh)?.translatedContent)
     return { showChineseTag: false, showTranslatedTag: hasTranslation }
   } catch {
     return { showChineseTag: false, showTranslatedTag: false }
@@ -750,6 +692,13 @@ const availableSkillsAll = computed(() => {
   return list
 })
 
+function getDownloadedElsewhereBadges(skill: Skill): { text: string; type: string }[] {
+  if (!downloadedIdSet.value.has(skill.id)) return []
+  const cached = storage.getCachedSkills().find(s => s.id === skill.id)
+  if (!cached || cached.storeSourceId === activePresetId.value) return []
+  return [{ text: '已下载', type: 'downloaded-elsewhere' }]
+}
+
 const availableSkills = computed(() => availableSkillsAll.value.slice(0, visibleCount.value))
 watch([filterTab, debouncedSearchQuery, searchActive], resetVisibleCount)
 
@@ -773,8 +722,15 @@ async function onSearch() {
   try {
     const results = await skillsSh.searchSkillsSh(q)
     const skills = results.map(skillsSh.searchResultToSkill)
+    // 从扁平描述池预填描述
+    const descPool = storage.getGitHubCache()
     const cachedMap = new Map(storage.getCachedSkills().map(s => [s.id, s]))
     skills.forEach(s => {
+      const fromPool = descPool[s.id]
+      if (fromPool) {
+        if (!s.description && fromPool.description) s.description = fromPool.description
+        if (!s.shortDescription && fromPool.shortDescription) s.shortDescription = fromPool.shortDescription
+      }
       const cached = cachedMap.get(s.id)
       if (cached) {
         if (!s.description && cached.description) s.description = cached.description
@@ -800,7 +756,7 @@ async function fetchSearchDescriptions(skills: Skill[]) {
         if (desc) {
           skill.shortDescription = desc
           fetchedDescIds.value = new Set([...fetchedDescIds.value, skill.id])
-          storage.saveCachedSkills([{ ...skill, storeSourceId: 'skills-sh' }], { forceStoreSourceId: true })
+          storage.saveGitHubSkills([{ ...skill, storeSourceId: 'skills-sh' }])
         }
       } catch {}
       loadingDescIds.value = new Set([...loadingDescIds.value].filter(id => id !== skill.id))
@@ -828,7 +784,7 @@ const platformNameMap = computed(() => {
 })
 
 function getInstalledPlatforms(skillId: string) {
-  return installRecords.value.filter((r) => r.skillId === skillId).map((r) => ({
+  return distributeRecords.value.filter((r) => r.skillId === skillId).map((r) => ({
     id: r.platformId,
     name: platformNameMap.value[r.platformId] || r.platformId,
   }))
@@ -1041,21 +997,24 @@ function autoTranslateSkill(skill: Skill, targetDir: string) {
   if (!settings.autoTranslate) return
   if (!settings.translationModelId) return
 
-  const desc = skill.description
-  if (desc && !isChineseContent(desc)) {
-    const dh = window.services.hashContent(desc)
-    addTranslation(dh, 'desc', skill.name)
-  }
-
   const skillFile = ['SKILL.md', 'skill.md'].find(f =>
     window.services.pathExists(window.services.pathJoin(targetDir, f))
   )
-  if (skillFile) {
-    const content = window.services.readFile(window.services.pathJoin(targetDir, skillFile))
-    if (content && !isChineseContent(content)) {
-      const ch = computeContentHash(content)
-      addTranslation(ch, 'content', skill.name)
-    }
+  if (!skillFile) return
+
+  const content = window.services.readFile(window.services.pathJoin(targetDir, skillFile))
+  if (!content) return
+
+  const fh = computeContentHash(content)
+  if (!fh) return
+
+  const desc = skill.description
+  if (desc && !isChineseContent(desc)) {
+    addTranslation(fh, 'desc', skill.name)
+  }
+
+  if (!isChineseContent(content)) {
+    addTranslation(fh, 'content', skill.name)
   }
 }
 
@@ -1078,7 +1037,7 @@ async function executeDelete() {
     const registry = loadRegistry()
     removeFromRegistry(registry, skill.name)
     downloadedIds.value = storage.getDownloadedIds()
-    installRecords.value = storage.getInstallRecords()
+    distributeRecords.value = storage.getDistributeRecords()
     refreshCounts?.()
     showToast(`已删除 ${skill.name}`, 'info')
   } catch (err: any) {
@@ -1313,6 +1272,7 @@ function confirmDeleteStore() {
               :loading-description="loadingDescIds.has(skill.id)"
               :description-error="failedDescIds.has(skill.id)"
               :avatar-icon="skill.iconUrl"
+              :badges="getDownloadedElsewhereBadges(skill)"
               :source-tag="currentSource ? { label: currentSource.label || getActivePreset()?.name || '', icon: currentSource.icon || '', color: 'hsl(var(--primary))', bg: 'hsl(var(--primary) / 0.1)' } : null"
               :extra-source-tag="isWellKnownSkill(skill) ? { label: 'Web', color: 'hsl(150 50% 30%)', bg: 'hsl(150 40% 92%)' } : skill.repo ? { label: 'Git', color: 'hsl(210 50% 35%)', bg: 'hsl(210 40% 92%)' } : null"
               @click="onCardClick(skill)"
@@ -1357,6 +1317,7 @@ function confirmDeleteStore() {
               :short-description="skill.shortDescription"
               :description-error="failedDescIds.has(skill.id)"
               :avatar-icon="skill.iconUrl"
+              :badges="getDownloadedElsewhereBadges(skill)"
               :source-tag="currentSource ? { label: currentSource.label || getActivePreset()?.name || '', icon: currentSource.icon || '', color: 'hsl(var(--primary))', bg: 'hsl(var(--primary) / 0.1)' } : null"
               :extra-source-tag="isWellKnownSkill(skill) ? { label: 'Web', color: 'hsl(150 50% 30%)', bg: 'hsl(150 40% 92%)' } : skill.repo ? { label: 'Git', color: 'hsl(210 50% 35%)', bg: 'hsl(210 40% 92%)' } : null"
               @click="onCardClick(skill)"
@@ -1435,6 +1396,7 @@ function confirmDeleteStore() {
               :loading-description="loadingDescIds.has(skill.id)"
               :description-error="failedDescIds.has(skill.id)"
               :avatar-icon="skill.iconUrl"
+              :badges="getDownloadedElsewhereBadges(skill)"
               :source-tag="currentSource ? { label: currentSource.label || getActivePreset()?.name || '', icon: currentSource.icon || '', color: 'hsl(var(--primary))', bg: 'hsl(var(--primary) / 0.1)' } : null"
               :extra-source-tag="isWellKnownSkill(skill) ? { label: 'Web', color: 'hsl(150 50% 30%)', bg: 'hsl(150 40% 92%)' } : skill.repo ? { label: 'Git', color: 'hsl(210 50% 35%)', bg: 'hsl(210 40% 92%)' } : null"
               @click="onCardClick(skill)"
@@ -1443,7 +1405,10 @@ function confirmDeleteStore() {
                 <a v-if="getSkillUrl(skill)" :href="getSkillUrl(skill)" target="_blank" class="card-action-btn" title="打开链接" @click.stop>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                   </a>
-                  <button class="card-action-btn" :disabled="isDownloading(skill.id)" @click.stop="downloadSkill(skill)">
+                  <button v-if="isDownloaded(skill.id)" class="card-action-btn danger" title="删除" @click.stop="confirmDelete(skill)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                  </button>
+                  <button v-else class="card-action-btn" :disabled="isDownloading(skill.id)" @click.stop="downloadSkill(skill)">
                     <svg v-if="isDownloading(skill.id)" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
                     <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                   </button>

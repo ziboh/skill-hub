@@ -9,6 +9,7 @@ import type { Skill, InstallMode } from '../../types'
 import SkillDetailBase from '../../components/SkillDetailBase.vue'
 import GlobalDistPanel from '../../components/GlobalDistPanel.vue'
 import ProjectDistPanel from '../../components/ProjectDistPanel.vue'
+import ConfirmDeleteModal from '../../components/ConfirmDeleteModal.vue'
 
 const props = defineProps<{ skill: Skill | null; context?: 'my' | 'store' | 'project' | 'agent' }>()
 const emit = defineEmits(['navigate'])
@@ -23,7 +24,6 @@ const skillName = ref('')
 const installMode = ref<InstallMode>(storage.getSettings().defaultInstallMode)
 const distScope = ref<'global' | 'project'>('global')
 const installing = ref(false)
-const favorites = ref<string[]>([])
 const isEditing = ref(false)
 const editedInstructions = ref('')
 const copyStatus = ref<Record<string, boolean>>({})
@@ -34,7 +34,12 @@ onUnmounted(() => { Object.values(copyTimers).forEach(clearTimeout) })
 const isProjectContext = computed(() => props.context === 'project')
 const isImported = computed(() => {
   if (!props.skill) return false
-  return storage.getDownloadedIds().includes(props.skill.id)
+  // 从"我的技能"页面进入时，技能一定是已导入的
+  if (props.context === 'my') return true
+  // 先通过ID查找，如果找不到则通过name查找（同步分发后的状态）
+  if (storage.getDownloadedIds().includes(props.skill.id)) return true
+  const normalizedName = (props.skill.name || '').toLowerCase()
+  return storage.getCachedSkills().some(s => s.name && s.name.toLowerCase() === normalizedName)
 })
 const skillDir = computed(() => {
   if (!props.skill) return ''
@@ -47,6 +52,7 @@ const skillDir = computed(() => {
 })
 const projectImporting = ref(false)
 const projectRemoving = ref(false)
+const showDeleteModal = ref(false)
 
 const updateChecking = ref(false)
 const updateAvailable = ref(false)
@@ -143,24 +149,41 @@ function projectOpenFolder() {
   if (skill?.skillDir) window.services.openFolder(skill.skillDir)
 }
 
-const isFavorited = computed(() => props.skill ? favorites.value.includes(props.skill.id) : false)
+function handleDelete() {
+  if (!props.skill) return
+  showDeleteModal.value = true
+}
 
-onMounted(() => { loadFavorites(); loadSkillContent() })
+function onSkillDeleted() {
+  showDeleteModal.value = false
+  emit('navigate', 'my')
+}
+
+onMounted(() => { loadSkillContent() })
 watch(() => props.skill?.id, () => {
   activeTab.value = 'preview'
-  loadFavorites(); loadSkillContent()
+  loadSkillContent()
   isEditing.value = false
   copyStatus.value = {}
   Object.values(copyTimers).forEach(clearTimeout)
   copyTimers = {}
 })
 
-function loadFavorites() { favorites.value = storage.getFavoriteIds() }
+// 当前显示的收藏状态（用于在toggleFavorite后立即更新UI）
+const currentFavoriteState = ref<boolean>(false)
+
+// 监听skill变化，同步收藏状态
+watch(() => props.skill?.isFavorited, (val) => {
+  currentFavoriteState.value = val ?? false
+}, { immediate: true })
 
 function toggleFavorite() {
   if (!props.skill) return
-  storage.toggleFavorite(props.skill.id)
-  loadFavorites()
+  // 记录当前收藏状态，toggleFavorite会翻转它
+  const wasFavorited = currentFavoriteState.value
+  storage.toggleFavorite(props.skill.id, { name: props.skill.name, description: props.skill.description, author: props.skill.author, tags: props.skill.tags, source: props.skill.source })
+  // 手动更新当前显示的状态
+  currentFavoriteState.value = !wasFavorited
   refreshCounts()
 }
 
@@ -171,8 +194,22 @@ async function loadSkillContent() {
   skillName.value = ''
   const skill = props.skill as any
 
+  // Well-known 技能优先从 web 缓存读取 readme
+  const isWellKnown = isWellKnownSkill(skill) || (!skill.repo && skill.sourceUrl && skill.source === 'skills-sh')
+  if (isWellKnown) {
+    const webCachedReadme = storage.getCachedWebSkillReadme(skill.id)
+    if (webCachedReadme) skill.readme = webCachedReadme
+  }
+
+  // Check persistent readme cache (24h TTL)
+  if (!skill.readme) {
+    const cachedContent = storage.getCachedReadme(skill.id)
+    if (cachedContent) skill.readme = cachedContent
+  }
+
   if (skill.readme) {
     const fm = parseFrontmatter(skill.readme)
+    if (fm.description) skill.description = fm.description
     const normalized = skill.readme.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
     const bodyMatch = normalized.match(/^---\n[\s\S]*?\n---\n?([\s\S]*)$/)
     skillName.value = fm.name || ''
@@ -189,6 +226,7 @@ async function loadSkillContent() {
       if (skillMd) {
         const raw = window.services.readFile(skillMd.path) || ''
         const fm = parseFrontmatter(raw)
+        if (fm.description) skill.description = fm.description
         const normalized = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
         const bodyMatch = normalized.match(/^---\n[\s\S]*?\n---\n?([\s\S]*)$/)
         skillName.value = fm.name || ''
@@ -209,6 +247,7 @@ async function loadSkillContent() {
       if (skillMd) {
         const raw = window.services.readFile(skillMd.path) || ''
         const fm = parseFrontmatter(raw)
+        if (fm.description) skill.description = fm.description
         const normalized = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
         const bodyMatch = normalized.match(/^---\n[\s\S]*?\n---\n?([\s\S]*)$/)
         skillName.value = fm.name || ''
@@ -225,7 +264,11 @@ async function loadSkillContent() {
     if (isWellKnownSkill(skill) || (!skill.repo && skill.sourceUrl)) {
       const result = await downloadSkillFromWebsite(skill)
       if (result) {
+        skill.readme = result.skillMd
+        skill.readmeCachedAt = Date.now()
+        storage.saveWebSkillReadme(skill, result.skillMd)
         const fm = parseFrontmatter(result.skillMd)
+        if (fm.description) skill.description = fm.description
         const normalized = result.skillMd.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
         const bodyMatch = normalized.match(/^---\n[\s\S]*?\n---\n?([\s\S]*)$/)
         skillName.value = fm.name || skill.name
@@ -237,6 +280,10 @@ async function loadSkillContent() {
     }
     const result = await fetchSkillDetailFromSkill(skill, storage.getSettings().githubToken || undefined)
     if (result) {
+      skill.readme = result.content
+      skill.readmeCachedAt = Date.now()
+      if (result.description) skill.description = result.description
+      storage.saveGitHubSkills([skill])
       skillName.value = result.name
       skillDesc.value = result.description
       const bodyMatch2 = result.content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').match(/^---\n[\s\S]*?\n---\n?([\s\S]*)$/)
@@ -274,7 +321,7 @@ function saveContent() {
     :skill-name="skillName"
     :skill-desc="skillDesc"
     :skill-content="skillContent"
-    :is-favorited="isFavorited"
+    :is-favorited="currentFavoriteState"
     :is-editing="isEditing"
     :edited-content="editedInstructions"
     :copy-status="copyStatus"
@@ -287,6 +334,7 @@ function saveContent() {
     @toggle-edit="toggleEdit"
     @save-content="saveContent"
     @update:edited-content="editedInstructions = $event"
+    @delete="handleDelete"
   >
     <template #header-toolbar-start>
       <button
@@ -365,6 +413,13 @@ function saveContent() {
       </div>
     </template>
   </SkillDetailBase>
+
+  <ConfirmDeleteModal
+    v-if="showDeleteModal && skill"
+    :skill="skill"
+    @close="showDeleteModal = false"
+    @deleted="onSkillDeleted"
+  />
 </template>
 
 <style scoped>

@@ -57,8 +57,8 @@ describe('ConfirmBatchDeleteModal', () => {
     expect(wrapper.emitted('deleted')).toBeTruthy()
   })
 
-  test('shows distributed section when skills have install records', () => {
-    vi.spyOn(storage, 'getInstalledForSkill').mockReturnValue([
+  test('shows distributed section when skills have distribute records', () => {
+    vi.spyOn(storage, 'getDistributedForSkill').mockReturnValue([
       { platformId: 'windsurf', targetPath: '/some/path', platformName: 'Windsurf' },
     ])
     const wrapper = createWrapper()
@@ -67,7 +67,7 @@ describe('ConfirmBatchDeleteModal', () => {
   })
 
   test('checking remove distributed shows platform selection', async () => {
-    vi.spyOn(storage, 'getInstalledForSkill').mockReturnValue([
+    vi.spyOn(storage, 'getDistributedForSkill').mockReturnValue([
       { platformId: 'windsurf', targetPath: '/some/path', platformName: 'Windsurf' },
     ])
     const wrapper = createWrapper()
@@ -77,7 +77,7 @@ describe('ConfirmBatchDeleteModal', () => {
   })
 
   test('toggle platform selection works', async () => {
-    vi.spyOn(storage, 'getInstalledForSkill').mockReturnValue([
+    vi.spyOn(storage, 'getDistributedForSkill').mockReturnValue([
       { platformId: 'windsurf', targetPath: '/some/path', platformName: 'Windsurf' },
       { platformId: 'cursor', targetPath: '/some/path2', platformName: 'Cursor' },
     ])
@@ -88,8 +88,8 @@ describe('ConfirmBatchDeleteModal', () => {
     await checkboxes[1].trigger('change')
   })
 
-  test('no distributed section when no install records', () => {
-    vi.spyOn(storage, 'getInstalledForSkill').mockReturnValue([])
+  test('no distributed section when no distribute records', () => {
+    vi.spyOn(storage, 'getDistributedForSkill').mockReturnValue([])
     const wrapper = createWrapper()
     expect(wrapper.find('.distributed-section').exists()).toBe(false)
   })

@@ -28,7 +28,7 @@ describe('useFilteredSkills', () => {
       filterCategory: () => '',
       filterTag: () => '',
       favoriteIds: () => [],
-      installedSkillIds: () => new Set(),
+      distributedSkillIds: () => new Set(),
       getSourceLabel: () => '',
     })
     expect(filteredSkills.value).toHaveLength(3)
@@ -41,7 +41,7 @@ describe('useFilteredSkills', () => {
       filterCategory: () => 'favorites',
       filterTag: () => '',
       favoriteIds: () => ['s1', 's3'],
-      installedSkillIds: () => new Set(),
+      distributedSkillIds: () => new Set(),
       getSourceLabel: () => '',
     })
     expect(filteredSkills.value).toHaveLength(2)
@@ -55,7 +55,7 @@ describe('useFilteredSkills', () => {
       filterCategory: () => 'distributed',
       filterTag: () => '',
       favoriteIds: () => [],
-      installedSkillIds: () => new Set(['s2']),
+      distributedSkillIds: () => new Set(['s2']),
       getSourceLabel: () => '',
     })
     expect(filteredSkills.value).toHaveLength(1)
@@ -69,7 +69,7 @@ describe('useFilteredSkills', () => {
       filterCategory: () => 'pending',
       filterTag: () => '',
       favoriteIds: () => [],
-      installedSkillIds: () => new Set(['s2']),
+      distributedSkillIds: () => new Set(['s2']),
       getSourceLabel: () => '',
     })
     expect(filteredSkills.value).toHaveLength(2)
@@ -82,7 +82,7 @@ describe('useFilteredSkills', () => {
       filterCategory: () => '',
       filterTag: () => '',
       favoriteIds: () => [],
-      installedSkillIds: () => new Set(),
+      distributedSkillIds: () => new Set(),
       getSourceLabel: (s) => s.source === 'github' ? 'GitHub' : 'Local',
     })
     expect(filteredSkills.value).toHaveLength(0)
@@ -95,7 +95,7 @@ describe('useFilteredSkills', () => {
       filterCategory: () => '',
       filterTag: () => 'dev',
       favoriteIds: () => [],
-      installedSkillIds: () => new Set(),
+      distributedSkillIds: () => new Set(),
       getSourceLabel: () => '',
     })
     expect(filteredSkills.value).toHaveLength(1)
@@ -109,7 +109,7 @@ describe('useFilteredSkills', () => {
       filterCategory: () => 'favorites',
       filterTag: () => '',
       favoriteIds: () => ['s1'],
-      installedSkillIds: () => new Set(),
+      distributedSkillIds: () => new Set(),
       getSourceLabel: () => '',
     })
     expect(filteredBaseCount.value).toBe(1)
@@ -122,7 +122,7 @@ describe('useFilteredSkills', () => {
       filterCategory: () => '',
       filterTag: () => '',
       favoriteIds: () => [],
-      installedSkillIds: () => new Set(),
+      distributedSkillIds: () => new Set(),
       getSourceLabel: () => '',
     })
     expect(allUserTags.value.length).toBeGreaterThan(0)
@@ -135,7 +135,7 @@ describe('useFilteredSkills', () => {
       filterCategory: () => '',
       filterTag: () => '',
       favoriteIds: () => [],
-      installedSkillIds: () => new Set(),
+      distributedSkillIds: () => new Set(),
       getSourceLabel: () => '',
     })
     const skill = makeSkill({ name: 'Search Tool', description: 'search utility', tags: ['search'] })

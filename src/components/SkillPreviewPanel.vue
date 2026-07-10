@@ -3,7 +3,7 @@ import { ref, computed, inject, onMounted, watch } from 'vue'
 import { KeyShowToast } from '../inject-keys'
 import type { Skill } from '../types'
 import { useSettings } from '../composables/useSettings'
-import { stripFrontmatter, renderImmersiveSegments, isChineseContent, computeDescriptionHash } from '../utils/translate'
+import { stripFrontmatter, renderImmersiveSegments, isChineseContent } from '../utils/translate'
 import type { TranslationMode } from '../utils/translate'
 import { storage } from '../utils/storage'
 import { useTranslationQueue } from '../composables/useTranslationQueue'
@@ -60,8 +60,6 @@ const fileHash = computed(() => {
   return readme ? window.services.hashContent(readme.replace(/\r\n/g, '\n').replace(/\r/g, '\n')) : ''
 })
 
-const descHash = computed(() => computeDescriptionHash(props.skillDesc || props.skill.description || ''))
-
 const translationModel = computed(() => {
   if (!settings.translationModelId) {
     return settings.aiModels.find((m) => m.isDefault && m.enabled) || null
@@ -94,7 +92,7 @@ function loadTranslationCache() {
 
   const cached = fh ? storage.getTranslationByHash(fh) : null
   if (cached) {
-    translatedContent.value = cached.translatedContent
+    translatedContent.value = cached.translatedContent || ''
     translationMode.value = cached.mode as TranslationMode
     showTranslation.value = true
   } else {
@@ -106,8 +104,7 @@ function loadTranslationCache() {
     showTranslation.value = true
   }
 
-  const dh = descHash.value
-  const cachedDesc = dh ? storage.getDescTranslationByHash(dh) || (fh ? storage.getDescTranslationByHash(fh) : null) : null
+  const cachedDesc = fh ? storage.getDescTranslationByHash(fh) : null
   if (cachedDesc) {
     translatedDesc.value = cachedDesc
     descTranslationDone.value = true
@@ -127,7 +124,6 @@ function loadTranslationCache() {
 
 function restoreTranslatingState() {
   const fh = fileHash.value
-  const dh = descHash.value
   isTranslating.value = false
   isPendingInQueue.value = false
   isTranslatingDesc.value = false
@@ -142,8 +138,8 @@ function restoreTranslatingState() {
       isTranslating.value = true
     }
   }
-  if (dh && isTranslatingInQueue(dh, 'desc')) {
-    const items = findInQueueByHash(dh)
+  if (fh && isTranslatingInQueue(fh, 'desc')) {
+    const items = findInQueueByHash(fh)
     const descItem = items.find(i => i.type === 'desc')
     if (descItem?.status === 'pending') {
       isPendingDescInQueue.value = true
@@ -158,7 +154,7 @@ onMounted(() => {
   restoreTranslatingState()
 })
 
-watch([() => fileHash.value, () => descHash.value], () => {
+watch(() => fileHash.value, () => {
   loadTranslationCache()
   restoreTranslatingState()
 })
@@ -199,7 +195,7 @@ function handleTranslate() {
 
   const cached = storage.getTranslationByHash(ch)
   if (cached) {
-    translatedContent.value = cached.translatedContent
+    translatedContent.value = cached.translatedContent || ''
     showTranslation.value = true
     showToast(`${props.skillName || props.skill.name} 内容翻译完成`, 'success')
     return
@@ -215,7 +211,7 @@ function handleTranslate() {
   const unwatch = watch(translationCacheVersion, () => {
     const cached = storage.getTranslationByHash(ch)
     if (cached) {
-      translatedContent.value = cached.translatedContent
+      translatedContent.value = cached.translatedContent || ''
       showTranslation.value = true
       isTranslating.value = false
       isPendingInQueue.value = false
@@ -244,7 +240,7 @@ function handleReTranslate() {
   const ch = fileHash.value
   if (!ch) return
 
-  storage.removeTranslationByHash(ch)
+  storage.removeTranslationByHash(ch, 'content')
   translatedContent.value = ''
   showTranslation.value = false
 
@@ -258,7 +254,7 @@ function handleReTranslate() {
   const unwatch = watch(translationCacheVersion, () => {
     const cached = storage.getTranslationByHash(ch)
     if (cached) {
-      translatedContent.value = cached.translatedContent
+      translatedContent.value = cached.translatedContent || ''
       showTranslation.value = true
       isTranslating.value = false
       isPendingInQueue.value = false
@@ -296,10 +292,10 @@ function handleTranslateDesc() {
     return
   }
 
-  const dh = descHash.value
-  if (!dh) return
+  const fh = fileHash.value
+  if (!fh) return
 
-  const cached = storage.getDescTranslationByHash(dh) || (fileHash.value ? storage.getDescTranslationByHash(fileHash.value) : null)
+  const cached = storage.getDescTranslationByHash(fh)
   if (cached) {
     translatedDesc.value = cached
     descTranslationDone.value = true
@@ -308,7 +304,7 @@ function handleTranslateDesc() {
     return
   }
 
-  const item = addTranslation(dh, 'desc', props.skill.name || props.skillName, props.skillDesc || props.skill.description)
+  const item = addTranslation(fh, 'desc', props.skill.name || props.skillName, props.skillDesc || props.skill.description)
   if (item?.status === 'pending') {
     isPendingDescInQueue.value = true
   } else {
@@ -316,7 +312,7 @@ function handleTranslateDesc() {
   }
 
   const unwatch = watch(translationCacheVersion, () => {
-    const cached = storage.getDescTranslationByHash(dh) || (fileHash.value ? storage.getDescTranslationByHash(fileHash.value) : null)
+    const cached = storage.getDescTranslationByHash(fh)
     if (cached) {
       translatedDesc.value = cached
       descTranslationDone.value = true
@@ -325,7 +321,7 @@ function handleTranslateDesc() {
       isPendingDescInQueue.value = false
       showToast(`${props.skillName || props.skill.name} 描述翻译完成`, 'success')
       unwatch()
-    } else if (!isTranslatingInQueue(dh, 'desc')) {
+    } else if (!isTranslatingInQueue(fh, 'desc')) {
       isTranslatingDesc.value = false
       isPendingDescInQueue.value = false
       showToast('描述翻译失败', 'error')
@@ -352,14 +348,14 @@ function handleReTranslateDesc() {
     return
   }
 
-  const dh = descHash.value
-  if (!dh) return
+  const fh = fileHash.value
+  if (!fh) return
 
-  storage.removeDescTranslationByHash(dh)
+  storage.removeTranslationByHash(fh, 'desc')
   translatedDesc.value = ''
   descTranslationDone.value = false
 
-  const item = addTranslation(dh, 'desc', props.skill.name || props.skillName, props.skillDesc || props.skill.description)
+  const item = addTranslation(fh, 'desc', props.skill.name || props.skillName, props.skillDesc || props.skill.description)
   if (item?.status === 'pending') {
     isPendingDescInQueue.value = true
   } else {
@@ -367,7 +363,7 @@ function handleReTranslateDesc() {
   }
 
   const unwatch = watch(translationCacheVersion, () => {
-    const cached = storage.getDescTranslationByHash(dh) || (fileHash.value ? storage.getDescTranslationByHash(fileHash.value) : null)
+    const cached = storage.getDescTranslationByHash(fh)
     if (cached) {
       translatedDesc.value = cached
       descTranslationDone.value = true
@@ -376,7 +372,7 @@ function handleReTranslateDesc() {
       isPendingDescInQueue.value = false
       showToast(`${props.skillName || props.skill.name} 描述翻译完成`, 'success')
       unwatch()
-    } else if (!isTranslatingInQueue(dh, 'desc')) {
+    } else if (!isTranslatingInQueue(fh, 'desc')) {
       isTranslatingDesc.value = false
       isPendingDescInQueue.value = false
       showToast('描述翻译失败', 'error')

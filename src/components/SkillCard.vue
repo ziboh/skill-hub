@@ -157,7 +157,7 @@ watch(() => props.installedPlatforms, () => {
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
       加载失败，点击重试
     </p>
-    <p v-else class="card-desc">{{ shortDescription || description || '暂无描述' }}</p>
+    <p v-else class="card-desc">{{ description || shortDescription || '暂无描述' }}</p>
     <slot name="after-desc" />
   </div>
 </template>
@@ -397,6 +397,11 @@ watch(() => props.installedPlatforms, () => {
 }
 
 .card-tag.badge-duplicate {
+  background: hsl(38 80% 92%);
+  color: hsl(38 80% 35%);
+}
+
+.card-tag.badge-downloaded-elsewhere {
   background: hsl(38 80% 92%);
   color: hsl(38 80% 35%);
 }

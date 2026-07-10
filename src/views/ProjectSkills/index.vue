@@ -2,7 +2,7 @@
 import { inject, ref, computed, unref, onDeactivated } from 'vue'
 import { KeyShowToast, KeySelectedProject, KeyScanProject, KeyProjectScanning, KeySelectProject, KeyOpenAddProjectModal, KeyDetectedPlatforms, KeyRefreshCounts } from '../../inject-keys'
 import { storage } from '../../utils/storage'
-import { isChineseContent, computeDescriptionHash } from '../../utils/translate'
+import { isChineseContent } from '../../utils/translate'
 import { useSettings } from '../../composables/useSettings'
 import { useTheme } from '../../composables/useTheme'
 import { useProjectState } from '../../composables/useProjectState'
@@ -126,8 +126,7 @@ function getLanguageTags(skill: any): { showChineseTag: boolean; showTranslatedT
     const raw = skill.content || ''
     const normalized = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
     const fh = window.services.hashContent(normalized)
-    const dh = computeDescriptionHash(desc)
-    const hasTranslation = !!((storage.getDescTranslationByHash(dh) || storage.getDescTranslationByHash(fh)) && storage.getTranslationByHash(fh))
+    const hasTranslation = !!(fh && storage.getTranslationByHash(fh)?.translatedContent)
     return { showChineseTag: false, showTranslatedTag: hasTranslation }
   } catch {
     return { showChineseTag: false, showTranslatedTag: false }
@@ -278,11 +277,11 @@ async function uninstallSkillFromProject(skill: SkillScanResult) {
     const dir = skill.dir
     try { window.services.removeFile(dir) } catch {}
 
-    const projectInstalls = storage.getInstallRecords().filter(
+    const projectDistributes = storage.getDistributeRecords().filter(
       (r) => r.targetPath.replace(/\\/g, '/') === dir.replace(/\\/g, '/') && r.scope === 'project'
     )
-    for (const r of projectInstalls) {
-      storage.removeInstallRecord(r.skillId, r.platformId, r.scope)
+    for (const r of projectDistributes) {
+      storage.removeDistributeRecord(r.skillId, r.platformId, r.scope)
     }
 
     if (selectedProject.value) {
@@ -422,11 +421,11 @@ function executeBatchRemove() {
       const libDir = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', id)
       try { window.services.removeFile(libDir) } catch {}
     }
-    const projectInstalls = storage.getInstallRecords().filter(
+    const projectDistributes = storage.getDistributeRecords().filter(
       (r) => r.targetPath.replace(/\\/g, '/') === dir.replace(/\\/g, '/') && r.scope === 'project'
     )
-    for (const r of projectInstalls) {
-      storage.removeInstallRecord(r.skillId, r.platformId, r.scope)
+    for (const r of projectDistributes) {
+      storage.removeDistributeRecord(r.skillId, r.platformId, r.scope)
     }
     try { window.services.removeFile(dir) } catch {}
     removedDirs.add(dir)
@@ -601,14 +600,14 @@ async function confirmImportFromMy() {
             window.services.mkdir(targetDir)
             window.services.copyFile(sourceDir, targetDir)
           }
-          storage.saveInstallRecord({
+          storage.saveDistributeRecord({
             skillId: skill.id,
             platformId: selectedProject.value.id,
             mode: importMode.value,
             scope: 'project',
             targetPath: targetDir,
             sourceDir,
-            installedAt: new Date().toISOString(),
+            distributedAt: new Date().toISOString(),
           })
           importedCount++
         } catch (err: any) {

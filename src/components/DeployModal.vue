@@ -73,7 +73,7 @@ const sourcePlatformIds = computed(() => {
 
 const recordPlatformIds = computed(() => {
   void globalRefreshTick.value
-  const records = storage.getInstalledForSkill(props.skill.id)
+  const records = storage.getDistributedForSkill(props.skill.id)
   const validIds = new Set<string>()
   for (const r of records) {
     if (r.targetPath && window.services.pathExists(r.targetPath)) {
@@ -147,7 +147,7 @@ function uninstallGlobalPlatform() {
       }
     } catch {}
   }
-  storage.removeInstallRecord(props.skill.id, pid, 'global')
+  storage.removeDistributeRecord(props.skill.id, pid, 'global')
   globalRefreshTick.value++
   showToast(`已从 ${platform?.name || pid} 卸载`, 'success')
   cancelGlobalUninstall()
@@ -198,13 +198,13 @@ const agentDirOptions = computed(() => {
   return dirs
 })
 
-const projectInstallRecords = ref<any[]>([])
+const projectDistributeRecords = ref<any[]>([])
 const physicallyExistingAgentDirs = ref<Set<string>>(new Set())
 
 function loadProjectInstallStatus() {
-  const allRecords = storage.getInstallRecords()
+  const allRecords = storage.getDistributeRecords()
   const pids = new Set(selectedProjects.value.map((p) => p.id))
-  if (!pids.size) { projectInstallRecords.value = []; physicallyExistingAgentDirs.value = new Set(); return }
+  if (!pids.size) { projectDistributeRecords.value = []; physicallyExistingAgentDirs.value = new Set(); return }
   const valid: any[] = []
   for (const r of allRecords) {
     if (r.scope !== 'project') continue
@@ -220,9 +220,9 @@ function loadProjectInstallStatus() {
         continue
       }
     }
-    storage.removeInstallRecord(r.skillId, r.platformId, 'project')
+    storage.removeDistributeRecord(r.skillId, r.platformId, 'project')
   }
-  projectInstallRecords.value = valid
+  projectDistributeRecords.value = valid
 
   const existingDirs = new Set<string>()
   const primaryProject = selectedProjects.value[0]
@@ -261,7 +261,7 @@ function isProjectDirInstalled(agentPath: string): boolean {
   const project = selectedProjects.value[0]
   if (!project) return false
   const key = `project:${project.id}/${agentPath}`
-  const hasRecord = projectInstallRecords.value.some((r: any) => r.platformId === key)
+  const hasRecord = projectDistributeRecords.value.some((r: any) => r.platformId === key)
   if (!hasRecord) return false
   const targetDir = window.services.pathJoin(project.rootDir, agentPath, skillDirName.value)
   if (!window.services.pathExists(targetDir)) return false
@@ -293,16 +293,16 @@ function uninstall() {
   const target = uninstallTarget.value
   if (!target) { cancelUninstall(); return }
   const key = `project:${target.projectId}/${target.agentPath}`
-  const record = projectInstallRecords.value.find((r: any) => r.platformId === key)
+  const record = projectDistributeRecords.value.find((r: any) => r.platformId === key)
   if (!record) { cancelUninstall(); return }
 
   try {
     if (record.targetPath && window.services.pathExists(record.targetPath)) {
       window.services.removeFile(record.targetPath)
     }
-    storage.removeInstallRecord(props.skill.id, key, 'project')
+    storage.removeDistributeRecord(props.skill.id, key, 'project')
     loadProjectInstallStatus()
-    const stillExists = projectInstallRecords.value.some((r: any) => r.platformId === key)
+    const stillExists = projectDistributeRecords.value.some((r: any) => r.platformId === key)
     if (stillExists) {
       showToast('卸载失败：记录删除异常', 'error')
     } else {
@@ -411,14 +411,14 @@ async function deployGlobal() {
       } else {
         window.services.copyFile(sourceDir, targetDir)
       }
-      storage.saveInstallRecord({
+      storage.saveDistributeRecord({
         skillId: props.skill.id,
         platformId: pid,
         mode: installMode.value,
         scope: 'global',
         targetPath: targetDir,
         sourceDir,
-        installedAt: new Date().toISOString(),
+        distributedAt: new Date().toISOString(),
       })
       deployResults.value.push({ platform: platform.name, status: 'ok', msg: installMode.value === 'symlink' ? '已链接' : '已复制' })
     } catch (err) {
@@ -471,14 +471,14 @@ async function deployProject() {
         } else {
           window.services.copyFile(sourceDir, targetDir)
         }
-        storage.saveInstallRecord({
+        storage.saveDistributeRecord({
           skillId: props.skill.id,
           platformId: `project:${project.id}/${agentPath}`,
           mode: installMode.value,
           scope: 'project',
           targetPath: targetDir,
           sourceDir,
-          installedAt: new Date().toISOString(),
+          distributedAt: new Date().toISOString(),
         })
         deployResults.value.push({ platform: `${project.name}/${agentPath}`, status: 'ok', msg: installMode.value === 'symlink' ? '已链接' : '已复制' })
       } catch (err) {

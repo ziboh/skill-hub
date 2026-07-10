@@ -32,8 +32,7 @@ const currentRoute = inject(KeyCurrentRoute, ref('my'))
 const refreshCounts = inject(KeyRefreshCounts, () => {})
 
 const allSkills = ref<Skill[]>([])
-const installRecords = ref(storage.getInstallRecords())
-const favoriteIds = ref<string[]>([])
+const distributeRecords = ref(storage.getDistributeRecords())
 const downloadedIds = ref<string[]>([])
 const registry = ref<Map<string, SkillIdentity>>(new Map())
 
@@ -61,9 +60,8 @@ watch(currentRoute, (r) => {
 
 function refreshData() {
   allSkills.value = storage.getCachedSkills()
-  favoriteIds.value = storage.getFavoriteIds()
   downloadedIds.value = storage.getDownloadedIds()
-  installRecords.value = storage.getInstallRecords()
+  distributeRecords.value = storage.getDistributeRecords()
   registry.value = loadRegistry()
   refreshMySkills()
 }
@@ -75,7 +73,7 @@ async function enrichLocalDescriptions() {
   }
 }
 
-const installedSkillIds = computed(() => storage.getInstalledSkillSet())
+const distributedSkillIds = computed(() => storage.getDistributedSkillSet())
 
 const downloadedSkills = computed(() =>
   allSkills.value.filter((s) => storage.isDownloaded(s.id))
@@ -83,15 +81,13 @@ const downloadedSkills = computed(() =>
 
 const downloadedSkillStats = computed(() => {
   const list = downloadedSkills.value
-  void favoriteIds.value
-  const favSet = new Set(favoriteIds.value)
-  const instSet = installedSkillIds.value
+  const distSet = distributedSkillIds.value
   let favCount = 0
   let distCount = 0
   let pendCount = 0
   for (const s of list) {
-    if (favSet.has(s.id)) favCount++
-    if (instSet.has(s.id)) distCount++
+    if (s.isFavorited) favCount++
+    if (distSet.has(s.id)) distCount++
     else pendCount++
   }
   return { total: list.length, favCount, distCount, pendCount }
@@ -120,13 +116,12 @@ const {
   filterSource: () => filterSource.value,
   filterCategory: () => filterCategory.value,
   filterTag: () => filterTag.value,
-  favoriteIds: () => favoriteIds.value,
-  installedSkillIds: () => installedSkillIds.value,
+  distributedSkillIds: () => distributedSkillIds.value,
   getSourceLabel,
 })
 
 function getInstalledPlatforms(skillId: string): string[] {
-  return installRecords.value
+  return distributeRecords.value
     .filter((r) => r.skillId === skillId && r.scope !== 'project')
     .map((r) => r.platformId)
 }
@@ -189,8 +184,8 @@ onUnmounted(() => {
   iconObservers.clear()
 })
 
-function isFavorited(id: string) { return favoriteIds.value.includes(id) }
-function toggleFavorite(id: string) { storage.toggleFavorite(id); favoriteIds.value = storage.getFavoriteIds(); refreshMySkills() }
+function isFavorited(id: string) { return allSkills.value.find(s => s.id === id)?.isFavorited || false }
+function toggleFavorite(id: string) { storage.toggleFavorite(id); allSkills.value = storage.getCachedSkills(); refreshMySkills() }
 function deleteSkill(skill: Skill) {
   deleteSkillTarget.value = skill
   showDeleteModal.value = true
@@ -230,16 +225,14 @@ const translatedSkillIds = computed(() => {
   // 引入 cacheVersion 作为依赖，翻译完成后触发重算
   void translationCacheVersion.value
 
-  const descCaches = storage.getDescTranslationCaches()
-  const contentCaches = storage.getTranslationCaches()
+  const caches = storage.getTranslationCaches()
 
-  const descNames = new Set(Object.values(descCaches).map((e: any) => e.skillName).filter(Boolean))
-  const contentNames = new Set(Object.values(contentCaches).map((e: any) => e.skillName).filter(Boolean))
+  const contentNames = new Set(Object.values(caches).map((e: any) => e.skillName).filter(Boolean))
 
   const result = new Set<string>()
   for (const skill of allSkills.value) {
     if (!skill.description || isChineseContent(skill.description)) continue
-    if (descNames.has(skill.name) && contentNames.has(skill.name)) {
+    if (contentNames.has(skill.name)) {
       result.add(skill.id)
     }
   }
@@ -340,17 +333,18 @@ const isAllSelected = computed(() => filteredSkills.value.length > 0 && selected
 
 const selectedAllFavorited = computed(() => {
   if (selectedIds.value.size === 0) return false
-  return Array.from(selectedIds.value).every((id) => favoriteIds.value.includes(id))
+  return Array.from(selectedIds.value).every((id) => allSkills.value.find(s => s.id === id)?.isFavorited)
 })
 
 function batchToggleFavorite() {
   const shouldFavorite = !selectedAllFavorited.value
   for (const id of selectedIds.value) {
-    const isFav = favoriteIds.value.includes(id)
+    const skill = allSkills.value.find(s => s.id === id)
+    const isFav = skill?.isFavorited || false
     if (shouldFavorite && !isFav) storage.toggleFavorite(id)
     else if (!shouldFavorite && isFav) storage.toggleFavorite(id)
   }
-  favoriteIds.value = storage.getFavoriteIds()
+  allSkills.value = storage.getCachedSkills()
   refreshMySkills()
   batchMode.value = false
 }

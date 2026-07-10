@@ -21,8 +21,10 @@ const props = withDefaults(defineProps<{
   context?: 'my' | 'store' | 'project' | 'agent'
   skillDir?: string
   showFavorite?: boolean
+  canFavorite?: boolean
 }>(), {
-  showFavorite: true
+  showFavorite: true,
+  canFavorite: true
 })
 
 const emit = defineEmits<{
@@ -32,6 +34,7 @@ const emit = defineEmits<{
   'toggle-edit': []
   'save-content': []
   'update:editedContent': [value: string]
+  delete: []
 }>()
 
 const activeTab = defineModel<'preview' | 'source' | 'files'>('activeTab', { default: 'preview' })
@@ -115,6 +118,15 @@ onMounted(() => {
 watch([() => props.skill.id], () => {
   loadUserTags()
 })
+
+function openSource() {
+  if (props.skill.repo) {
+    const url = props.skill.sourceUrl || `https://github.com/${props.skill.repo}`
+    window.open(url, '_blank')
+  } else if (props.skillDir) {
+    window.services.openFolder(props.skillDir)
+  }
+}
 </script>
 
 <template>
@@ -159,10 +171,13 @@ watch([() => props.skill.id], () => {
       <div class="header-toolbar">
         <slot name="header-toolbar-start" />
         <slot name="header-actions">
-          <button v-if="showFavorite" class="toolbar-icon-btn" :class="{ favorited: isFavorited }" :title="isFavorited ? '取消收藏' : '收藏'" @click="emit('toggle-favorite')">
+          <button v-if="showFavorite" class="toolbar-icon-btn" :class="{ favorited: isFavorited, disabled: !canFavorite }" :disabled="!canFavorite" :title="!canFavorite ? '下载后可收藏' : (isFavorited ? '取消收藏' : '收藏')" @click="canFavorite && emit('toggle-favorite')">
             <svg width="16" height="16" viewBox="0 0 24 24" :fill="isFavorited ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
           </button>
-          <button class="toolbar-icon-btn close-btn" title="关闭" @click="emit('navigate', context === 'project' ? 'project-skills' : context === 'store' ? 'store' : context === 'agent' ? 'agent-skills' : 'my')">
+          <button v-if="context === 'my'" class="toolbar-icon-btn delete-btn" title="删除" @click="emit('delete')">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+          </button>
+          <button v-else class="toolbar-icon-btn close-btn" title="关闭" @click="emit('navigate', context === 'project' ? 'project-skills' : context === 'store' ? 'store' : context === 'agent' ? 'agent-skills' : 'my')">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </slot>
@@ -286,62 +301,61 @@ watch([() => props.skill.id], () => {
           <!-- Metadata -->
           <section class="space-y-4">
             <h3 class="section-heading">元数据</h3>
-            <div class="meta-grid">
-              <div class="meta-item">
-                <span class="meta-label">ID</span>
-                <span class="meta-value mono">{{ skill.id }}</span>
+            <div class="metadata-cards">
+              <div class="metadata-card">
+                <div class="metadata-icon">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                </div>
+                <div class="metadata-content">
+                  <span class="metadata-label">作者</span>
+                  <span class="metadata-value">{{ skill.author || '未知' }}</span>
+                </div>
               </div>
-              <div class="meta-item">
-                <span class="meta-label">作者</span>
-                <span class="meta-value">{{ skill.author || '未知' }}</span>
+              <div class="metadata-card">
+                <div class="metadata-icon">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                </div>
+                <div class="metadata-content">
+                  <span class="metadata-label">ID</span>
+                  <span class="metadata-value mono">{{ skill.id }}</span>
+                </div>
               </div>
             </div>
           </section>
 
-          <!-- Debug: All Skill Fields (My Skills context only) -->
-          <section v-if="context === 'my'" class="space-y-4">
-            <h3 class="section-heading">调试信息 - Skill 全部字段</h3>
-            <div class="debug-fields-grid">
-              <div v-for="field in debugFields" :key="field.key" class="debug-field-item">
-                <span class="debug-field-label">{{ field.label }}</span>
-                <span class="debug-field-value" :class="{ 'is-empty': field.value === '—' }">{{ field.value }}</span>
-              </div>
-            </div>
-          </section>
+
 
           <!-- Source link -->
-          <section v-if="skill.repo" class="space-y-4">
-            <a class="source-link-card" :href="skill.sourceUrl || `https://github.com/${skill.repo}`" target="_blank" rel="noopener noreferrer">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
-              <div class="source-link-info">
-                <span class="source-link-name">访问技能仓库</span>
-                <span class="source-link-path">{{ skill.repo }}</span>
+          <section class="space-y-4">
+            <div class="source-card" @click="openSource">
+              <div class="source-icon">
+                <svg v-if="skill.repo" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+                <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
               </div>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-            </a>
-          </section>
-          <section v-else class="space-y-4">
-            <div class="source-link-card local">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-              <div class="source-link-info">
-                <span class="source-link-name">本地技能</span>
-                <span class="source-link-path">{{ (skill as any).path || '未知路径' }}</span>
+              <div class="source-info">
+                <span class="source-name">{{ skill.repo ? '访问技能仓库' : '本地技能' }}</span>
+                <span class="source-path">{{ skill.repo || skillDir || '未知路径' }}</span>
               </div>
+              <svg class="source-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
             </div>
           </section>
 
           <!-- SKILL.md raw content -->
           <section class="space-y-4">
-            <div class="section-header-row">
-              <h3 class="section-heading mb-0">SKILL.md 内容</h3>
-              <button class="heading-btn" @click="emit('copy-content', skillContent, 'source-md')">
-                <svg v-if="copyStatus['source-md']" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                <svg v-else width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                {{ copyStatus['source-md'] ? '已复制' : '复制 MD' }}
-              </button>
-            </div>
-            <div class="source-code-card">
-              <pre class="source-code-block">{{ skillContent }}</pre>
+            <div class="code-editor">
+              <div class="code-header">
+                <span class="code-filename">SKILL.md</span>
+                <div class="code-actions">
+                  <button class="code-action-btn" @click="emit('copy-content', skillContent, 'source-md')">
+                    <svg v-if="copyStatus['source-md']" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    <svg v-else width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                    {{ copyStatus['source-md'] ? '已复制' : '复制' }}
+                  </button>
+                </div>
+              </div>
+              <div class="code-content">
+                <pre class="code-block"><code>{{ skillContent }}</code></pre>
+              </div>
             </div>
           </section>
         </div>
@@ -499,8 +513,10 @@ watch([() => props.skill.id], () => {
 }
 .toolbar-icon-btn:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
 .toolbar-icon-btn:disabled { opacity: 0.35; cursor: default; }
+.toolbar-icon-btn.disabled { opacity: 0.35; cursor: not-allowed; pointer-events: none; }
 .toolbar-icon-btn.favorited { color: #f59e0b; border-color: hsl(48 96% 50% / 0.4); }
 .toolbar-icon-btn.close-btn:hover { color: hsl(var(--destructive)); border-color: hsl(var(--destructive) / 0.3); background: hsl(var(--destructive) / 0.06); }
+.toolbar-icon-btn.delete-btn:hover { color: hsl(var(--destructive)); border-color: hsl(var(--destructive) / 0.3); background: hsl(var(--destructive) / 0.06); }
 
 /* ═══ Tab bar ═══ */
 .detail-tabs-row { display: flex; align-items: center; gap: 8px; padding: 0 28px; border-bottom: 1px solid hsl(var(--border)); background: hsl(var(--accent) / 0.2); flex-shrink: 0; }
@@ -601,31 +617,34 @@ watch([() => props.skill.id], () => {
 .animate-fade-in { animation: fadeIn var(--duration-base) var(--ease-standard) both; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 
-.meta-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
-@media (max-width: 640px) { .meta-grid { grid-template-columns: repeat(2, 1fr); } }
-.meta-item { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; background: hsl(var(--accent) / 0.3); border: 1px solid hsl(var(--border) / 0.5); border-radius: 12px; }
-.meta-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: hsl(var(--muted-foreground)); }
-.meta-value { font-size: 13px; font-weight: 500; color: hsl(var(--foreground)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.meta-value.mono { font-family: 'SF Mono', Consolas, monospace; font-size: 11px; background: hsl(var(--muted)); padding: 2px 8px; border-radius: 6px; display: inline-block; width: fit-content; }
-.meta-value.protocol { display: flex; align-items: center; gap: 4px; font-weight: 700; text-transform: uppercase; color: hsl(var(--primary)); letter-spacing: 0.02em; }
+.metadata-cards { display: flex; gap: 12px; }
+@media (max-width: 640px) { .metadata-cards { flex-direction: column; } }
+.metadata-card { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: hsl(var(--accent) / 0.3); border: 1px solid hsl(var(--border) / 0.5); border-radius: 12px; flex: 1; }
+.metadata-icon { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: hsl(var(--primary) / 0.1); border-radius: 8px; color: hsl(var(--primary)); flex-shrink: 0; }
+.metadata-content { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.metadata-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: hsl(var(--muted-foreground)); }
+.metadata-value { font-size: 13px; font-weight: 500; color: hsl(var(--foreground)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.metadata-value.mono { font-family: 'SF Mono', Consolas, monospace; font-size: 12px; }
 
-.source-link-card { display: flex; align-items: center; gap: 14px; padding: 16px 18px; border-radius: 16px; border: 1px solid hsl(var(--border)); background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); text-decoration: none; font-weight: 700; box-shadow: 0 4px 12px hsl(var(--primary) / 0.2); transition: opacity var(--duration-base) var(--ease-standard); }
-.source-link-card:hover { opacity: 0.92; }
-.source-link-card.local { background: hsl(var(--accent) / 0.7); color: hsl(var(--foreground)); cursor: default; box-shadow: none; border: 1px solid hsl(var(--border)); }
-.source-link-info { flex: 1; min-width: 0; text-align: left; }
-.source-link-name { display: block; font-size: 13px; font-weight: 700; }
-.source-link-path { display: block; font-size: 11px; font-weight: 400; opacity: 0.7; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.source-card { display: flex; align-items: center; gap: 14px; padding: 14px 18px; border-radius: 12px; border: 1px solid hsl(var(--border)); background: hsl(var(--card)); cursor: pointer; transition: all var(--duration-base) var(--ease-standard); }
+.source-card:hover { background: hsl(var(--accent) / 0.5); border-color: hsl(var(--primary) / 0.3); }
+.source-icon { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; background: hsl(var(--primary) / 0.1); border-radius: 10px; color: hsl(var(--primary)); flex-shrink: 0; }
+.source-info { flex: 1; min-width: 0; }
+.source-name { display: block; font-size: 13px; font-weight: 600; color: hsl(var(--foreground)); }
+.source-path { display: block; font-size: 11px; color: hsl(var(--muted-foreground)); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.source-arrow { color: hsl(var(--muted-foreground)); flex-shrink: 0; }
 
-.source-code-card { border-radius: 16px; border: 1px solid hsl(var(--border)); overflow: hidden; background: hsl(var(--card)); }
-.source-code-block { display: block; padding: 20px; font-family: 'SF Mono', Consolas, monospace; font-size: 13px; line-height: 1.6; overflow-x: auto; white-space: pre-wrap; word-break: break-word; color: hsl(var(--foreground) / 0.85); max-height: 68vh; overflow-y: auto; margin: 0; }
+.code-editor { border-radius: 12px; border: 1px solid hsl(var(--border)); overflow: hidden; background: hsl(var(--card)); }
+.code-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: hsl(var(--accent) / 0.3); border-bottom: 1px solid hsl(var(--border) / 0.5); }
+.code-filename { font-size: 12px; font-weight: 600; color: hsl(var(--foreground)); }
+.code-actions { display: flex; gap: 8px; }
+.code-action-btn { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; font-size: 11px; font-weight: 500; border-radius: 6px; border: none; background: hsl(var(--accent) / 0.6); color: hsl(var(--muted-foreground)); cursor: pointer; transition: all var(--duration-base) var(--ease-standard); }
+.code-action-btn:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
+.code-content { padding: 0; }
+.code-block { display: block; padding: 16px; font-family: 'SF Mono', Consolas, monospace; font-size: 13px; line-height: 1.6; overflow-x: auto; white-space: pre-wrap; word-break: break-word; color: hsl(var(--foreground) / 0.85); max-height: 60vh; overflow-y: auto; margin: 0; background: hsl(var(--background)); }
+.code-block code { font-family: inherit; }
 
-/* ═══ Debug fields ═══ */
-.debug-fields-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-@media (max-width: 800px) { .debug-fields-grid { grid-template-columns: repeat(2, 1fr); } }
-.debug-field-item { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; background: hsl(var(--accent) / 0.3); border: 1px solid hsl(var(--border) / 0.5); border-radius: 10px; }
-.debug-field-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: hsl(var(--muted-foreground)); }
-.debug-field-value { font-size: 12px; font-weight: 500; color: hsl(var(--foreground)); word-break: break-all; line-height: 1.4; max-height: 3.6em; overflow: hidden; }
-.debug-field-value.is-empty { color: hsl(var(--muted-foreground) / 0.5); font-style: italic; }
+
 
 /* ═══ Files tab ═══ */
 .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 64px 0; color: hsl(var(--muted-foreground)); opacity: 0.35; text-align: center; }

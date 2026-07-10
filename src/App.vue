@@ -156,6 +156,7 @@ let mqCleanup: (() => void) | null = null
 
 onMounted(() => {
   storage.cleanStaleCachedSkills()
+  storage.migrateFavorites()
   storage.updateChineseTags()
   refreshCounts()
   refreshMySkills()
@@ -218,19 +219,16 @@ const filterSource = ref('')
 
 const allCachedSkills = ref<Skill[]>([])
 const myDownloadedIds = ref<string[]>([])
-const myInstallRecords = ref<any[]>([])
-const myFavoriteIds = ref<string[]>([])
-const myInstalledIds = computed(() => storage.getInstalledSkillSet())
+const myDistributeRecords = ref<any[]>([])
+const myDistributedIds = computed(() => storage.getDistributedSkillSet())
 const myDownloadedSkills = computed(() => allCachedSkills.value.filter((s: Skill) => storage.isDownloaded(s.id)))
 const myCategories = computed(() => {
   const downloaded = myDownloadedSkills.value
-  void myFavoriteIds.value
-  const favSet = new Set(myFavoriteIds.value)
-  const instSet = myInstalledIds.value
+  const distSet = myDistributedIds.value
   let fav = 0, dist = 0, pend = 0
   for (const s of downloaded) {
-    if (favSet.has(s.id)) fav++
-    if (instSet.has(s.id)) dist++
+    if (s.isFavorited) fav++
+    if (distSet.has(s.id)) dist++
     else pend++
   }
   return [
@@ -260,8 +258,7 @@ function getSkillSourceLabel(skill: Skill): string {
 function refreshMySkills() {
   allCachedSkills.value = storage.getCachedSkills()
   myDownloadedIds.value = storage.getDownloadedIds()
-  myInstallRecords.value = storage.getInstallRecords()
-  myFavoriteIds.value = storage.getFavoriteIds()
+  myDistributeRecords.value = storage.getDistributeRecords()
 }
 provide(KeyFilterCategory, filterCategory)
 provide(KeyFilterSource, filterSource)

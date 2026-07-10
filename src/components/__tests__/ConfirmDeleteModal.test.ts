@@ -2,7 +2,7 @@ import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
 import { nextTick } from 'vue'
 import { mount, VueWrapper } from '@vue/test-utils'
 import ConfirmDeleteModal from '../ConfirmDeleteModal.vue'
-import type { Skill, InstallRecord } from '../../types'
+import type { Skill, DistributeRecord } from '../../types'
 
 vi.mock('../../utils/skill-registry', () => ({
   loadRegistry: vi.fn(() => new Map()),
@@ -19,19 +19,19 @@ const mockSkill: Skill = {
   config: {}
 }
 
-function createInstallRecord(platformId: string, mode = 'copy'): InstallRecord {
+function createDistributeRecord(platformId: string, mode = 'copy'): DistributeRecord {
   return {
     skillId: 'skill-1',
     platformId,
     targetPath: `/platforms/${platformId}/skills/TestSkill`,
     mode,
     scope: 'user',
-    installedAt: Date.now(),
+    distributedAt: new Date().toISOString(),
   }
 }
 
-function seedInstallRecords(records: InstallRecord[]) {
-  window.ztools.dbStorage.setItem('sm_installed_skills', JSON.stringify(records))
+function seedDistributeRecords(records: DistributeRecord[]) {
+  window.ztools.dbStorage.setItem('sm_distributed_skills', JSON.stringify(records))
 }
 
 describe('ConfirmDeleteModal', () => {
@@ -69,13 +69,13 @@ describe('ConfirmDeleteModal', () => {
     expect(wrapper.emitted('close')).toHaveLength(1)
   })
 
-  test('shows distributed section when install records exist', () => {
-    seedInstallRecords([createInstallRecord('cursor')])
+  test('shows distributed section when distribute records exist', () => {
+    seedDistributeRecords([createDistributeRecord('cursor')])
     wrapper = mount(ConfirmDeleteModal, { props: { skill: mockSkill } })
     expect(wrapper.find('.distributed-section').exists()).toBe(true)
   })
 
-  test('hides distributed section when no install records', () => {
+  test('hides distributed section when no distribute records', () => {
     wrapper = mount(ConfirmDeleteModal, { props: { skill: mockSkill } })
     expect(wrapper.find('.distributed-section').exists()).toBe(false)
   })
@@ -98,17 +98,17 @@ describe('ConfirmDeleteModal', () => {
   })
 
   test('delete removes storage entries', async () => {
-    seedInstallRecords([createInstallRecord('cursor')])
+    seedDistributeRecords([createDistributeRecord('cursor')])
     wrapper = mount(ConfirmDeleteModal, { props: { skill: mockSkill } })
     await wrapper.find('.confirm-btn.delete').trigger('click')
-    const stored = JSON.parse(window.ztools.dbStorage.getItem('sm_installed_skills')!)
+    const stored = JSON.parse(window.ztools.dbStorage.getItem('sm_distributed_skills')!)
     expect(stored).toHaveLength(0)
-    const downloadedIds = JSON.parse(window.ztools.dbStorage.getItem('sm_downloaded_ids')!)
-    expect(downloadedIds).toEqual([])
+    const cached = JSON.parse(window.ztools.dbStorage.getItem('sm_downloaded_skills')!)
+    expect(cached.find((s: any) => s.id === 'skill-one')).toBeFalsy()
   })
 
   test('remove distributed checkbox triggers platform select', async () => {
-    seedInstallRecords([createInstallRecord('cursor'), createInstallRecord('windsurf')])
+    seedDistributeRecords([createDistributeRecord('cursor'), createDistributeRecord('windsurf')])
     wrapper = mount(ConfirmDeleteModal, { props: { skill: mockSkill } })
     await wrapper.find('.remove-distributed-checkbox').setValue(true)
     await nextTick()
@@ -116,7 +116,7 @@ describe('ConfirmDeleteModal', () => {
   })
 
   test('checking remove distributed selects all platforms', async () => {
-    seedInstallRecords([createInstallRecord('cursor'), createInstallRecord('windsurf')])
+    seedDistributeRecords([createDistributeRecord('cursor'), createDistributeRecord('windsurf')])
     wrapper = mount(ConfirmDeleteModal, { props: { skill: mockSkill } })
     await wrapper.find('.remove-distributed-checkbox').setValue(true)
     await nextTick()
@@ -124,7 +124,7 @@ describe('ConfirmDeleteModal', () => {
   })
 
   test('toggle all / deselect all', async () => {
-    seedInstallRecords([createInstallRecord('cursor'), createInstallRecord('windsurf')])
+    seedDistributeRecords([createDistributeRecord('cursor'), createDistributeRecord('windsurf')])
     wrapper = mount(ConfirmDeleteModal, { props: { skill: mockSkill } })
     await wrapper.find('.remove-distributed-checkbox').setValue(true)
     await nextTick()
@@ -137,7 +137,7 @@ describe('ConfirmDeleteModal', () => {
   })
 
   test('deselect platforms then delete only removes selected', async () => {
-    seedInstallRecords([createInstallRecord('cursor'), createInstallRecord('windsurf')])
+    seedDistributeRecords([createDistributeRecord('cursor'), createDistributeRecord('windsurf')])
     wrapper = mount(ConfirmDeleteModal, { props: { skill: mockSkill } })
     await wrapper.find('.remove-distributed-checkbox').setValue(true)
     await nextTick()
@@ -149,7 +149,7 @@ describe('ConfirmDeleteModal', () => {
   })
 
   test('shows platform mode text', async () => {
-    seedInstallRecords([createInstallRecord('cursor', 'symlink')])
+    seedDistributeRecords([createDistributeRecord('cursor', 'symlink')])
     wrapper = mount(ConfirmDeleteModal, { props: { skill: mockSkill } })
     await wrapper.find('.remove-distributed-checkbox').setValue(true)
     await nextTick()
