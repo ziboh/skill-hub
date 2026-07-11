@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, inject, computed } from 'vue'
-import { KeyShowToast, KeyRefreshCounts } from '../inject-keys'
+import { KeyShowToast, KeyRefreshCounts, KeyBumpCachedSkillsVersion } from '../inject-keys'
 import { fetchSkillDetailFromSkill } from '../utils/skills-sh'
 import { storage } from '../utils/storage'
 import { parseFrontmatter, extractChineseSummary } from '../utils/frontmatter'
@@ -17,6 +17,7 @@ const props = defineProps<{ skill: Skill }>()
 const emit = defineEmits(['close', 'imported'])
 const showToast = inject(KeyShowToast, () => {})
 const refreshCounts = inject(KeyRefreshCounts)
+const bumpCachedSkillsVersion = inject(KeyBumpCachedSkillsVersion, () => {})
 
 const { settings } = useSettings()
 
@@ -315,6 +316,7 @@ async function writeImportFiles(result: WellKnownSkillResult) {
   storage.addDownloadedId(props.skill.id)
   storage.addSessionDownload(props.skill.id, props.skill.name, 'skills-sh')
   refreshCounts?.()
+  bumpCachedSkillsVersion()
   emit('imported')
   showToast(`已导入 ${props.skill.name}`, 'success')
 }
@@ -382,6 +384,7 @@ async function handleImport() {
     storage.addDownloadedId(props.skill.id)
     storage.addSessionDownload(props.skill.id, props.skill.name, 'marketplace')
     refreshCounts?.()
+    bumpCachedSkillsVersion()
     emit('imported')
     showToast(`已导入 ${props.skill.name}`, 'success')
   } catch (err: any) {

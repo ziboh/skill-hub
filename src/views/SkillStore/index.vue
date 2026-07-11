@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onActivated, onDeactivated, watch, inject, onUnmounted, nextTick } from 'vue'
-import { KeyRefreshCounts, KeyShowToast } from '../../inject-keys'
+import { KeyRefreshCounts, KeyShowToast, KeyBumpCachedSkillsVersion } from '../../inject-keys'
 import { storage } from '../../utils/storage'
 import { parseGitHubUrl, fetchGitHubRepoTree, fetchGitHubFile, detectSkillDirectories } from '../../utils/github'
 import { parseFrontmatter } from '../../utils/frontmatter'
@@ -33,6 +33,7 @@ const props = defineProps<{ storeId: string }>()
 const emit = defineEmits(['navigate'])
 const refreshCounts = inject(KeyRefreshCounts)
 const showToast = inject(KeyShowToast, () => {})
+const bumpCachedSkillsVersion = inject(KeyBumpCachedSkillsVersion, () => {})
 
 const { addDownload, updateItem } = useDownloadQueue()
 const { queue: transQueue, addTranslation, cacheVersion: translationCacheVersion } = useTranslationQueue()
@@ -878,6 +879,7 @@ async function writeDownloadedFiles(skill: Skill, result: WellKnownSkillResult, 
     }, skill.source as any || 'skills-sh', skill.repo || '')
   }
   storage.addDownloadedId(skill.id); storage.addSessionDownload(skill.id, skill.name, activePresetId.value || 'unknown'); downloadedIds.value = storage.getDownloadedIds(); refreshCounts?.()
+  bumpCachedSkillsVersion()
   autoTranslateSkill(skill, targetDir)
   updateItem(queueItem.id, { status: 'success' })
   showToast(`已导入 ${skill.name}`, 'success')

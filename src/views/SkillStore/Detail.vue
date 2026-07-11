@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, inject } from 'vue'
-import { KeyShowToast, KeySelectedProject, KeyRefreshCounts } from '../../inject-keys'
+import { KeyShowToast, KeySelectedProject, KeyRefreshCounts, KeyBumpCachedSkillsVersion } from '../../inject-keys'
 import { storage } from '../../utils/storage'
 import { parseFrontmatter, extractChineseSummary } from '../../utils/frontmatter'
 import { fetchSkillDetailFromSkill } from '../../utils/skills-sh'
@@ -16,6 +16,7 @@ const emit = defineEmits(['navigate'])
 const showToast = inject(KeyShowToast, () => {})
 const selectedProject = inject(KeySelectedProject, ref(null))
 const refreshCounts = inject(KeyRefreshCounts, () => {})
+const bumpCachedSkillsVersion = inject(KeyBumpCachedSkillsVersion, () => {})
 
 const activeTab = ref<'preview' | 'source' | 'files'>('preview')
 const skillContent = ref('')
@@ -139,6 +140,7 @@ async function projectImportSkill() {
     }
     storage.addDownloadedId(id)
     storage.addSessionDownload(id, props.skill.name, 'local')
+    bumpCachedSkillsVersion()
     showToast(`已将 ${props.skill.name} 导入到我的 Skill`, 'success')
   } catch (err: any) { showToast(err.message, 'error') }
   projectImporting.value = false

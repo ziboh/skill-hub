@@ -20,6 +20,7 @@ function normalizeSkillScanResult(scan: SkillScanResult): Skill {
 const agentSkills = ref<Record<string, SkillScanResult[]>>({})
 const agentSkillsLoaded = ref(false)
 const agentSkillsDirty = ref(false)
+const cachedSkillsVersion = ref(0)
 
 export { normalizeSkillScanResult }
 
@@ -79,7 +80,13 @@ export function useSkillInventory() {
     agentSkills.value = { ...agentSkills.value, [platformId]: skills }
   }
 
+  function bumpCachedSkillsVersion() {
+    cachedSkillsVersion.value++
+  }
+
   const allSkills = computed(() => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+    cachedSkillsVersion.value // 建立响应式依赖
     const cachedSkills = (storage.getCachedSkills() as Skill[]).filter(s => storage.isDownloaded(s.id))
     const projectSkills = registeredProjects.value.flatMap(p => p.skills || []) as SkillScanResult[]
     const agentList = Object.values(agentSkills.value).flat() as SkillScanResult[]
@@ -122,5 +129,6 @@ export function useSkillInventory() {
     markAgentSkillsDirty,
     isAgentSkillsDirty: agentSkillsDirty,
     refreshDirtyAgentSkills,
+    bumpCachedSkillsVersion,
   }
 }

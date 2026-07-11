@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, inject } from 'vue'
 import { KeyShowToast } from '../inject-keys'
-import { detectPlatforms } from '../data/platforms'
+import { detectPlatforms, getPlatformPath } from '../data/platforms'
 import { storage } from '../utils/storage'
 import type { Skill, InstallMode } from '../types'
 import ProviderIcon from './ProviderIcon.vue'
@@ -69,7 +69,7 @@ async function deploy() {
       if (!platform) { done++; continue }
       deployProgress.value = { current: done, total: totalOps, skill: skill.name, platform: platform.name }
 
-      const base = platform.customPath || platform.defaultPath
+      const base = getPlatformPath(platform, 'global') || getPlatformPath(platform, 'project')
       if (!base) {
         deployResults.value.push({ skill: skill.name, platform: platform.name, status: 'error', msg: '未配置路径' })
         done++
@@ -77,7 +77,7 @@ async function deploy() {
       }
 
       const skillDir = (skill.path && skill.path !== '.') ? skill.path.split('/').pop() || skill.name : skill.name
-      const targetDir = window.services.pathJoin(base.replace(/^~/, window.services.homeDir()), skillDir)
+      const targetDir = window.services.pathJoin(base, skillDir)
 
       try {
         window.services.mkdir(targetDir)

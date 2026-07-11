@@ -10,7 +10,7 @@ import {
   KeyRefreshCounts, KeyCurrentRoute, KeyFilterCategory, KeyFilterSource,
   KeyRefreshMySkills, KeyOpenImportModal, KeyRefreshKey, KeyTriggerRefresh,
   KeyAgentSkills, KeyUpdateAgentPlatformSkills, KeySelectedAgentPlatformId,
-  KeyMarkAgentSkillsDirty, KeyIsAgentSkillsDirty,
+  KeyMarkAgentSkillsDirty, KeyIsAgentSkillsDirty, KeyBumpCachedSkillsVersion,
 } from './inject-keys'
 
 const SkillStore = defineAsyncComponent(() => import('./views/SkillStore/index.vue'))
@@ -56,6 +56,7 @@ const {
   updateAgentPlatformSkills,
   markAgentSkillsDirty,
   isAgentSkillsDirty,
+  bumpCachedSkillsVersion,
 } = useSkillInventory()
 
 const {
@@ -101,6 +102,7 @@ provide(KeySelectedAgentPlatformId, selectedAgentPlatformId)
 provide(KeyUpdateAgentPlatformSkills, updateAgentPlatformSkills)
 provide(KeyMarkAgentSkillsDirty, markAgentSkillsDirty)
 provide(KeyIsAgentSkillsDirty, isAgentSkillsDirty)
+provide(KeyBumpCachedSkillsVersion, bumpCachedSkillsVersion)
 provide(KeyScanProject, scanProject)
 provide(KeyProjectScanning, projectScanning)
 
@@ -259,6 +261,7 @@ function refreshMySkills() {
   allCachedSkills.value = storage.getCachedSkills()
   myDownloadedIds.value = storage.getDownloadedIds()
   myDistributeRecords.value = storage.getDistributeRecords()
+  bumpCachedSkillsVersion()
 }
 provide(KeyFilterCategory, filterCategory)
 provide(KeyFilterSource, filterSource)

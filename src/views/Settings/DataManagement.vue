@@ -119,29 +119,7 @@ const buckets: BucketDef[] = [
     ],
   },
   {
-    key: 'store_sources', label: '商店源',
-    getData: () => storage.getStoreSources(),
-    viewType: 'table',
-    columns: [
-      { key: 'name', label: '名称', width: 'auto' },
-      { key: 'type', label: '类型', width: '80px' },
-      { key: 'url', label: 'URL', width: 'auto', render: (v: string) => v?.replace(/^https?:\/\//, '') || '-' },
-      { key: 'enabled', label: '启用', width: '50px', render: (v: boolean) => v ? '✓' : '✗' },
-    ],
-  },
-  {
-    key: 'platform_configs', label: '平台配置',
-    getData: () => storage.getPlatformConfigs(),
-    viewType: 'table',
-    columns: [
-      { key: 'name', label: '名称', width: 'auto' },
-      { key: 'id', label: 'ID', width: '80px' },
-      { key: 'enabled', label: '启用', width: '50px', render: (v: boolean) => v ? '✓' : '✗' },
-      { key: 'detected', label: '已检测', width: '60px', render: (v: boolean) => v ? '✓' : '✗' },
-    ],
-  },
-  {
-    key: 'translations', label: '翻译缓存（含描述与内容）',
+    key: 'translations', label: '翻译缓存',
     getData: () => {
       const cache = storage.getTranslationCaches()
       return Object.entries(cache || {}).map(([hash, val]) => ({
@@ -166,6 +144,28 @@ const buckets: BucketDef[] = [
       { key: 'updatedAt', label: '更新时间', width: '130px' },
     ],
     searchField: 'skillName',
+  },
+  {
+    key: 'store_sources', label: '商店源',
+    getData: () => storage.getStoreSources(),
+    viewType: 'table',
+    columns: [
+      { key: 'name', label: '名称', width: 'auto' },
+      { key: 'type', label: '类型', width: '80px' },
+      { key: 'url', label: 'URL', width: 'auto', render: (v: string) => v?.replace(/^https?:\/\//, '') || '-' },
+      { key: 'enabled', label: '启用', width: '50px', render: (v: boolean) => v ? '✓' : '✗' },
+    ],
+  },
+  {
+    key: 'platform_configs', label: '平台配置',
+    getData: () => storage.getPlatformConfigs(),
+    viewType: 'table',
+    columns: [
+      { key: 'name', label: '名称', width: 'auto' },
+      { key: 'id', label: 'ID', width: '80px' },
+      { key: 'enabled', label: '启用', width: '50px', render: (v: boolean) => v ? '✓' : '✗' },
+      { key: 'detected', label: '已检测', width: '60px', render: (v: boolean) => v ? '✓' : '✗' },
+    ],
   },
   {
     key: 'failure_records', label: '失败记录',
@@ -417,7 +417,7 @@ function doDelete(bucket: BucketDef, indices: number[]) {
   refreshSummary()
 }
 
-const manageableBucketKeys = ['downloaded_skills','github_cache','web_cache','distribute_records','failure_records','translations','registered_projects','platform_order','page_state']
+const manageableBucketKeys = ['github_cache','web_cache','distribute_records','failure_records','translations','registered_projects','platform_order','page_state']
 
 const dataSummary = computed(() => {
   summaryVersion.value
@@ -499,10 +499,6 @@ function confirmClearAll(bucket: BucketDef) {
   }
 }
 
-function confirmKeepOnlyDownloaded() {
-  const all = storage.getCachedSkills()
-  showToast('所有技能均为已下载技能，无需清理', 'info')
-}
 </script>
 
 <template>
@@ -586,11 +582,7 @@ function confirmKeepOnlyDownloaded() {
                     <input v-model="tableSearch" type="text" placeholder="搜索..." class="dm-search-input" />
                   </div>
                   <span class="dm-filter-spacer"></span>
-                  <button
-                    v-if="modalBucket.key === 'downloaded_skills'"
-                    class="btn btn-primary"
-                    @click="confirmKeepOnlyDownloaded"
-                  >保留我的 Skill</button>
+
                 </div>
                 <!-- Batch actions -->
                 <div class="dm-batch-row">
@@ -608,37 +600,39 @@ function confirmKeepOnlyDownloaded() {
                 </div>
               </div>
 
-              <!-- Scrollable table -->
-              <div class="dm-table-scroll">
-                <table class="dm-table">
-                  <thead>
-                    <tr>
-                      <th class="dm-th-check"></th>
-                      <th v-for="col in tableColumnDefs" :key="col.key" class="dm-th" :style="{ width: col.width }">{{ col.label }}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="(row, i) in tableData" :key="i" class="dm-tr" :class="{ selected: tableSelected.has(i) }" @click="tableDetailItem = row">
-                      <td class="dm-td-check" @click.stop>
-                        <input
-                          type="checkbox"
-                          :checked="tableSelected.has(i)"
-                          @change="tableSelected.has(i) ? tableSelected.delete(i) : tableSelected.add(i); tableSelected = new Set(tableSelected)"
-                        />
-                      </td>
-                      <td v-for="col in tableColumnDefs" :key="col.key" class="dm-td">
-                        <span v-if="(col as any).render">{{ (col as any).render(row[col.key], row, i) }}</span>
-                        <span v-else-if="Array.isArray(row[col.key])">{{ row[col.key].join(', ') }}</span>
-                        <span v-else-if="typeof row[col.key] === 'boolean'">{{ row[col.key] ? '✓' : '✗' }}</span>
-                        <span v-else-if="row[col.key] === null || row[col.key] === undefined">-</span>
-                        <span v-else>{{ String(row[col.key]) }}</span>
-                      </td>
-                    </tr>
-                    <tr v-if="tableData.length === 0">
-                      <td :colspan="tableColumnDefs.length + 1" class="dm-empty">无数据</td>
-                    </tr>
-                  </tbody>
-                </table>
+              <!-- Table: single scrollable table with sticky header -->
+              <div class="dm-table-wrap">
+                <div class="dm-table-scroll">
+                  <table class="dm-table">
+                    <thead>
+                      <tr>
+                        <th class="dm-th-check"></th>
+                        <th v-for="col in tableColumnDefs" :key="col.key" class="dm-th" :style="{ width: col.width }">{{ col.label }}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="(row, i) in tableData" :key="i" class="dm-tr" :class="{ selected: tableSelected.has(i) }" @click="tableDetailItem = row">
+                        <td class="dm-td-check" @click.stop>
+                          <input
+                            type="checkbox"
+                            :checked="tableSelected.has(i)"
+                            @change="tableSelected.has(i) ? tableSelected.delete(i) : tableSelected.add(i); tableSelected = new Set(tableSelected)"
+                          />
+                        </td>
+                        <td v-for="col in tableColumnDefs" :key="col.key" class="dm-td">
+                          <span v-if="(col as any).render">{{ (col as any).render(row[col.key], row, i) }}</span>
+                          <span v-else-if="Array.isArray(row[col.key])">{{ row[col.key].join(', ') }}</span>
+                          <span v-else-if="typeof row[col.key] === 'boolean'">{{ row[col.key] ? '✓' : '✗' }}</span>
+                          <span v-else-if="row[col.key] === null || row[col.key] === undefined">-</span>
+                          <span v-else>{{ String(row[col.key]) }}</span>
+                        </td>
+                      </tr>
+                      <tr v-if="tableData.length === 0">
+                        <td :colspan="tableColumnDefs.length + 1" class="dm-empty">无数据</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </template>
 
@@ -951,17 +945,52 @@ function confirmKeepOnlyDownloaded() {
   border-radius: 4px;
 }
 
-/* Scrollable table */
-.dm-table-scroll {
+/* Table wrapper — border + radius, no scroll */
+.dm-table-wrap {
   flex: 1;
-  overflow: auto;
   margin: 12px 20px 20px;
   border: 1px solid hsl(var(--border));
   border-radius: 12px;
-  background: hsl(var(--card));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
-/* Table */
+/* Scrollable body with sticky header */
+.dm-table-scroll {
+  flex: 1;
+  overflow: auto;
+  background: hsl(var(--card));
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.75) hsl(var(--border) / 0.6);
+}
+.dm-table-scroll thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.dm-table-scroll thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.dm-table-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.dm-table-scroll::-webkit-scrollbar-track {
+  background: hsl(var(--border) / 0.6);
+  border-radius: 99px;
+}
+.dm-table-scroll::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.75);
+  border-radius: 99px;
+}
+.dm-table-scroll::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.95);
+}
+
+/* Common table styles — shared by head and body tables */
 .dm-table {
   width: 100%;
   table-layout: fixed;
@@ -970,9 +999,6 @@ function confirmKeepOnlyDownloaded() {
   font-size: 12px;
 }
 .dm-th {
-  position: sticky;
-  top: 0;
-  z-index: 10;
   text-align: left;
   font-weight: 700;
   font-size: 11px;
@@ -985,9 +1011,6 @@ function confirmKeepOnlyDownloaded() {
   white-space: nowrap;
 }
 .dm-th-check {
-  position: sticky;
-  top: 0;
-  z-index: 11;
   width: 36px;
   padding: 10px 8px;
   border-bottom: 2px solid hsl(var(--border));

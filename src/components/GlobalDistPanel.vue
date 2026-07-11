@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, inject, watch } from 'vue'
 import { KeyShowToast, KeyMarkAgentSkillsDirty } from '../inject-keys'
-import { detectPlatforms } from '../data/platforms'
+import { detectPlatforms, getPlatformPath } from '../data/platforms'
 import { storage } from '../utils/storage'
 import { normalizePath } from '../utils/path'
 import type { Skill, InstallMode, DistributeRecord } from '../types'
@@ -44,11 +44,10 @@ const physicallyInstalledPlatforms = computed(() => {
   const result = new Set<string>()
   const skillDir = props.skill.path ? props.skill.path.split('/').pop() || props.skill.name : props.skill.name
   for (const p of platforms.value) {
-    const base = p.customPath || p.defaultPath
+    const base = getPlatformPath(p, 'global') || getPlatformPath(p, 'project')
     if (!base) continue
-    const expandedBase = base.replace(/^~/, window.services.homeDir())
-    if (!window.services.pathExists(expandedBase)) continue
-    const existingSkills = window.services.scanForSkillFiles([expandedBase])
+    if (!window.services.pathExists(base)) continue
+    const existingSkills = window.services.scanForSkillFiles([base])
     const exists = existingSkills.some(
       (s) => s.dir.includes(skillDir) || (s.manifest?.name || s.name).toLowerCase() === props.skill.name.toLowerCase()
     )
@@ -62,7 +61,7 @@ const sourcePlatformIds = computed(() => {
   if (props.skill.source !== 'local' || !props.skill.path) return result
   const skillPath = normalizePath(props.skill.path)
   for (const p of platforms.value) {
-    const base = (p.customPath || p.defaultPath || '').replace(/^~/, window.services.homeDir())
+    const base = getPlatformPath(p, 'global') || getPlatformPath(p, 'project')
     if (!base) continue
     if (skillPath.startsWith(normalizePath(base))) {
       result.add(p.id)
@@ -181,9 +180,9 @@ async function install() {
   for (const pid of selectedPlatforms.value) {
     const platform = platforms.value.find((p) => p.id === pid)
     if (!platform) continue
-    const base = platform.customPath || platform.defaultPath
+    const base = getPlatformPath(platform, 'global') || getPlatformPath(platform, 'project')
     if (!base) { addLog(pid, 'error', '未配置路径'); continue }
-    const targetDir = window.services.pathJoin(base.replace(/^~/, window.services.homeDir()), skillDir)
+    const targetDir = window.services.pathJoin(base, skillDir)
     try {
       window.services.mkdir(targetDir)
       if (props.installMode === 'symlink') { window.services.createSymlink(sourceDir, targetDir); addLog(pid, 'ok', `Symlink: ${targetDir}`) }
