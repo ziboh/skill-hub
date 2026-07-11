@@ -15,7 +15,8 @@ import StoreIconPicker from '../../components/StoreIconPicker.vue'
 import ConfirmModal from '../../components/ConfirmModal.vue'
 import CleanupSelectModal from '../../components/CleanupSelectModal.vue'
 import QuickSwitcher, { type QuickSwitcherItem } from '../../components/QuickSwitcher.vue'
-import { loadRegistry } from '../../utils/skill-registry'
+import { syncAllowedWriteRoots } from '../../utils/write-roots'
+import { useUnregisteredSkillsCleanup } from '../../composables/useUnregisteredSkillsCleanup'
 import DataManagement from './DataManagement.vue'
 
 const props = defineProps<{ anchor?: string }>()
@@ -37,44 +38,16 @@ const confirmDeleteGroupLabel = ref('')
 const confirmDeleteModel = ref<string | null>(null)
 const confirmDeleteModelLabel = ref('')
 
-// === Cleanup Unregistered Skills ===
-const showCleanupSelect = ref(false)
-const unregisteredDirs = ref<string[]>([])
-const cleanupResult = ref<{ found: number; deleted: number } | null>(null)
-
-function scanUnregisteredSkills(): string[] {
-  const stateDir = window.services.getStateDir()
-  const registry = loadRegistry()
-  const registeredIds = new Set<string>()
-  for (const identity of registry.values()) {
-    registeredIds.add(identity.canonicalId)
-  }
-  const entries = window.services.readDir(stateDir)
-  const unregistered: string[] = []
-  for (const entry of entries) {
-    if (!entry.isDirectory) continue
-    const folderName = entry.name
-    const isRegistered = Array.from(registeredIds).some(id => id.includes(folderName))
-    if (!isRegistered) {
-      unregistered.push(entry.path)
-    }
-  }
-  return unregistered
-}
-
-function getUnregisteredCount(): number {
-  return scanUnregisteredSkills().length
-}
-
-function openCleanupSelect() {
-  unregisteredDirs.value = scanUnregisteredSkills()
-  showCleanupSelect.value = true
-}
+const {
+  showCleanupSelect,
+  unregisteredDirs,
+  cleanupResult,
+  openCleanupSelect,
+  onCleanupDeleted: onCleanupDeletedBase,
+} = useUnregisteredSkillsCleanup()
 
 function onCleanupDeleted(count: number) {
-  cleanupResult.value = { found: unregisteredDirs.value.length, deleted: count }
-  showCleanupSelect.value = false
-  showToast(`已清理 ${count} 个未注册的技能文件夹`, 'success')
+  onCleanupDeletedBase(count, showToast)
 }
 
 // Sidebar resize
@@ -98,7 +71,10 @@ function startSidebarResize(e: MouseEvent | TouchEvent) {
 
   function onEnd() {
     isResizing = false
-    if (rafId) { cancelAnimationFrame(rafId); rafId = null }
+    if (rafId) {
+      cancelAnimationFrame(rafId)
+      rafId = null
+    }
     document.removeEventListener('mousemove', onMove)
     document.removeEventListener('mouseup', onEnd)
     document.removeEventListener('touchmove', onMove)
@@ -126,14 +102,17 @@ const sections = [
 
 const visibleSections = computed(() => {
   if (settings.showDataManagement) return sections
-  return sections.filter(s => s.id !== 'data')
+  return sections.filter((s) => s.id !== 'data')
 })
 
-watch(() => settings.showDataManagement, (val) => {
-  if (!val && activeSection.value === 'data') {
-    activeSection.value = 'general'
-  }
-})
+watch(
+  () => settings.showDataManagement,
+  (val) => {
+    if (!val && activeSection.value === 'data') {
+      activeSection.value = 'general'
+    }
+  },
+)
 
 const themeModes: { id: ThemeMode; label: string; icon: string }[] = [
   { id: 'light', label: '浅色', icon: '☀️' },
@@ -170,9 +149,12 @@ onActivated(() => {
 })
 
 // Watch for anchor changes (e.g., when navigating from error link)
-watch(() => props.anchor, () => {
-  nextTick(scrollToAnchor)
-})
+watch(
+  () => props.anchor,
+  () => {
+    nextTick(scrollToAnchor)
+  },
+)
 
 function scrollToAnchor() {
   if (props.anchor) {
@@ -222,6 +204,7 @@ function setCompactMode(val: boolean) {
 
 function savePlatforms() {
   storage.savePlatformConfigs(platforms.value)
+  syncAllowedWriteRoots({ platforms: platforms.value })
 }
 
 function togglePlatformEnabled(platform: PlatformInfo) {
@@ -232,7 +215,10 @@ function togglePlatformEnabled(platform: PlatformInfo) {
 function detectAgent(platform: PlatformInfo): boolean {
   if (platform.rootDir) {
     const osKey = window.services.isWindows() ? 'win32' : window.services.isMacOS() ? 'darwin' : 'linux'
-    const root = (platform.rootDir[osKey as keyof typeof platform.rootDir] || platform.rootDir.linux).replace(/^~/, window.services.homeDir())
+    const root = (platform.rootDir[osKey as keyof typeof platform.rootDir] || platform.rootDir.linux).replace(
+      /^~/,
+      window.services.homeDir(),
+    )
     return window.services.pathExists(root)
   }
   const p = platform.defaultPath || platform.projectPath || ''
@@ -240,10 +226,9 @@ function detectAgent(platform: PlatformInfo): boolean {
   return window.services.pathExists(p.replace(/^~/, window.services.homeDir()))
 }
 
-function detectAllAgents() {
-  let count = 0
+function _detectAllAgents() {
   for (const p of platforms.value) {
-    if (detectAgent(p)) count++
+    detectAgent(p)
   }
 }
 
@@ -271,20 +256,20 @@ function isThemeColorActive(id: string): boolean {
   return settings.themeColor === id
 }
 
-function getThemePreviewHue(id: string): number {
+function _getThemePreviewHue(id: string): number {
   const t = MORANDI_THEMES.find((t) => t.id === id)
   return t ? t.hue : 210
 }
 
-function getThemePreviewSat(id: string): number {
+function _getThemePreviewSat(id: string): number {
   const t = MORANDI_THEMES.find((t) => t.id === id)
   return t ? t.saturation : 35
 }
 
-const detectedCount = computed(() => platforms.value.filter(p => detectAgent(p)).length)
+const _detectedCount = computed(() => platforms.value.filter((p) => detectAgent(p)).length)
 
 // Platform ordering
-const defaultPlatformOrder = defaultPlatforms.map(p => p.id)
+const defaultPlatformOrder = defaultPlatforms.map((p) => p.id)
 const savedOrder = storage.getPlatformOrder()
 const platformOrder = ref<string[]>(savedOrder.length ? savedOrder : [...defaultPlatformOrder])
 
@@ -314,10 +299,8 @@ function resetPlatformOrder() {
 }
 
 const sortedPlatforms = computed(() => {
-  const platformMap = new Map(platforms.value.map(p => [p.id, p]))
-  return platformOrder.value
-    .map(id => platformMap.get(id))
-    .filter((p): p is PlatformInfo => p !== undefined)
+  const platformMap = new Map(platforms.value.map((p) => [p.id, p]))
+  return platformOrder.value.map((id) => platformMap.get(id)).filter((p): p is PlatformInfo => p !== undefined)
 })
 
 // Drag and drop with auto-scroll
@@ -336,7 +319,10 @@ function startAutoScroll() {
   const MAX_SCROLL_SPEED = 12
 
   function tick() {
-    if (dragIndex.value === null) { stopAutoScroll(); return }
+    if (dragIndex.value === null) {
+      stopAutoScroll()
+      return
+    }
     const rect = scrollContainer!.getBoundingClientRect()
     const y = lastDragY
     const distFromTop = y - rect.top
@@ -421,7 +407,18 @@ const newModelCustomName = ref('')
 const showModelModal = ref(false)
 const editingModelIndex = ref<number | null>(null)
 const modelForm = ref<ModelConfig>({
-  id: '', name: '', provider: 'openai', baseUrl: '', apiPath: '', apiKeys: [], model: '', isDefault: false, isBuiltin: false, enabled: true, models: [], icon: '',
+  id: '',
+  name: '',
+  provider: 'openai',
+  baseUrl: '',
+  apiPath: '',
+  apiKeys: [],
+  model: '',
+  isDefault: false,
+  isBuiltin: false,
+  enabled: true,
+  models: [],
+  icon: '',
 })
 const modelExtraBodyText = ref('')
 const modelExtraBodyError = ref('')
@@ -433,7 +430,11 @@ const providerExtraBodyErrors = ref<Record<string, string>>({})
 
 function objectToJsonString(obj: Record<string, any> | undefined | null): string {
   if (!obj || !Object.keys(obj).length) return ''
-  try { return JSON.stringify(obj, null, 2) } catch { return '' }
+  try {
+    return JSON.stringify(obj, null, 2)
+  } catch {
+    return ''
+  }
 }
 
 function tryParseJson(text: string): Record<string, any> | null {
@@ -453,7 +454,7 @@ function getProviderExtraBodyText(providerId: string): string {
   if (providerExtraBodyTexts.value[providerId] !== undefined) {
     return providerExtraBodyTexts.value[providerId]
   }
-  const provider = settings.aiModels.find(m => m.id === providerId)
+  const provider = settings.aiModels.find((m) => m.id === providerId)
   return objectToJsonString(provider?.extraBody)
 }
 
@@ -463,7 +464,7 @@ function onProviderExtraBodyInput(providerId: string, e: Event) {
   if (!text.trim()) {
     providerExtraBodyErrors.value = { ...providerExtraBodyErrors.value, [providerId]: '' }
     const models = [...settings.aiModels]
-    const idx = models.findIndex(m => m.id === providerId)
+    const idx = models.findIndex((m) => m.id === providerId)
     if (idx >= 0) {
       const updated = { ...models[idx] }
       delete updated.extraBody
@@ -478,7 +479,7 @@ function onProviderExtraBodyInput(providerId: string, e: Event) {
   } else {
     providerExtraBodyErrors.value = { ...providerExtraBodyErrors.value, [providerId]: '' }
     const models = [...settings.aiModels]
-    const idx = models.findIndex(m => m.id === providerId)
+    const idx = models.findIndex((m) => m.id === providerId)
     if (idx >= 0) {
       models[idx] = { ...models[idx], extraBody: parsed }
       updateSettings({ aiModels: models })
@@ -486,7 +487,7 @@ function onProviderExtraBodyInput(providerId: string, e: Event) {
   }
 }
 
-function onModelExtraBodyInput(e: Event) {
+function _onModelExtraBodyInput(e: Event) {
   const text = (e.target as HTMLTextAreaElement).value
   modelExtraBodyText.value = text
   if (!text.trim()) {
@@ -535,7 +536,7 @@ const showIconPicker = ref(false)
 const editingIconProviderId = ref<string | null>(null)
 const defaultProviderIcon = computed(() => {
   const providerId = editingIconProviderId.value
-    ? (settings.aiModels.find(m => m.id === editingIconProviderId.value)?.provider || '')
+    ? settings.aiModels.find((m) => m.id === editingIconProviderId.value)?.provider || ''
     : modelForm.value.provider
   return getProviderInfo(providerId)?.icon || 'openai'
 })
@@ -543,14 +544,14 @@ const defaultProviderIcon = computed(() => {
 const currentIconValue = computed({
   get() {
     if (editingIconProviderId.value) {
-      return settings.aiModels.find(m => m.id === editingIconProviderId.value)?.icon || ''
+      return settings.aiModels.find((m) => m.id === editingIconProviderId.value)?.icon || ''
     }
     return modelForm.value.icon
   },
   set(value: string) {
     if (editingIconProviderId.value) {
       const models = [...settings.aiModels]
-      const idx = models.findIndex(m => m.id === editingIconProviderId.value)
+      const idx = models.findIndex((m) => m.id === editingIconProviderId.value)
       if (idx >= 0) {
         models[idx] = { ...models[idx], icon: value }
         updateSettings({ aiModels: models })
@@ -558,7 +559,7 @@ const currentIconValue = computed({
     } else {
       modelForm.value.icon = value
     }
-  }
+  },
 })
 const showFetchModal = ref(false)
 const fetchModelsResult = ref<{ id: string; name: string; owned_by?: string }[]>([])
@@ -571,7 +572,9 @@ const fetchSearchQuery = ref('')
 const fetchFilteredModels = computed(() => {
   if (!fetchSearchQuery.value.trim()) return fetchModelsResult.value
   const q = fetchSearchQuery.value.toLowerCase()
-  return fetchModelsResult.value.filter(m => m.id.toLowerCase().includes(q) || m.name?.toLowerCase().includes(q) || m.owned_by?.toLowerCase().includes(q))
+  return fetchModelsResult.value.filter(
+    (m) => m.id.toLowerCase().includes(q) || m.name?.toLowerCase().includes(q) || m.owned_by?.toLowerCase().includes(q),
+  )
 })
 const fetchModelGroups = computed(() => {
   const groups: Record<string, { name: string; models: typeof fetchModelsResult.value }> = {}
@@ -580,7 +583,7 @@ const fetchModelGroups = computed(() => {
     if (!groups[g]) groups[g] = { name: g, models: [] }
     groups[g].models.push(m)
   }
-  return Object.values(groups).sort((a, b) => a.name === '其他' ? 1 : b.name === '其他' ? -1 : a.name.localeCompare(b.name))
+  return Object.values(groups).sort((a, b) => (a.name === '其他' ? 1 : b.name === '其他' ? -1 : a.name.localeCompare(b.name)))
 })
 function toggleFetchGroup(name: string) {
   const s = new Set(expandedFetchGroups.value)
@@ -589,8 +592,8 @@ function toggleFetchGroup(name: string) {
   expandedFetchGroups.value = s
 }
 function toggleAllFetchGroups() {
-  const allGroupNames = fetchModelGroups.value.map(g => g.name)
-  const allExpanded = allGroupNames.every(n => expandedFetchGroups.value.has(n))
+  const allGroupNames = fetchModelGroups.value.map((g) => g.name)
+  const allExpanded = allGroupNames.every((n) => expandedFetchGroups.value.has(n))
   expandedFetchGroups.value = allExpanded ? new Set() : new Set(allGroupNames)
 }
 function handleFetchModelToggle(id: string) {
@@ -600,7 +603,7 @@ function handleFetchModelToggle(id: string) {
   selectedFetchIds.value = s
 }
 function toggleFetchGroupSelection(group: { name: string; models: { id: string }[] }) {
-  const allSelected = group.models.every(m => selectedFetchIds.value.has(m.id))
+  const allSelected = group.models.every((m) => selectedFetchIds.value.has(m.id))
   const s = new Set(selectedFetchIds.value)
   for (const m of group.models) {
     if (allSelected) s.delete(m.id)
@@ -628,35 +631,47 @@ function maskKey(key: string): string {
   return key.substring(0, 4) + '*'.repeat(Math.min(key.length - 4, 12))
 }
 
-function maskUrl(url: string): string {
+function _maskUrl(url: string): string {
   if (!url) return ''
   try {
     const u = new URL(url)
-    return u.protocol + '//' + u.hostname + (u.port ? ':' + u.port : '') + (u.pathname.length > 1 ? u.pathname.substring(0, 20) + '...' : '')
+    return (
+      u.protocol + '//' + u.hostname + (u.port ? ':' + u.port : '') + (u.pathname.length > 1 ? u.pathname.substring(0, 20) + '...' : '')
+    )
   } catch {
     return url.length > 30 ? url.substring(0, 30) + '...' : url
   }
 }
 
-function getModelUrl(model: any): string {
+function _getModelUrl(model: any): string {
   const base = (model.baseUrl || '').replace(/\/+$/, '')
   const path = model.apiPath || '/v1/chat/completions'
   return `${base}${path}`
 }
 
-function getModelsEndpoint(model: any): string {
+function _getModelsEndpoint(model: any): string {
   const base = (model.baseUrl || '').replace(/\/+$/, '')
   return `${base}/v1/models`
 }
 
 function isChatModel(model: any): boolean {
   const name = (model.name || '').toLowerCase()
-  return name.includes('chat') || name.includes('gpt') || name.includes('claude') || name.includes('gemini') || name.includes('deepseek') || name.includes('qwen') || name.includes('glm')
+  return (
+    name.includes('chat') ||
+    name.includes('gpt') ||
+    name.includes('claude') ||
+    name.includes('gemini') ||
+    name.includes('deepseek') ||
+    name.includes('qwen') ||
+    name.includes('glm')
+  )
 }
 
 function isImageModel(model: any): boolean {
   const name = (model.name || '').toLowerCase()
-  return name.includes('image') || name.includes('dall-e') || name.includes('stable') || name.includes('midjourney') || name.includes('flux')
+  return (
+    name.includes('image') || name.includes('dall-e') || name.includes('stable') || name.includes('midjourney') || name.includes('flux')
+  )
 }
 
 function getModelContextLength(model: any): string {
@@ -671,10 +686,10 @@ function getModelContextLength(model: any): string {
 }
 
 function expandAllGroups(providerId: string) {
-  const provider = settings.aiModels.find(m => m.id === providerId)
+  const provider = settings.aiModels.find((m) => m.id === providerId)
   if (provider?.models) {
     const groups = groupModels(provider.models)
-    const newSet = new Set(groups.map(g => g.name))
+    const newSet = new Set(groups.map((g) => g.name))
     expandedGroups.value[providerId] = newSet
   }
 }
@@ -682,11 +697,11 @@ function expandAllGroups(providerId: string) {
 function toggleAllModels(provider: any) {
   if (!provider.models) return
   const allEnabled = provider.models.every((m: any) => m.enabled)
-  provider.models.forEach((m: any) => m.enabled = !allEnabled)
+  provider.models.forEach((m: any) => (m.enabled = !allEnabled))
   updateSettings({ aiModels: [...settings.aiModels] })
 }
 
-function startEditApiKey(provider: any) {
+function _startEditApiKey(provider: any) {
   showApiKey.value[provider.id] = true
 }
 
@@ -712,7 +727,7 @@ function saveApiKey() {
   if (editingKeyIndex.value !== null) {
     provider.apiKeys[editingKeyIndex.value].key = apiKeyForm.value.key
   } else {
-    const hasEnabled = provider.apiKeys.some(k => k.enabled)
+    const hasEnabled = provider.apiKeys.some((k) => k.enabled)
     provider.apiKeys.push({
       id: 'key-' + Date.now(),
       key: apiKeyForm.value.key,
@@ -743,7 +758,7 @@ function toggleApiKeyEnabled(providerIndex: number, keyIndex: number) {
   updateSettings({ aiModels: [...settings.aiModels] })
 }
 
-function getActiveApiKey(provider: any): string {
+function _getActiveApiKey(provider: any): string {
   return provider.apiKeys?.find((k: any) => k.enabled)?.key || ''
 }
 
@@ -815,7 +830,7 @@ function saveModel() {
   showToast(editingModelIndex.value !== null ? '供应商已更新' : '供应商已添加', 'success')
 }
 
-function deleteModel(index: number) {
+function _deleteModel(index: number) {
   const models = settings.aiModels.filter((_, i) => i !== index)
   if (models.length && !models.some((m) => m.isDefault)) {
     models[0].isDefault = true
@@ -845,15 +860,17 @@ function deleteModelFromProvider(providerIndex: number, modelId: string) {
 function toggleGroupModels(providerIndex: number, groupName: string) {
   const models = [...settings.aiModels]
   const m = { ...models[providerIndex] }
-  const groupModels = (m.models || []).filter(mm => (mm.owned_by || '其他') === groupName)
-  const allEnabled = groupModels.every(mm => mm.enabled)
+  const groupModels = (m.models || []).filter((mm) => (mm.owned_by || '其他') === groupName)
+  const allEnabled = groupModels.every((mm) => mm.enabled)
   const newEnabled = !allEnabled
-  m.models = (m.models || []).map(mm =>
-    (mm.owned_by || '其他') === groupName ? { ...mm, enabled: newEnabled } : mm,
-  )
+  m.models = (m.models || []).map((mm) => ((mm.owned_by || '其他') === groupName ? { ...mm, enabled: newEnabled } : mm))
   models[providerIndex] = m
   const patch: Partial<AppSettings> = { aiModels: models }
-  if (!newEnabled && settings.translationModelId && groupModels.some(mm => settings.translationModelId === mm.id || settings.translationModelId === m.id + '::' + mm.id)) {
+  if (
+    !newEnabled &&
+    settings.translationModelId &&
+    groupModels.some((mm) => settings.translationModelId === mm.id || settings.translationModelId === m.id + '::' + mm.id)
+  ) {
     patch.translationModelId = ''
   }
   updateSettings(patch)
@@ -862,12 +879,17 @@ function toggleGroupModels(providerIndex: number, groupName: string) {
 function deleteGroupModels(providerIndex: number, groupName: string) {
   const models = [...settings.aiModels]
   const m = { ...models[providerIndex] }
-  const deletedIds = new Set((m.models || []).filter(mm => (mm.owned_by || '其他') === groupName).map(mm => mm.id))
-  const deletedCompoundKeys = new Set((m.models || []).filter(mm => (mm.owned_by || '其他') === groupName).map(mm => m.id + '::' + mm.id))
-  m.models = (m.models || []).filter(mm => (mm.owned_by || '其他') !== groupName)
+  const deletedIds = new Set((m.models || []).filter((mm) => (mm.owned_by || '其他') === groupName).map((mm) => mm.id))
+  const deletedCompoundKeys = new Set(
+    (m.models || []).filter((mm) => (mm.owned_by || '其他') === groupName).map((mm) => m.id + '::' + mm.id),
+  )
+  m.models = (m.models || []).filter((mm) => (mm.owned_by || '其他') !== groupName)
   models[providerIndex] = m
   const patch: Partial<AppSettings> = { aiModels: models }
-  if (settings.translationModelId && (deletedIds.has(settings.translationModelId) || deletedCompoundKeys.has(settings.translationModelId))) {
+  if (
+    settings.translationModelId &&
+    (deletedIds.has(settings.translationModelId) || deletedCompoundKeys.has(settings.translationModelId))
+  ) {
     patch.translationModelId = ''
   }
   updateSettings(patch)
@@ -875,12 +897,12 @@ function deleteGroupModels(providerIndex: number, groupName: string) {
 }
 
 function deleteProvider(id: string) {
-  const provider = settings.aiModels.find(m => m.id === id)
+  const provider = settings.aiModels.find((m) => m.id === id)
   if (provider?.isBuiltin) {
     showToast('内置供应商不能删除', 'error')
     return
   }
-  const models = settings.aiModels.filter(m => m.id !== id)
+  const models = settings.aiModels.filter((m) => m.id !== id)
   if (models.length && !models.some((m) => m.isDefault)) {
     models[0].isDefault = true
   }
@@ -900,7 +922,7 @@ function doDeleteApiKey() {
   const lastDash = key.lastIndexOf('-')
   const providerId = key.substring(0, lastDash)
   const ki = parseInt(key.substring(lastDash + 1))
-  const idx = settings.aiModels.findIndex(m => m.id === providerId)
+  const idx = settings.aiModels.findIndex((m) => m.id === providerId)
   if (idx >= 0) deleteApiKey(idx, ki)
 }
 
@@ -911,7 +933,7 @@ function doDeleteGroup() {
   const lastDash = key.lastIndexOf('-')
   const providerId = key.substring(0, lastDash)
   const groupName = key.substring(lastDash + 1)
-  const idx = settings.aiModels.findIndex(m => m.id === providerId)
+  const idx = settings.aiModels.findIndex((m) => m.id === providerId)
   if (idx >= 0) deleteGroupModels(idx, groupName)
 }
 
@@ -923,7 +945,7 @@ function doDeleteModel() {
   if (sepIdx >= 0) {
     const providerId = modelId.substring(0, sepIdx)
     const innerModelId = modelId.substring(sepIdx + 2)
-    const idx = settings.aiModels.findIndex(m => m.id === providerId)
+    const idx = settings.aiModels.findIndex((m) => m.id === providerId)
     if (idx >= 0) deleteModelFromProvider(idx, innerModelId)
   } else {
     settings.aiModels.forEach((m, i) => {
@@ -932,7 +954,7 @@ function doDeleteModel() {
   }
 }
 
-function setDefaultModel(index: number) {
+function _setDefaultModel(index: number) {
   const models = settings.aiModels.map((m, i) => ({ ...m, isDefault: i === index }))
   updateSettings({ aiModels: models })
 }
@@ -941,7 +963,7 @@ function setTranslationModel(modelId: string) {
   updateSettings({ translationModelId: modelId })
 }
 
-function getTranslationModelName(): string {
+function _getTranslationModelName(): string {
   if (!settings.translationModelId) {
     return '未配置'
   }
@@ -949,15 +971,15 @@ function getTranslationModelName(): string {
   if (sepIdx >= 0) {
     const providerId = settings.translationModelId.substring(0, sepIdx)
     const modelId = settings.translationModelId.substring(sepIdx + 2)
-    const provider = settings.aiModels.find(m => m.id === providerId)
+    const provider = settings.aiModels.find((m) => m.id === providerId)
     if (provider) {
-      const model = provider.models?.find(m => m.id === modelId)
+      const model = provider.models?.find((m) => m.id === modelId)
       if (model) return `${model.name || model.id} (${provider.name || getProviderInfo(provider.provider)?.name})`
     }
     return '未找到'
   }
   // 兼容旧格式：按供应商 ID 查找
-  const byProvider = settings.aiModels.find(m => m.id === settings.translationModelId)
+  const byProvider = settings.aiModels.find((m) => m.id === settings.translationModelId)
   if (byProvider) {
     return `${byProvider.name || getProviderInfo(byProvider.provider)?.name} (供应商)`
   }
@@ -969,24 +991,24 @@ async function openFetchModels(index: number) {
   let apiKey = ''
   if (index === -1) {
     baseUrl = modelForm.value.baseUrl
-    apiKey = modelForm.value.apiKeys?.find(k => k.enabled)?.key || ''
+    apiKey = modelForm.value.apiKeys?.find((k) => k.enabled)?.key || ''
   } else {
     const m = settings.aiModels[index]
     if (!m) return
     baseUrl = m.baseUrl
-    apiKey = m.apiKeys?.find(k => k.enabled)?.key || ''
+    apiKey = m.apiKeys?.find((k) => k.enabled)?.key || ''
   }
   if (!baseUrl || !apiKey) return
   fetchTargetIndex.value = index
   fetchLoading.value = true
   fetchError.value = ''
-  const existingModels = index >= 0 ? settings.aiModels[index]?.models?.filter(m => m.enabled).map(m => m.id) : []
+  const existingModels = index >= 0 ? settings.aiModels[index]?.models?.filter((m) => m.enabled).map((m) => m.id) : []
   selectedFetchIds.value = new Set(existingModels || [])
   try {
     const result = await fetchAvailableModels(baseUrl, apiKey)
     if (result.success) {
       fetchModelsResult.value = result.models
-      expandedFetchGroups.value = new Set(result.models.map(m => m.owned_by || '其他'))
+      expandedFetchGroups.value = new Set(result.models.map((m) => m.owned_by || '其他'))
       showFetchModal.value = true
     } else {
       fetchError.value = result.error || '获取失败'
@@ -1037,7 +1059,7 @@ function confirmFetchModels() {
   showFetchModal.value = false
 }
 
-async function testModelConnection(index: number) {
+async function _testModelConnection(index: number) {
   const m = settings.aiModels[index]
   if (!m.baseUrl || !m.apiKeys?.length || !m.model) return
   testResult.value = null
@@ -1049,7 +1071,9 @@ async function testModelConnection(index: number) {
     const msg = errMsg === 'AI_AUTH_ERROR' ? '认证失败，请检查 API Key' : errMsg
     testResult.value = { index, success: false, message: msg }
   }
-  setTimeout(() => { testResult.value = null }, 5000)
+  setTimeout(() => {
+    testResult.value = null
+  }, 5000)
 }
 
 async function testSingleModel(providerIndex: number, modelId: string) {
@@ -1131,7 +1155,7 @@ function toggleModelEnabled(modelIndex: number, modelId: string) {
   }
 }
 
-function toggleApiKeyVisibility(modelId: string) {
+function _toggleApiKeyVisibility(modelId: string) {
   showApiKey.value = { ...showApiKey.value, [modelId]: !showApiKey.value[modelId] }
 }
 
@@ -1152,26 +1176,30 @@ function toggleExpandedSection(modelId: string, section: 'apiInfo' | 'models') {
   }
 }
 
-const enabledProviders = computed(() => settings.aiModels.filter(m => m.enabled && m.apiKeys?.some(k => k.enabled) && m.models?.length).sort((a, b) => (a.isBuiltin === b.isBuiltin ? 0 : a.isBuiltin ? 1 : -1)))
-const allEnabledProviders = computed(() => settings.aiModels.filter(m => m.enabled && m.models?.length))
+const enabledProviders = computed(() =>
+  settings.aiModels
+    .filter((m) => m.enabled && m.apiKeys?.some((k) => k.enabled) && m.models?.length)
+    .sort((a, b) => (a.isBuiltin === b.isBuiltin ? 0 : a.isBuiltin ? 1 : -1)),
+)
+const allEnabledProviders = computed(() => settings.aiModels.filter((m) => m.enabled && m.models?.length))
 const hasValidTranslationModel = computed(() => {
   if (!settings.translationModelId) return false
   const sepIdx = settings.translationModelId.lastIndexOf('::')
   if (sepIdx >= 0) {
     const providerId = settings.translationModelId.substring(0, sepIdx)
     const modelId = settings.translationModelId.substring(sepIdx + 2)
-    const provider = settings.aiModels.find(m => m.id === providerId && m.enabled)
+    const provider = settings.aiModels.find((m) => m.id === providerId && m.enabled)
     if (!provider) return false
-    return provider.models?.some(m => m.id === modelId && m.enabled) ?? false
+    return provider.models?.some((m) => m.id === modelId && m.enabled) ?? false
   }
-  const provider = settings.aiModels.find(m => m.id === settings.translationModelId && m.enabled)
+  const provider = settings.aiModels.find((m) => m.id === settings.translationModelId && m.enabled)
   return !!provider
 })
 
 const translationModelItems = computed<QuickSwitcherItem[]>(() => {
   const items: QuickSwitcherItem[] = []
   for (const provider of allEnabledProviders.value) {
-    for (const model of (provider.models || []).filter(m => m.enabled)) {
+    for (const model of (provider.models || []).filter((m) => m.enabled)) {
       items.push({
         id: `${provider.id}::${model.id}`,
         label: model.name || model.id,
@@ -1181,16 +1209,22 @@ const translationModelItems = computed<QuickSwitcherItem[]>(() => {
   }
   return items
 })
-const pendingProviders = computed(() => settings.aiModels.filter(m => m.enabled && (!m.apiKeys?.some(k => k.enabled) || !m.models?.length)).sort((a, b) => (a.isBuiltin === b.isBuiltin ? 0 : a.isBuiltin ? 1 : -1)))
-const disabledProviders = computed(() => settings.aiModels.filter(m => !m.enabled).sort((a, b) => (a.isBuiltin === b.isBuiltin ? 0 : a.isBuiltin ? 1 : -1)))
+const pendingProviders = computed(() =>
+  settings.aiModels
+    .filter((m) => m.enabled && (!m.apiKeys?.some((k) => k.enabled) || !m.models?.length))
+    .sort((a, b) => (a.isBuiltin === b.isBuiltin ? 0 : a.isBuiltin ? 1 : -1)),
+)
+const disabledProviders = computed(() =>
+  settings.aiModels.filter((m) => !m.enabled).sort((a, b) => (a.isBuiltin === b.isBuiltin ? 0 : a.isBuiltin ? 1 : -1)),
+)
 
 function getModelIndex(id: string): number {
-  return settings.aiModels.findIndex(m => m.id === id)
+  return settings.aiModels.findIndex((m) => m.id === id)
 }
 
 function toggleProviderEnabled(provider: ModelConfig) {
   const models = [...settings.aiModels]
-  const idx = models.findIndex(m => m.id === provider.id)
+  const idx = models.findIndex((m) => m.id === provider.id)
   if (idx >= 0) {
     models[idx] = { ...models[idx], enabled: !models[idx].enabled }
     updateSettings({ aiModels: models })
@@ -1216,7 +1250,7 @@ function saveNewModel() {
   const provider = models[addModelTargetIndex.value]
   const modelList = provider.models ? [...provider.models] : []
   const modelId = newModelName.value.trim()
-  const existingIndex = modelList.findIndex(m => m.id === modelId)
+  const existingIndex = modelList.findIndex((m) => m.id === modelId)
   if (existingIndex >= 0) {
     showToast('模型已存在', 'warning')
     return
@@ -1250,7 +1284,9 @@ function toggleGroup(providerId: string, groupName: string) {
   expandedGroups.value = { ...expandedGroups.value, [providerId]: newSet }
 }
 
-function groupModels(models: Array<{ id: string; name: string; enabled: boolean; owned_by?: string; capabilities?: string[] }>): ModelGroup[] {
+function groupModels(
+  models: Array<{ id: string; name: string; enabled: boolean; owned_by?: string; capabilities?: string[] }>,
+): ModelGroup[] {
   const groups: Record<string, ModelGroup> = {}
 
   for (const model of models) {
@@ -1280,11 +1316,34 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
         <h2>设置</h2>
         <div class="settings-header-actions">
           <button class="settings-theme-toggle" @click="toggleTheme" :title="isDarkMode ? '切换亮色模式' : '切换暗色模式'">
-            <svg v-if="isDarkMode" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+            <svg
+              v-if="isDarkMode"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <circle cx="12" cy="12" r="5" />
+              <path
+                d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"
+              />
             </svg>
-            <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+            <svg
+              v-else
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
             </svg>
           </button>
         </div>
@@ -1301,7 +1360,7 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
           <span class="settings-nav-label">{{ s.label }}</span>
         </button>
       </nav>
-      <div class="settings-sidebar-resize" @mousedown="startSidebarResize" @touchstart.prevent="startSidebarResize"></div>
+      <div class="settings-sidebar-resize" @mousedown="startSidebarResize" @touchstart.prevent="startSidebarResize" />
     </aside>
 
     <div class="settings-content">
@@ -1335,11 +1394,9 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
             <h3 class="setting-section-title">主题颜色</h3>
             <div class="setting-card">
               <div class="color-name-bar">
-                <template v-if="isCustomColor()">
-                  {{ '自定义' }} {{ settings.themeColor }}
-                </template>
+                <template v-if="isCustomColor()"> {{ '自定义' }} {{ settings.themeColor }} </template>
                 <template v-else>
-                  {{ morandiThemes.find(t => t.id === settings.themeColor)?.name || '' }}
+                  {{ morandiThemes.find((t) => t.id === settings.themeColor)?.name || '' }}
                 </template>
               </div>
               <div class="color-swatches-row">
@@ -1351,7 +1408,18 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                     :title="t.name"
                     @click="setThemeColor(t.id)"
                   >
-                    <svg v-if="isThemeColorActive(t.id)" class="swatch-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                    <svg
+                      v-if="isThemeColorActive(t.id)"
+                      class="swatch-check"
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="3"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
                       <polyline points="20 6 9 17 4 12" />
                     </svg>
                   </button>
@@ -1364,7 +1432,18 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                     title="自定义"
                     @click="setThemeColor('custom')"
                   >
-                    <svg v-if="isCustomColor()" class="swatch-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                    <svg
+                      v-if="isCustomColor()"
+                      class="swatch-check"
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="3"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
                       <polyline points="20 6 9 17 4 12" />
                     </svg>
                   </button>
@@ -1381,27 +1460,35 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                     <input
                       type="color"
                       :value="settings.themeColor.startsWith('#') ? settings.themeColor : '#58a4f6'"
-                      @input="setCustomColor(($event.target as HTMLInputElement).value)"
                       class="color-picker-native"
+                      @input="setCustomColor(($event.target as HTMLInputElement).value)"
                     />
                     <input
                       v-model="customColorInput"
-                      @change="setCustomColor(customColorInput)"
                       class="color-hex-native"
                       placeholder="#58a4f6"
+                      @change="setCustomColor(customColorInput)"
                     />
                   </div>
                 </div>
                 <div class="preview-strip">
-                  <div class="preview-block primary" :style="{ background: `hsl(${hexToHsl(settings.themeColor)?.h || 210}, ${hexToHsl(settings.themeColor)?.s || 35}%, 55%)` }">
+                  <div
+                    class="preview-block primary"
+                    :style="{
+                      background: `hsl(${hexToHsl(settings.themeColor)?.h || 210}, ${hexToHsl(settings.themeColor)?.s || 35}%, 55%)`,
+                    }"
+                  >
                     主色
                   </div>
-                  <div class="preview-block accent" :style="{ background: `hsl(${hexToHsl(settings.themeColor)?.h || 210}, ${Math.round((hexToHsl(settings.themeColor)?.s || 35) * 0.5)}%, 94%)` }">
+                  <div
+                    class="preview-block accent"
+                    :style="{
+                      background: `hsl(${hexToHsl(settings.themeColor)?.h || 210}, ${Math.round((hexToHsl(settings.themeColor)?.s || 35) * 0.5)}%, 94%)`,
+                    }"
+                  >
                     强调色
                   </div>
-                  <div class="preview-block neutral">
-                    中性色
-                  </div>
+                  <div class="preview-block neutral">中性色</div>
                 </div>
               </div>
             </div>
@@ -1455,17 +1542,12 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                   <div class="setting-row-label">启用紧凑模式</div>
                   <div class="setting-row-desc">减少间距和内边距，显示更多内容</div>
                 </div>
-                <button
-                  class="toggle-switch"
-                  :class="{ on: settings.compactMode }"
-                  @click="setCompactMode(!settings.compactMode)"
-                >
-                  <span class="toggle-thumb"></span>
+                <button class="toggle-switch" :class="{ on: settings.compactMode }" @click="setCompactMode(!settings.compactMode)">
+                  <span class="toggle-thumb" />
                 </button>
               </div>
             </div>
           </div>
-
         </div>
       </template>
 
@@ -1545,7 +1627,11 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                   <div class="setting-row-desc">删除 skills-repo 目录中未被注册的技能文件夹。已注册的技能会被保留。</div>
                 </div>
                 <button class="cleanup-btn" @click="openCleanupSelect">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 6h18" />
+                    <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                    <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                  </svg>
                   清理
                 </button>
               </div>
@@ -1570,7 +1656,7 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                   :class="{ on: settings.showDataManagement }"
                   @click="updateSettings({ showDataManagement: !settings.showDataManagement })"
                 >
-                  <span class="toggle-thumb"></span>
+                  <span class="toggle-thumb" />
                 </button>
               </div>
             </div>
@@ -1589,9 +1675,7 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
           </div>
 
           <div class="ai-model-list">
-            <div v-if="!settings.aiModels.length" class="ai-model-empty">
-              还没有配置 AI 模型。点击上方按钮添加。
-            </div>
+            <div v-if="!settings.aiModels.length" class="ai-model-empty">还没有配置 AI 模型。点击上方按钮添加。</div>
 
             <!-- Enabled Providers -->
             <div v-if="enabledProviders.length" class="provider-group">
@@ -1599,16 +1683,29 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
               <div v-for="m in enabledProviders" :key="m.id" class="ai-model-provider-card">
                 <div class="provider-card-header" @click="toggleExpandedSection(m.id, 'apiInfo')">
                   <div class="provider-card-left">
-                    <span class="provider-card-icon clickable" @click.stop="openIconPickerForProvider(m.id)"><ProviderIcon :icon="m.icon || getProviderInfo(m.provider)?.icon" :size="20" /></span>
+                    <span class="provider-card-icon clickable" @click.stop="openIconPickerForProvider(m.id)"
+                      ><ProviderIcon :icon="m.icon || getProviderInfo(m.provider)?.icon" :size="20"
+                    /></span>
                     <span class="provider-card-name">{{ m.name || getProviderInfo(m.provider)?.name }}</span>
                   </div>
                   <div class="provider-card-right">
-                    <button v-if="!m.isBuiltin" class="provider-delete-btn" @click.stop="confirmDeleteProviderId = m.id; confirmDeleteProviderName = m.name || getProviderInfo(m.provider)?.name || ''" title="删除供应商">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                    <button
+                      v-if="!m.isBuiltin"
+                      class="provider-delete-btn"
+                      title="删除供应商"
+                      @click.stop="
+                        ((confirmDeleteProviderId = m.id), (confirmDeleteProviderName = m.name || getProviderInfo(m.provider)?.name || ''))
+                      "
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 6h18" />
+                        <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                        <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                      </svg>
                     </button>
                     <label class="provider-toggle" :class="{ on: m.enabled }" @click.stop>
                       <input type="checkbox" :checked="m.enabled" @change="toggleProviderEnabled(m)" />
-                      <span class="provider-toggle-slider"></span>
+                      <span class="provider-toggle-slider" />
                     </label>
                   </div>
                 </div>
@@ -1618,12 +1715,25 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                     <div class="provider-section-header">
                       <span class="provider-section-title">API 密钥</span>
                       <div class="provider-section-header-actions">
-                        <a v-if="m.isBuiltin && getProviderInfo(m.provider)?.getKeyUrl" :href="getProviderInfo(m.provider)?.getKeyUrl" target="_blank" class="provider-getkey-link" @click.stop>
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                        <a
+                          v-if="m.isBuiltin && getProviderInfo(m.provider)?.getKeyUrl"
+                          :href="getProviderInfo(m.provider)?.getKeyUrl"
+                          target="_blank"
+                          class="provider-getkey-link"
+                          @click.stop
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                            <polyline points="15 3 21 3 21 9" />
+                            <line x1="10" y1="14" x2="21" y2="3" />
+                          </svg>
                           获取密钥
                         </a>
                         <button class="provider-section-add-btn" @click.stop="addApiKey(getModelIndex(m.id))">
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="12" y1="5" x2="12" y2="19" />
+                            <line x1="5" y1="12" x2="19" y2="12" />
+                          </svg>
                           添加密钥
                         </button>
                       </div>
@@ -1634,7 +1744,7 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                         <div class="apikey-masked">
                           <label class="provider-toggle" :class="{ on: ak.enabled }">
                             <input type="checkbox" :checked="ak.enabled" @change="toggleApiKeyEnabled(getModelIndex(m.id), ki)" />
-                            <span class="provider-toggle-slider"></span>
+                            <span class="provider-toggle-slider" />
                           </label>
                           <span class="apikey-lock">🔒</span>
                           <span v-if="!showApiKey[ak.id]" class="apikey-text">{{ maskKey(ak.key) }}</span>
@@ -1642,12 +1752,47 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                         </div>
                         <div class="apikey-actions">
                           <button class="apikey-action-btn" @click="showApiKey[ak.id] = !showApiKey[ak.id]">
-                            <svg v-if="showApiKey[ak.id]" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                            <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                            <svg
+                              v-if="showApiKey[ak.id]"
+                              width="14"
+                              height="14"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="2"
+                            >
+                              <path
+                                d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"
+                              />
+                              <line x1="1" y1="1" x2="23" y2="23" />
+                            </svg>
+                            <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                              <circle cx="12" cy="12" r="3" />
+                            </svg>
                           </button>
-                          <button class="apikey-action-btn" @click="editApiKey(getModelIndex(m.id), ki)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
-                          <button class="apikey-action-btn" @click="copyApiKey(ak.key)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
-                          <button class="apikey-action-btn danger" @click="confirmDeleteApiKey = m.id + '-' + ki; confirmDeleteApiKeyLabel = maskKey(ak.key)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
+                          <button class="apikey-action-btn" @click="editApiKey(getModelIndex(m.id), ki)">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                            </svg>
+                          </button>
+                          <button class="apikey-action-btn" @click="copyApiKey(ak.key)">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                            </svg>
+                          </button>
+                          <button
+                            class="apikey-action-btn danger"
+                            @click="((confirmDeleteApiKey = m.id + '-' + ki), (confirmDeleteApiKeyLabel = maskKey(ak.key)))"
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                              <path d="M3 6h18" />
+                              <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                              <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                            </svg>
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -1662,7 +1807,13 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                       <div class="url-form-row">
                         <label class="url-form-label">Base URL <span class="tooltip-icon" title="API 服务器的基础地址">?</span></label>
                         <div class="url-form-input-group">
-                          <input v-model="m.baseUrl" type="text" class="url-form-input" placeholder="https://api.openai.com" @change="updateSettings({ aiModels: [...settings.aiModels] })" />
+                          <input
+                            v-model="m.baseUrl"
+                            type="text"
+                            class="url-form-input"
+                            placeholder="https://api.openai.com"
+                            @change="updateSettings({ aiModels: [...settings.aiModels] })"
+                          />
                           <button class="url-restore-btn" @click="restoreBaseUrl(getModelIndex(m.id))">恢复默认</button>
                         </div>
                       </div>
@@ -1672,32 +1823,99 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                       </div>
                       <div class="url-form-row">
                         <label class="url-form-label">API 路径 <span class="tooltip-icon" title="聊天补全接口的路径">?</span></label>
-                        <input v-model="m.apiPath" type="text" class="url-form-input" placeholder="/v1/chat/completions" @change="updateSettings({ aiModels: [...settings.aiModels] })" />
+                        <input
+                          v-model="m.apiPath"
+                          type="text"
+                          class="url-form-input"
+                          placeholder="/v1/chat/completions"
+                          @change="updateSettings({ aiModels: [...settings.aiModels] })"
+                        />
                       </div>
                     </div>
                   </div>
                   <!-- Model List Section -->
                   <div class="provider-section">
                     <div class="provider-section-header">
-                      <span class="provider-section-title">模型列表 <span class="model-count">{{ m.models?.length || 0 }}</span></span>
+                      <span class="provider-section-title"
+                        >模型列表 <span class="model-count">{{ m.models?.length || 0 }}</span></span
+                      >
                       <div class="provider-section-actions">
-                        <button class="provider-section-btn" @click="openFetchModels(getModelIndex(m.id))" :disabled="!m.baseUrl || !m.apiKeys?.length || fetchLoading" title="同步模型"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
-                        <button class="provider-section-btn" @click="openAddModelModal(getModelIndex(m.id))" title="添加模型"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
-                        <button class="provider-section-btn" @click="testAllModels(getModelIndex(m.id))" title="测试全部"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></button>
-                        <button class="provider-section-btn" @click="toggleAllModels(m)" title="启用/禁用全部"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="5" width="22" height="14" rx="7" ry="7"/><circle cx="16" cy="12" r="3"/></svg></button>
-                        <button class="provider-section-btn" @click="expandAllGroups(m.id)" title="展开全部"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg></button>
+                        <button
+                          class="provider-section-btn"
+                          :disabled="!m.baseUrl || !m.apiKeys?.length || fetchLoading"
+                          title="同步模型"
+                          @click="openFetchModels(getModelIndex(m.id))"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="23 4 23 10 17 10" />
+                            <polyline points="1 20 1 14 7 14" />
+                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                          </svg>
+                        </button>
+                        <button class="provider-section-btn" @click="openAddModelModal(getModelIndex(m.id))" title="添加模型">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="12" y1="5" x2="12" y2="19" />
+                            <line x1="5" y1="12" x2="19" y2="12" />
+                          </svg>
+                        </button>
+                        <button class="provider-section-btn" @click="testAllModels(getModelIndex(m.id))" title="测试全部">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                            <polyline points="22 4 12 14.01 9 11.01" />
+                          </svg>
+                        </button>
+                        <button class="provider-section-btn" @click="toggleAllModels(m)" title="启用/禁用全部">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="1" y="5" width="22" height="14" rx="7" ry="7" />
+                            <circle cx="16" cy="12" r="3" />
+                          </svg>
+                        </button>
+                        <button class="provider-section-btn" @click="expandAllGroups(m.id)" title="展开全部">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="15 3 21 3 21 9" />
+                            <polyline points="9 21 3 21 3 15" />
+                            <line x1="21" y1="3" x2="14" y2="10" />
+                            <line x1="3" y1="21" x2="10" y2="14" />
+                          </svg>
+                        </button>
                       </div>
                     </div>
                     <div v-if="!m.models?.length" class="model-list-empty">点击上方按钮同步模型</div>
                     <div v-else class="model-list-grouped">
                       <div v-for="group in groupModels(m.models)" :key="group.name" class="model-group">
                         <div class="model-group-header" @click="toggleGroup(m.id, group.name)">
-                          <svg class="model-group-arrow" :class="{ expanded: expandedGroups[m.id]?.has(group.name) }" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                          <svg
+                            class="model-group-arrow"
+                            :class="{ expanded: expandedGroups[m.id]?.has(group.name) }"
+                            width="12"
+                            height="12"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                          >
+                            <polyline points="6 9 12 15 18 9" />
+                          </svg>
                           <span class="model-group-name">{{ group.name }}</span>
                           <span class="model-group-count">{{ group.models.length }}</span>
                           <div class="model-group-actions" @click.stop>
-                            <label class="model-group-toggle" title="开关分组所有模型"><input type="checkbox" :checked="group.models.every(m => m.enabled)" @change="toggleGroupModels(getModelIndex(m.id), group.name)" /><span class="model-item-toggle-slider"></span></label>
-                            <button class="model-group-btn danger" title="删除分组所有模型" @click="confirmDeleteGroup = m.id + '-' + group.name; confirmDeleteGroupLabel = group.name"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
+                            <label class="model-group-toggle" title="开关分组所有模型"
+                              ><input
+                                type="checkbox"
+                                :checked="group.models.every((m) => m.enabled)"
+                                @change="toggleGroupModels(getModelIndex(m.id), group.name)" /><span class="model-item-toggle-slider"
+                            /></label>
+                            <button
+                              class="model-group-btn danger"
+                              title="删除分组所有模型"
+                              @click="((confirmDeleteGroup = m.id + '-' + group.name), (confirmDeleteGroupLabel = group.name))"
+                            >
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M3 6h18" />
+                                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                              </svg>
+                            </button>
                           </div>
                         </div>
                         <div v-show="expandedGroups[m.id]?.has(group.name)" class="model-group-items">
@@ -1710,16 +1928,63 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                               <span v-if="getModelContextLength(model)" class="model-tag context">{{ getModelContextLength(model) }}</span>
                             </div>
                             <div class="model-list-item-right">
-                              <span v-if="isModelTestLoading(getModelIndex(m.id), model.id)" class="model-test-status testing">测试中...</span>
+                              <span v-if="isModelTestLoading(getModelIndex(m.id), model.id)" class="model-test-status testing"
+                                >测试中...</span
+                              >
                               <span v-else-if="isModelTestSuccess(getModelIndex(m.id), model.id)" class="model-test-status ok">可用</span>
                               <span v-else-if="isModelTestFail(getModelIndex(m.id), model.id)" class="model-test-status fail">不可用</span>
-                              <label class="model-item-toggle"><input type="checkbox" :checked="model.enabled" @change="toggleModelEnabled(getModelIndex(m.id), model.id)" /><span class="model-item-toggle-slider"></span></label>
-                              <button class="model-item-action-btn" title="设置"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
-                              <button class="model-item-action-btn" title="测试" :class="{ testing: isModelTestLoading(getModelIndex(m.id), model.id), 'test-ok': isModelTestSuccess(getModelIndex(m.id), model.id), 'test-fail': isModelTestFail(getModelIndex(m.id), model.id) }" @click="testSingleModel(getModelIndex(m.id), model.id)" :disabled="isModelTestLoading(getModelIndex(m.id), model.id)">
-                                <svg v-if="isModelTestLoading(getModelIndex(m.id), model.id)" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-                                <svg v-else width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                              <label class="model-item-toggle"
+                                ><input
+                                  type="checkbox"
+                                  :checked="model.enabled"
+                                  @change="toggleModelEnabled(getModelIndex(m.id), model.id)" /><span class="model-item-toggle-slider"
+                              /></label>
+                              <button class="model-item-action-btn" title="设置">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                  <circle cx="12" cy="12" r="3" />
+                                  <path
+                                    d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
+                                  />
+                                </svg>
                               </button>
-                              <button class="model-item-action-btn danger" @click="confirmDeleteModel = model.id; confirmDeleteModelLabel = model.id"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
+                              <button
+                                class="model-item-action-btn"
+                                title="测试"
+                                :class="{
+                                  testing: isModelTestLoading(getModelIndex(m.id), model.id),
+                                  'test-ok': isModelTestSuccess(getModelIndex(m.id), model.id),
+                                  'test-fail': isModelTestFail(getModelIndex(m.id), model.id),
+                                }"
+                                :disabled="isModelTestLoading(getModelIndex(m.id), model.id)"
+                                @click="testSingleModel(getModelIndex(m.id), model.id)"
+                              >
+                                <svg
+                                  v-if="isModelTestLoading(getModelIndex(m.id), model.id)"
+                                  width="12"
+                                  height="12"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  stroke-width="2"
+                                  class="spin"
+                                >
+                                  <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                                </svg>
+                                <svg v-else width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                                  <polyline points="22 4 12 14.01 9 11.01" />
+                                </svg>
+                              </button>
+                              <button
+                                class="model-item-action-btn danger"
+                                @click="((confirmDeleteModel = model.id), (confirmDeleteModelLabel = model.id))"
+                              >
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                  <path d="M3 6h18" />
+                                  <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                                  <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                                </svg>
+                              </button>
                             </div>
                           </div>
                         </div>
@@ -1731,15 +1996,15 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                     <div class="provider-section-header">
                       <span class="provider-section-title">额外请求参数 (extra_body)</span>
                     </div>
-                    <div style="padding: 8px 16px 16px;">
+                    <div style="padding: 8px 16px 16px">
                       <textarea
                         class="json-textarea"
                         :value="getProviderExtraBodyText(m.id)"
-                        @input="onProviderExtraBodyInput(m.id, $event)"
                         placeholder='{"thinking": {"type": "disabled"}}'
                         rows="3"
                         spellcheck="false"
-                      ></textarea>
+                        @input="onProviderExtraBodyInput(m.id, $event)"
+                      />
                       <span v-if="providerExtraBodyErrors[m.id]" class="json-error">{{ providerExtraBodyErrors[m.id] }}</span>
                     </div>
                   </div>
@@ -1752,21 +2017,37 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
               <div class="provider-group-title">待配置</div>
               <div v-for="m in pendingProviders" :key="m.id" class="ai-model-provider-card pending">
                 <div class="provider-card-header" @click="toggleExpandedSection(m.id, 'apiInfo')">
-                   <div class="provider-card-left">
-                     <span class="provider-card-icon clickable" @click.stop="openIconPickerForProvider(m.id)"><ProviderIcon :icon="m.icon || getProviderInfo(m.provider)?.icon" :size="20" /></span>
-                     <span class="provider-card-name">{{ m.name || getProviderInfo(m.provider)?.name }}</span>
-                     <span class="provider-pending-badge">需要配置</span>
-                   </div>
-                   <div class="provider-card-right">
-                     <button class="provider-edit-btn" @click.stop="openEditModel(getModelIndex(m.id))" title="编辑供应商">
-                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                     </button>
-                     <button v-if="!m.isBuiltin" class="provider-delete-btn" @click.stop="confirmDeleteProviderId = m.id; confirmDeleteProviderName = m.name || getProviderInfo(m.provider)?.name || ''" title="删除供应商">
-                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
-                     </button>
-                     <label class="provider-toggle" :class="{ on: m.enabled }" @click.stop>
-                       <input type="checkbox" :checked="m.enabled" @change="toggleProviderEnabled(m)" />
-                       <span class="provider-toggle-slider"></span>
+                  <div class="provider-card-left">
+                    <span class="provider-card-icon clickable" @click.stop="openIconPickerForProvider(m.id)"
+                      ><ProviderIcon :icon="m.icon || getProviderInfo(m.provider)?.icon" :size="20"
+                    /></span>
+                    <span class="provider-card-name">{{ m.name || getProviderInfo(m.provider)?.name }}</span>
+                    <span class="provider-pending-badge">需要配置</span>
+                  </div>
+                  <div class="provider-card-right">
+                    <button class="provider-edit-btn" @click.stop="openEditModel(getModelIndex(m.id))" title="编辑供应商">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                      </svg>
+                    </button>
+                    <button
+                      v-if="!m.isBuiltin"
+                      class="provider-delete-btn"
+                      title="删除供应商"
+                      @click.stop="
+                        ((confirmDeleteProviderId = m.id), (confirmDeleteProviderName = m.name || getProviderInfo(m.provider)?.name || ''))
+                      "
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 6h18" />
+                        <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                        <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                      </svg>
+                    </button>
+                    <label class="provider-toggle" :class="{ on: m.enabled }" @click.stop>
+                      <input type="checkbox" :checked="m.enabled" @change="toggleProviderEnabled(m)" />
+                      <span class="provider-toggle-slider" />
                     </label>
                   </div>
                 </div>
@@ -1775,12 +2056,25 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                     <div class="provider-section-header">
                       <span class="provider-section-title">API 密钥</span>
                       <div class="provider-section-header-actions">
-                        <a v-if="m.isBuiltin && getProviderInfo(m.provider)?.getKeyUrl" :href="getProviderInfo(m.provider)?.getKeyUrl" target="_blank" class="provider-getkey-link" @click.stop>
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                        <a
+                          v-if="m.isBuiltin && getProviderInfo(m.provider)?.getKeyUrl"
+                          :href="getProviderInfo(m.provider)?.getKeyUrl"
+                          target="_blank"
+                          class="provider-getkey-link"
+                          @click.stop
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                            <polyline points="15 3 21 3 21 9" />
+                            <line x1="10" y1="14" x2="21" y2="3" />
+                          </svg>
                           获取密钥
                         </a>
                         <button class="provider-section-add-btn" @click.stop="addApiKey(getModelIndex(m.id))">
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="12" y1="5" x2="12" y2="19" />
+                            <line x1="5" y1="12" x2="19" y2="12" />
+                          </svg>
                           添加密钥
                         </button>
                       </div>
@@ -1791,7 +2085,7 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                         <div class="apikey-masked">
                           <label class="provider-toggle" :class="{ on: ak.enabled }">
                             <input type="checkbox" :checked="ak.enabled" @change="toggleApiKeyEnabled(getModelIndex(m.id), ki)" />
-                            <span class="provider-toggle-slider"></span>
+                            <span class="provider-toggle-slider" />
                           </label>
                           <span class="apikey-lock">🔒</span>
                           <span v-if="!showApiKey[ak.id]" class="apikey-text">{{ maskKey(ak.key) }}</span>
@@ -1799,12 +2093,47 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                         </div>
                         <div class="apikey-actions">
                           <button class="apikey-action-btn" @click="showApiKey[ak.id] = !showApiKey[ak.id]">
-                            <svg v-if="showApiKey[ak.id]" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                            <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                            <svg
+                              v-if="showApiKey[ak.id]"
+                              width="14"
+                              height="14"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="2"
+                            >
+                              <path
+                                d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"
+                              />
+                              <line x1="1" y1="1" x2="23" y2="23" />
+                            </svg>
+                            <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                              <circle cx="12" cy="12" r="3" />
+                            </svg>
                           </button>
-                          <button class="apikey-action-btn" @click="editApiKey(getModelIndex(m.id), ki)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
-                          <button class="apikey-action-btn" @click="copyApiKey(ak.key)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
-                          <button class="apikey-action-btn danger" @click="confirmDeleteApiKey = m.id + '-' + ki; confirmDeleteApiKeyLabel = maskKey(ak.key)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
+                          <button class="apikey-action-btn" @click="editApiKey(getModelIndex(m.id), ki)">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                            </svg>
+                          </button>
+                          <button class="apikey-action-btn" @click="copyApiKey(ak.key)">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                            </svg>
+                          </button>
+                          <button
+                            class="apikey-action-btn danger"
+                            @click="((confirmDeleteApiKey = m.id + '-' + ki), (confirmDeleteApiKeyLabel = maskKey(ak.key)))"
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                              <path d="M3 6h18" />
+                              <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                              <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                            </svg>
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -1818,7 +2147,13 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                       <div class="url-form-row">
                         <label class="url-form-label">Base URL <span class="tooltip-icon" title="API 服务器的基础地址">?</span></label>
                         <div class="url-form-input-group">
-                          <input v-model="m.baseUrl" type="text" class="url-form-input" placeholder="https://api.openai.com" @change="updateSettings({ aiModels: [...settings.aiModels] })" />
+                          <input
+                            v-model="m.baseUrl"
+                            type="text"
+                            class="url-form-input"
+                            placeholder="https://api.openai.com"
+                            @change="updateSettings({ aiModels: [...settings.aiModels] })"
+                          />
                           <button class="url-restore-btn" @click="restoreBaseUrl(getModelIndex(m.id))">恢复默认</button>
                         </div>
                       </div>
@@ -1828,31 +2163,98 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                       </div>
                       <div class="url-form-row">
                         <label class="url-form-label">API 路径 <span class="tooltip-icon" title="聊天补全接口的路径">?</span></label>
-                        <input v-model="m.apiPath" type="text" class="url-form-input" placeholder="/v1/chat/completions" @change="updateSettings({ aiModels: [...settings.aiModels] })" />
+                        <input
+                          v-model="m.apiPath"
+                          type="text"
+                          class="url-form-input"
+                          placeholder="/v1/chat/completions"
+                          @change="updateSettings({ aiModels: [...settings.aiModels] })"
+                        />
                       </div>
                     </div>
                   </div>
                   <div class="provider-section">
                     <div class="provider-section-header">
-                      <span class="provider-section-title">模型列表 <span class="model-count">{{ m.models?.length || 0 }}</span></span>
+                      <span class="provider-section-title"
+                        >模型列表 <span class="model-count">{{ m.models?.length || 0 }}</span></span
+                      >
                       <div class="provider-section-actions">
-                        <button class="provider-section-btn" @click="openFetchModels(getModelIndex(m.id))" :disabled="!m.baseUrl || !m.apiKeys?.length || fetchLoading" title="同步模型"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
-                        <button class="provider-section-btn" @click="openAddModelModal(getModelIndex(m.id))" title="添加模型"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
-                        <button class="provider-section-btn" @click="testAllModels(getModelIndex(m.id))" title="测试全部"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></button>
-                        <button class="provider-section-btn" @click="toggleAllModels(m)" title="启用/禁用全部"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="5" width="22" height="14" rx="7" ry="7"/><circle cx="16" cy="12" r="3"/></svg></button>
-                        <button class="provider-section-btn" @click="expandAllGroups(m.id)" title="展开全部"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg></button>
+                        <button
+                          class="provider-section-btn"
+                          :disabled="!m.baseUrl || !m.apiKeys?.length || fetchLoading"
+                          title="同步模型"
+                          @click="openFetchModels(getModelIndex(m.id))"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="23 4 23 10 17 10" />
+                            <polyline points="1 20 1 14 7 14" />
+                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                          </svg>
+                        </button>
+                        <button class="provider-section-btn" @click="openAddModelModal(getModelIndex(m.id))" title="添加模型">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="12" y1="5" x2="12" y2="19" />
+                            <line x1="5" y1="12" x2="19" y2="12" />
+                          </svg>
+                        </button>
+                        <button class="provider-section-btn" @click="testAllModels(getModelIndex(m.id))" title="测试全部">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                            <polyline points="22 4 12 14.01 9 11.01" />
+                          </svg>
+                        </button>
+                        <button class="provider-section-btn" @click="toggleAllModels(m)" title="启用/禁用全部">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="1" y="5" width="22" height="14" rx="7" ry="7" />
+                            <circle cx="16" cy="12" r="3" />
+                          </svg>
+                        </button>
+                        <button class="provider-section-btn" @click="expandAllGroups(m.id)" title="展开全部">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="15 3 21 3 21 9" />
+                            <polyline points="9 21 3 21 3 15" />
+                            <line x1="21" y1="3" x2="14" y2="10" />
+                            <line x1="3" y1="21" x2="10" y2="14" />
+                          </svg>
+                        </button>
                       </div>
                     </div>
                     <div v-if="!m.models?.length" class="model-list-empty">点击上方按钮同步模型</div>
                     <div v-else class="model-list-grouped">
                       <div v-for="group in groupModels(m.models)" :key="group.name" class="model-group">
                         <div class="model-group-header" @click="toggleGroup(m.id, group.name)">
-                          <svg class="model-group-arrow" :class="{ expanded: expandedGroups[m.id]?.has(group.name) }" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                          <svg
+                            class="model-group-arrow"
+                            :class="{ expanded: expandedGroups[m.id]?.has(group.name) }"
+                            width="12"
+                            height="12"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                          >
+                            <polyline points="6 9 12 15 18 9" />
+                          </svg>
                           <span class="model-group-name">{{ group.name }}</span>
                           <span class="model-group-count">{{ group.models.length }}</span>
                           <div class="model-group-actions" @click.stop>
-                            <label class="model-group-toggle" title="开关分组所有模型"><input type="checkbox" :checked="group.models.every(m => m.enabled)" @change="toggleGroupModels(getModelIndex(m.id), group.name)" /><span class="model-item-toggle-slider"></span></label>
-                            <button class="model-group-btn danger" title="删除分组所有模型" @click="confirmDeleteGroup = m.id + '-' + group.name; confirmDeleteGroupLabel = group.name"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
+                            <label class="model-group-toggle" title="开关分组所有模型"
+                              ><input
+                                type="checkbox"
+                                :checked="group.models.every((m) => m.enabled)"
+                                @change="toggleGroupModels(getModelIndex(m.id), group.name)" /><span class="model-item-toggle-slider"
+                            /></label>
+                            <button
+                              class="model-group-btn danger"
+                              title="删除分组所有模型"
+                              @click="((confirmDeleteGroup = m.id + '-' + group.name), (confirmDeleteGroupLabel = group.name))"
+                            >
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M3 6h18" />
+                                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                              </svg>
+                            </button>
                           </div>
                         </div>
                         <div v-show="expandedGroups[m.id]?.has(group.name)" class="model-group-items">
@@ -1865,16 +2267,63 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                               <span v-if="getModelContextLength(model)" class="model-tag context">{{ getModelContextLength(model) }}</span>
                             </div>
                             <div class="model-list-item-right">
-                              <span v-if="isModelTestLoading(getModelIndex(m.id), model.id)" class="model-test-status testing">测试中...</span>
+                              <span v-if="isModelTestLoading(getModelIndex(m.id), model.id)" class="model-test-status testing"
+                                >测试中...</span
+                              >
                               <span v-else-if="isModelTestSuccess(getModelIndex(m.id), model.id)" class="model-test-status ok">可用</span>
                               <span v-else-if="isModelTestFail(getModelIndex(m.id), model.id)" class="model-test-status fail">不可用</span>
-                              <label class="model-item-toggle"><input type="checkbox" :checked="model.enabled" @change="toggleModelEnabled(getModelIndex(m.id), model.id)" /><span class="model-item-toggle-slider"></span></label>
-                              <button class="model-item-action-btn" title="设置"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
-                              <button class="model-item-action-btn" title="测试" :class="{ testing: isModelTestLoading(getModelIndex(m.id), model.id), 'test-ok': isModelTestSuccess(getModelIndex(m.id), model.id), 'test-fail': isModelTestFail(getModelIndex(m.id), model.id) }" @click="testSingleModel(getModelIndex(m.id), model.id)" :disabled="isModelTestLoading(getModelIndex(m.id), model.id)">
-                                <svg v-if="isModelTestLoading(getModelIndex(m.id), model.id)" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-                                <svg v-else width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                              <label class="model-item-toggle"
+                                ><input
+                                  type="checkbox"
+                                  :checked="model.enabled"
+                                  @change="toggleModelEnabled(getModelIndex(m.id), model.id)" /><span class="model-item-toggle-slider"
+                              /></label>
+                              <button class="model-item-action-btn" title="设置">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                  <circle cx="12" cy="12" r="3" />
+                                  <path
+                                    d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
+                                  />
+                                </svg>
                               </button>
-                              <button class="model-item-action-btn danger" @click="confirmDeleteModel = model.id; confirmDeleteModelLabel = model.id"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
+                              <button
+                                class="model-item-action-btn"
+                                title="测试"
+                                :class="{
+                                  testing: isModelTestLoading(getModelIndex(m.id), model.id),
+                                  'test-ok': isModelTestSuccess(getModelIndex(m.id), model.id),
+                                  'test-fail': isModelTestFail(getModelIndex(m.id), model.id),
+                                }"
+                                :disabled="isModelTestLoading(getModelIndex(m.id), model.id)"
+                                @click="testSingleModel(getModelIndex(m.id), model.id)"
+                              >
+                                <svg
+                                  v-if="isModelTestLoading(getModelIndex(m.id), model.id)"
+                                  width="12"
+                                  height="12"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  stroke-width="2"
+                                  class="spin"
+                                >
+                                  <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                                </svg>
+                                <svg v-else width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                                  <polyline points="22 4 12 14.01 9 11.01" />
+                                </svg>
+                              </button>
+                              <button
+                                class="model-item-action-btn danger"
+                                @click="((confirmDeleteModel = model.id), (confirmDeleteModelLabel = model.id))"
+                              >
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                  <path d="M3 6h18" />
+                                  <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                                  <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                                </svg>
+                              </button>
                             </div>
                           </div>
                         </div>
@@ -1886,15 +2335,15 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                     <div class="provider-section-header">
                       <span class="provider-section-title">额外请求参数 (extra_body)</span>
                     </div>
-                    <div style="padding: 8px 16px 16px;">
+                    <div style="padding: 8px 16px 16px">
                       <textarea
                         class="json-textarea"
                         :value="getProviderExtraBodyText(m.id)"
-                        @input="onProviderExtraBodyInput(m.id, $event)"
                         placeholder='{"thinking": {"type": "disabled"}}'
                         rows="3"
                         spellcheck="false"
-                      ></textarea>
+                        @input="onProviderExtraBodyInput(m.id, $event)"
+                      />
                       <span v-if="providerExtraBodyErrors[m.id]" class="json-error">{{ providerExtraBodyErrors[m.id] }}</span>
                     </div>
                   </div>
@@ -1908,19 +2357,35 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
               <div v-for="m in disabledProviders" :key="m.id" class="ai-model-provider-card disabled">
                 <div class="provider-card-header" @click="toggleExpandedSection(m.id, 'apiInfo')">
                   <div class="provider-card-left">
-                    <span class="provider-card-icon clickable" @click.stop="openIconPickerForProvider(m.id)"><ProviderIcon :icon="m.icon || getProviderInfo(m.provider)?.icon" :size="20" /></span>
+                    <span class="provider-card-icon clickable" @click.stop="openIconPickerForProvider(m.id)"
+                      ><ProviderIcon :icon="m.icon || getProviderInfo(m.provider)?.icon" :size="20"
+                    /></span>
                     <span class="provider-card-name">{{ m.name || getProviderInfo(m.provider)?.name }}</span>
                   </div>
                   <div class="provider-card-right">
                     <button class="provider-edit-btn" @click.stop="openEditModel(getModelIndex(m.id))" title="编辑供应商">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                      </svg>
                     </button>
-                    <button v-if="!m.isBuiltin" class="provider-delete-btn" @click.stop="confirmDeleteProviderId = m.id; confirmDeleteProviderName = m.name || getProviderInfo(m.provider)?.name || ''" title="删除供应商">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                    <button
+                      v-if="!m.isBuiltin"
+                      class="provider-delete-btn"
+                      title="删除供应商"
+                      @click.stop="
+                        ((confirmDeleteProviderId = m.id), (confirmDeleteProviderName = m.name || getProviderInfo(m.provider)?.name || ''))
+                      "
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 6h18" />
+                        <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                        <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                      </svg>
                     </button>
                     <label class="provider-toggle" :class="{ on: m.enabled }" @click.stop>
                       <input type="checkbox" :checked="m.enabled" @change="toggleProviderEnabled(m)" />
-                      <span class="provider-toggle-slider"></span>
+                      <span class="provider-toggle-slider" />
                     </label>
                   </div>
                 </div>
@@ -1929,12 +2394,25 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                     <div class="provider-section-header">
                       <span class="provider-section-title">API 密钥</span>
                       <div class="provider-section-header-actions">
-                        <a v-if="m.isBuiltin && getProviderInfo(m.provider)?.getKeyUrl" :href="getProviderInfo(m.provider)?.getKeyUrl" target="_blank" class="provider-getkey-link" @click.stop>
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                        <a
+                          v-if="m.isBuiltin && getProviderInfo(m.provider)?.getKeyUrl"
+                          :href="getProviderInfo(m.provider)?.getKeyUrl"
+                          target="_blank"
+                          class="provider-getkey-link"
+                          @click.stop
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                            <polyline points="15 3 21 3 21 9" />
+                            <line x1="10" y1="14" x2="21" y2="3" />
+                          </svg>
                           获取密钥
                         </a>
                         <button class="provider-section-add-btn" @click.stop="addApiKey(getModelIndex(m.id))">
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="12" y1="5" x2="12" y2="19" />
+                            <line x1="5" y1="12" x2="19" y2="12" />
+                          </svg>
                           添加密钥
                         </button>
                       </div>
@@ -1945,7 +2423,7 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                         <div class="apikey-masked">
                           <label class="provider-toggle" :class="{ on: ak.enabled }">
                             <input type="checkbox" :checked="ak.enabled" @change="toggleApiKeyEnabled(getModelIndex(m.id), ki)" />
-                            <span class="provider-toggle-slider"></span>
+                            <span class="provider-toggle-slider" />
                           </label>
                           <span class="apikey-lock">🔒</span>
                           <span v-if="!showApiKey[ak.id]" class="apikey-text">{{ maskKey(ak.key) }}</span>
@@ -1953,12 +2431,47 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                         </div>
                         <div class="apikey-actions">
                           <button class="apikey-action-btn" @click="showApiKey[ak.id] = !showApiKey[ak.id]">
-                            <svg v-if="showApiKey[ak.id]" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                            <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                            <svg
+                              v-if="showApiKey[ak.id]"
+                              width="14"
+                              height="14"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="2"
+                            >
+                              <path
+                                d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"
+                              />
+                              <line x1="1" y1="1" x2="23" y2="23" />
+                            </svg>
+                            <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                              <circle cx="12" cy="12" r="3" />
+                            </svg>
                           </button>
-                          <button class="apikey-action-btn" @click="editApiKey(getModelIndex(m.id), ki)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
-                          <button class="apikey-action-btn" @click="copyApiKey(ak.key)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
-                          <button class="apikey-action-btn danger" @click="confirmDeleteApiKey = m.id + '-' + ki; confirmDeleteApiKeyLabel = maskKey(ak.key)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
+                          <button class="apikey-action-btn" @click="editApiKey(getModelIndex(m.id), ki)">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                            </svg>
+                          </button>
+                          <button class="apikey-action-btn" @click="copyApiKey(ak.key)">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                            </svg>
+                          </button>
+                          <button
+                            class="apikey-action-btn danger"
+                            @click="((confirmDeleteApiKey = m.id + '-' + ki), (confirmDeleteApiKeyLabel = maskKey(ak.key)))"
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                              <path d="M3 6h18" />
+                              <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                              <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                            </svg>
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -1972,7 +2485,13 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                       <div class="url-form-row">
                         <label class="url-form-label">Base URL <span class="tooltip-icon" title="API 服务器的基础地址">?</span></label>
                         <div class="url-form-input-group">
-                          <input v-model="m.baseUrl" type="text" class="url-form-input" placeholder="https://api.openai.com" @change="updateSettings({ aiModels: [...settings.aiModels] })" />
+                          <input
+                            v-model="m.baseUrl"
+                            type="text"
+                            class="url-form-input"
+                            placeholder="https://api.openai.com"
+                            @change="updateSettings({ aiModels: [...settings.aiModels] })"
+                          />
                           <button class="url-restore-btn" @click="restoreBaseUrl(getModelIndex(m.id))">恢复默认</button>
                         </div>
                       </div>
@@ -1982,32 +2501,99 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                       </div>
                       <div class="url-form-row">
                         <label class="url-form-label">API 路径 <span class="tooltip-icon" title="聊天补全接口的路径">?</span></label>
-                        <input v-model="m.apiPath" type="text" class="url-form-input" placeholder="/v1/chat/completions" @change="updateSettings({ aiModels: [...settings.aiModels] })" />
+                        <input
+                          v-model="m.apiPath"
+                          type="text"
+                          class="url-form-input"
+                          placeholder="/v1/chat/completions"
+                          @change="updateSettings({ aiModels: [...settings.aiModels] })"
+                        />
                       </div>
                     </div>
                   </div>
                   <!-- Model List Section -->
                   <div class="provider-section">
                     <div class="provider-section-header">
-                      <span class="provider-section-title">模型列表 <span class="model-count">{{ m.models?.length || 0 }}</span></span>
+                      <span class="provider-section-title"
+                        >模型列表 <span class="model-count">{{ m.models?.length || 0 }}</span></span
+                      >
                       <div class="provider-section-actions">
-                        <button class="provider-section-btn" @click="openFetchModels(getModelIndex(m.id))" :disabled="!m.baseUrl || !m.apiKeys?.length || fetchLoading" title="同步模型"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
-                        <button class="provider-section-btn" @click="openAddModelModal(getModelIndex(m.id))" title="添加模型"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
-                        <button class="provider-section-btn" @click="testAllModels(getModelIndex(m.id))" title="测试全部"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></button>
-                        <button class="provider-section-btn" @click="toggleAllModels(m)" title="启用/禁用全部"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="5" width="22" height="14" rx="7" ry="7"/><circle cx="16" cy="12" r="3"/></svg></button>
-                        <button class="provider-section-btn" @click="expandAllGroups(m.id)" title="展开全部"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg></button>
+                        <button
+                          class="provider-section-btn"
+                          :disabled="!m.baseUrl || !m.apiKeys?.length || fetchLoading"
+                          title="同步模型"
+                          @click="openFetchModels(getModelIndex(m.id))"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="23 4 23 10 17 10" />
+                            <polyline points="1 20 1 14 7 14" />
+                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                          </svg>
+                        </button>
+                        <button class="provider-section-btn" @click="openAddModelModal(getModelIndex(m.id))" title="添加模型">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="12" y1="5" x2="12" y2="19" />
+                            <line x1="5" y1="12" x2="19" y2="12" />
+                          </svg>
+                        </button>
+                        <button class="provider-section-btn" @click="testAllModels(getModelIndex(m.id))" title="测试全部">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                            <polyline points="22 4 12 14.01 9 11.01" />
+                          </svg>
+                        </button>
+                        <button class="provider-section-btn" @click="toggleAllModels(m)" title="启用/禁用全部">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="1" y="5" width="22" height="14" rx="7" ry="7" />
+                            <circle cx="16" cy="12" r="3" />
+                          </svg>
+                        </button>
+                        <button class="provider-section-btn" @click="expandAllGroups(m.id)" title="展开全部">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="15 3 21 3 21 9" />
+                            <polyline points="9 21 3 21 3 15" />
+                            <line x1="21" y1="3" x2="14" y2="10" />
+                            <line x1="3" y1="21" x2="10" y2="14" />
+                          </svg>
+                        </button>
                       </div>
                     </div>
                     <div v-if="!m.models?.length" class="model-list-empty">点击上方按钮同步模型</div>
                     <div v-else class="model-list-grouped">
                       <div v-for="group in groupModels(m.models)" :key="group.name" class="model-group">
                         <div class="model-group-header" @click="toggleGroup(m.id, group.name)">
-                          <svg class="model-group-arrow" :class="{ expanded: expandedGroups[m.id]?.has(group.name) }" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                          <svg
+                            class="model-group-arrow"
+                            :class="{ expanded: expandedGroups[m.id]?.has(group.name) }"
+                            width="12"
+                            height="12"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                          >
+                            <polyline points="6 9 12 15 18 9" />
+                          </svg>
                           <span class="model-group-name">{{ group.name }}</span>
                           <span class="model-group-count">{{ group.models.length }}</span>
                           <div class="model-group-actions" @click.stop>
-                            <label class="model-group-toggle" title="开关分组所有模型"><input type="checkbox" :checked="group.models.every(m => m.enabled)" @change="toggleGroupModels(getModelIndex(m.id), group.name)" /><span class="model-item-toggle-slider"></span></label>
-                            <button class="model-group-btn danger" title="删除分组所有模型" @click="confirmDeleteGroup = m.id + '-' + group.name; confirmDeleteGroupLabel = group.name"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
+                            <label class="model-group-toggle" title="开关分组所有模型"
+                              ><input
+                                type="checkbox"
+                                :checked="group.models.every((m) => m.enabled)"
+                                @change="toggleGroupModels(getModelIndex(m.id), group.name)" /><span class="model-item-toggle-slider"
+                            /></label>
+                            <button
+                              class="model-group-btn danger"
+                              title="删除分组所有模型"
+                              @click="((confirmDeleteGroup = m.id + '-' + group.name), (confirmDeleteGroupLabel = group.name))"
+                            >
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M3 6h18" />
+                                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                              </svg>
+                            </button>
                           </div>
                         </div>
                         <div v-show="expandedGroups[m.id]?.has(group.name)" class="model-group-items">
@@ -2020,16 +2606,63 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                               <span v-if="getModelContextLength(model)" class="model-tag context">{{ getModelContextLength(model) }}</span>
                             </div>
                             <div class="model-list-item-right">
-                              <span v-if="isModelTestLoading(getModelIndex(m.id), model.id)" class="model-test-status testing">测试中...</span>
+                              <span v-if="isModelTestLoading(getModelIndex(m.id), model.id)" class="model-test-status testing"
+                                >测试中...</span
+                              >
                               <span v-else-if="isModelTestSuccess(getModelIndex(m.id), model.id)" class="model-test-status ok">可用</span>
                               <span v-else-if="isModelTestFail(getModelIndex(m.id), model.id)" class="model-test-status fail">不可用</span>
-                              <label class="model-item-toggle"><input type="checkbox" :checked="model.enabled" @change="toggleModelEnabled(getModelIndex(m.id), model.id)" /><span class="model-item-toggle-slider"></span></label>
-                              <button class="model-item-action-btn" title="设置"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
-                              <button class="model-item-action-btn" title="测试" :class="{ testing: isModelTestLoading(getModelIndex(m.id), model.id), 'test-ok': isModelTestSuccess(getModelIndex(m.id), model.id), 'test-fail': isModelTestFail(getModelIndex(m.id), model.id) }" @click="testSingleModel(getModelIndex(m.id), model.id)" :disabled="isModelTestLoading(getModelIndex(m.id), model.id)">
-                                <svg v-if="isModelTestLoading(getModelIndex(m.id), model.id)" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-                                <svg v-else width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                              <label class="model-item-toggle"
+                                ><input
+                                  type="checkbox"
+                                  :checked="model.enabled"
+                                  @change="toggleModelEnabled(getModelIndex(m.id), model.id)" /><span class="model-item-toggle-slider"
+                              /></label>
+                              <button class="model-item-action-btn" title="设置">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                  <circle cx="12" cy="12" r="3" />
+                                  <path
+                                    d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
+                                  />
+                                </svg>
                               </button>
-                              <button class="model-item-action-btn danger" @click="confirmDeleteModel = model.id; confirmDeleteModelLabel = model.id"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg></button>
+                              <button
+                                class="model-item-action-btn"
+                                title="测试"
+                                :class="{
+                                  testing: isModelTestLoading(getModelIndex(m.id), model.id),
+                                  'test-ok': isModelTestSuccess(getModelIndex(m.id), model.id),
+                                  'test-fail': isModelTestFail(getModelIndex(m.id), model.id),
+                                }"
+                                :disabled="isModelTestLoading(getModelIndex(m.id), model.id)"
+                                @click="testSingleModel(getModelIndex(m.id), model.id)"
+                              >
+                                <svg
+                                  v-if="isModelTestLoading(getModelIndex(m.id), model.id)"
+                                  width="12"
+                                  height="12"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  stroke-width="2"
+                                  class="spin"
+                                >
+                                  <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                                </svg>
+                                <svg v-else width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                                  <polyline points="22 4 12 14.01 9 11.01" />
+                                </svg>
+                              </button>
+                              <button
+                                class="model-item-action-btn danger"
+                                @click="((confirmDeleteModel = model.id), (confirmDeleteModelLabel = model.id))"
+                              >
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                  <path d="M3 6h18" />
+                                  <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                                  <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                                </svg>
+                              </button>
                             </div>
                           </div>
                         </div>
@@ -2041,15 +2674,15 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                     <div class="provider-section-header">
                       <span class="provider-section-title">额外请求参数 (extra_body)</span>
                     </div>
-                    <div style="padding: 8px 16px 16px;">
+                    <div style="padding: 8px 16px 16px">
                       <textarea
                         class="json-textarea"
                         :value="getProviderExtraBodyText(m.id)"
-                        @input="onProviderExtraBodyInput(m.id, $event)"
                         placeholder='{"thinking": {"type": "disabled"}}'
                         rows="3"
                         spellcheck="false"
-                      ></textarea>
+                        @input="onProviderExtraBodyInput(m.id, $event)"
+                      />
                       <span v-if="providerExtraBodyErrors[m.id]" class="json-error">{{ providerExtraBodyErrors[m.id] }}</span>
                     </div>
                   </div>
@@ -2061,172 +2694,306 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
       </template>
 
       <!-- Add/Edit Model Modal -->
-        <div v-if="showModelModal" class="modal-overlay">
-          <div class="modal modal-sm">
-            <div class="modal-header">
-              <h3 class="modal-title">{{ editingModelIndex !== null ? '编辑供应商' : '添加供应商' }}</h3>
-              <button class="modal-close" @click="showModelModal = false">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
+      <div v-if="showModelModal" class="modal-overlay">
+        <div class="modal modal-sm">
+          <div class="modal-header">
+            <h3 class="modal-title">
+              {{ editingModelIndex !== null ? '编辑供应商' : '添加供应商' }}
+            </h3>
+            <button class="modal-close" @click="showModelModal = false">
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+          <div class="modal-body">
+            <div class="form-group">
+              <label class="form-label">供应商名称 <span class="form-required">*</span></label>
+              <input v-model="modelForm.name" type="text" class="form-input" placeholder="例如: 我的 OpenAI" @keyup.enter="saveModel" />
             </div>
-            <div class="modal-body">
-              <div class="form-group">
-                <label class="form-label">供应商名称 <span class="form-required">*</span></label>
-                <input v-model="modelForm.name" type="text" class="form-input" placeholder="例如: 我的 OpenAI" @keyup.enter="saveModel" />
+            <div class="form-group">
+              <label class="form-label">供应商类型 <span class="form-required">*</span></label>
+              <select v-model="modelForm.provider" class="form-select" @change="applyProviderPreset">
+                <option v-for="p in BUILTIN_PROVIDERS" :key="p.id" :value="p.id">
+                  {{ p.name }}
+                </option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Base URL</label>
+              <input v-model="modelForm.baseUrl" type="text" class="form-input" placeholder="https://api.openai.com" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">API 路径</label>
+              <input v-model="modelForm.apiPath" type="text" class="form-input" placeholder="/v1/chat/completions" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">图标</label>
+              <div class="icon-picker-trigger" @click="((editingIconProviderId = null), (showIconPicker = true))">
+                <span class="icon-picker-preview"
+                  ><ProviderIcon :icon="modelForm.icon || getProviderInfo(modelForm.provider)?.icon || 'openai'" :size="28"
+                /></span>
+                <span class="icon-picker-label">{{ modelForm.icon || getProviderInfo(modelForm.provider)?.icon || 'openai' }}</span>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M6 9l6 6 6-6" />
+                </svg>
               </div>
-              <div class="form-group">
-                <label class="form-label">供应商类型 <span class="form-required">*</span></label>
-                <select v-model="modelForm.provider" class="form-select" @change="applyProviderPreset">
-                  <option v-for="p in BUILTIN_PROVIDERS" :key="p.id" :value="p.id">{{ p.name }}</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label class="form-label">Base URL</label>
-                <input v-model="modelForm.baseUrl" type="text" class="form-input" placeholder="https://api.openai.com" />
-              </div>
-              <div class="form-group">
-                <label class="form-label">API 路径</label>
-                <input v-model="modelForm.apiPath" type="text" class="form-input" placeholder="/v1/chat/completions" />
-              </div>
-              <div class="form-group">
-                <label class="form-label">图标</label>
-                <div class="icon-picker-trigger" @click="editingIconProviderId = null; showIconPicker = true">
-                  <span class="icon-picker-preview"><ProviderIcon :icon="modelForm.icon || getProviderInfo(modelForm.provider)?.icon || 'openai'" :size="28" /></span>
-                  <span class="icon-picker-label">{{ modelForm.icon || getProviderInfo(modelForm.provider)?.icon || 'openai' }}</span>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="modal-btn cancel" @click="showModelModal = false">取消</button>
+            <button class="modal-btn confirm" :disabled="!modelForm.name.trim() || !modelForm.provider" @click="saveModel">创建</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Icon Picker Modal -->
+      <div v-if="showIconPicker" class="modal-overlay" style="z-index: 1100" @click.self="showIconPicker = false">
+        <div class="modal modal-sm" style="width: 420px">
+          <div class="modal-header">
+            <h3 class="modal-title">选择图标</h3>
+            <button class="modal-close" @click="showIconPicker = false">
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+          <div class="modal-body" style="padding: 12px">
+            <StoreIconPicker v-model="currentIconValue" :defaultIcon="defaultProviderIcon" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Add Model Modal -->
+      <div v-if="showAddModelModal" class="modal-overlay">
+        <div class="modal modal-sm">
+          <div class="modal-header">
+            <h3 class="modal-title">添加模型</h3>
+            <button class="modal-close" @click="showAddModelModal = false">
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+          <div class="modal-body">
+            <div class="form-group">
+              <label class="form-label">模型名称 <span class="form-required">*</span></label>
+              <input
+                v-model="newModelName"
+                type="text"
+                class="form-input"
+                placeholder="例如: gpt-4o, claude-3-opus"
+                @keyup.enter="saveNewModel"
+              />
+            </div>
+            <div class="form-group">
+              <label class="form-label">自定义名称（可选）</label>
+              <input
+                v-model="newModelCustomName"
+                type="text"
+                class="form-input"
+                placeholder="用于显示的友好名称"
+                @keyup.enter="saveNewModel"
+              />
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="modal-btn cancel" @click="showAddModelModal = false">取消</button>
+            <button class="modal-btn confirm" :disabled="!newModelName.trim()" @click="saveNewModel">添加</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- API Key Modal -->
+      <div v-if="showApiKeyModal" class="modal-overlay">
+        <div class="modal modal-sm">
+          <div class="modal-header">
+            <h3 class="modal-title">
+              {{ editingKeyIndex !== null ? '编辑密钥' : '添加密钥' }}
+            </h3>
+            <button class="modal-close" @click="showApiKeyModal = false">
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+          <div class="modal-body">
+            <div class="form-group">
+              <label class="form-label">API 密钥 <span class="form-required">*</span></label>
+              <input v-model="apiKeyForm.key" type="password" class="form-input" placeholder="sk-..." @keyup.enter="saveApiKey" />
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="modal-btn cancel" @click="showApiKeyModal = false">取消</button>
+            <button class="modal-btn confirm" :disabled="!apiKeyForm.key.trim()" @click="saveApiKey">保存</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Fetch Models Modal -->
+      <div v-if="showFetchModal" class="modal-overlay">
+        <div class="modal">
+          <div class="modal-header">
+            <h3 class="modal-title">
+              同步模型 <span v-if="fetchModelsResult.length" class="modal-title-count">{{ fetchModelsResult.length }}</span>
+            </h3>
+            <button class="modal-close" @click="showFetchModal = false">
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+          <div class="modal-body">
+            <div v-if="fetchError" class="modal-error">
+              {{ fetchError }}
+            </div>
+            <div v-if="!fetchModelsResult.length && !fetchError" class="modal-empty">暂无可用模型</div>
+            <div v-else class="fetch-model-list">
+              <div class="fetch-model-toolbar">
+                <label class="fetch-toolbar-select-all">
+                  <input
+                    type="checkbox"
+                    :checked="selectedFetchIds.size === fetchModelsResult.length && fetchModelsResult.length > 0"
+                    @change="
+                      selectedFetchIds =
+                        selectedFetchIds.size === fetchModelsResult.length ? new Set() : new Set(fetchModelsResult.map((m) => m.id))
+                    "
+                  />
+                  <span class="fetch-toolbar-label">全选 ({{ selectedFetchIds.size }}/{{ fetchModelsResult.length }})</span>
+                </label>
+                <div class="fetch-toolbar-search">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="11" cy="11" r="8" />
+                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                  </svg>
+                  <input v-model="fetchSearchQuery" type="text" placeholder="搜索模型..." />
                 </div>
+                <button
+                  class="fetch-toolbar-btn"
+                  :title="fetchModelGroups.every((g) => expandedFetchGroups.has(g.name)) ? '收起所有' : '展开所有'"
+                  @click="toggleAllFetchGroups"
+                >
+                  <svg
+                    v-if="fetchModelGroups.every((g) => expandedFetchGroups.has(g.name))"
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
+                    <polyline points="4 14 10 14 10 20" />
+                    <polyline points="20 10 14 10 14 4" />
+                    <line x1="14" y1="10" x2="21" y2="3" />
+                    <line x1="3" y1="21" x2="10" y2="14" />
+                  </svg>
+                  <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="14 14 10 10 10 14" />
+                    <polyline points="10 10 14 10 10 4" />
+                    <line x1="10" y1="14" x2="3" y2="21" />
+                    <line x1="21" y1="3" x2="14" y2="10" />
+                  </svg>
+                </button>
               </div>
-            </div>
-            <div class="modal-footer">
-              <button class="modal-btn cancel" @click="showModelModal = false">取消</button>
-              <button class="modal-btn confirm" :disabled="!modelForm.name.trim() || !modelForm.provider" @click="saveModel">创建</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Icon Picker Modal -->
-        <div v-if="showIconPicker" class="modal-overlay" style="z-index: 1100;" @click.self="showIconPicker = false">
-          <div class="modal modal-sm" style="width: 420px;">
-            <div class="modal-header">
-              <h3 class="modal-title">选择图标</h3>
-              <button class="modal-close" @click="showIconPicker = false">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
-            </div>
-            <div class="modal-body" style="padding: 12px;">
-              <StoreIconPicker v-model="currentIconValue" :defaultIcon="defaultProviderIcon" />
-            </div>
-          </div>
-        </div>
-
-        <!-- Add Model Modal -->
-        <div v-if="showAddModelModal" class="modal-overlay">
-          <div class="modal modal-sm">
-            <div class="modal-header">
-              <h3 class="modal-title">添加模型</h3>
-              <button class="modal-close" @click="showAddModelModal = false">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
-            </div>
-            <div class="modal-body">
-              <div class="form-group">
-                <label class="form-label">模型名称 <span class="form-required">*</span></label>
-                <input v-model="newModelName" type="text" class="form-input" placeholder="例如: gpt-4o, claude-3-opus" @keyup.enter="saveNewModel" />
-              </div>
-              <div class="form-group">
-                <label class="form-label">自定义名称（可选）</label>
-                <input v-model="newModelCustomName" type="text" class="form-input" placeholder="用于显示的友好名称" @keyup.enter="saveNewModel" />
-              </div>
-            </div>
-            <div class="modal-footer">
-              <button class="modal-btn cancel" @click="showAddModelModal = false">取消</button>
-              <button class="modal-btn confirm" :disabled="!newModelName.trim()" @click="saveNewModel">添加</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- API Key Modal -->
-        <div v-if="showApiKeyModal" class="modal-overlay">
-          <div class="modal modal-sm">
-            <div class="modal-header">
-              <h3 class="modal-title">{{ editingKeyIndex !== null ? '编辑密钥' : '添加密钥' }}</h3>
-              <button class="modal-close" @click="showApiKeyModal = false">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
-            </div>
-            <div class="modal-body">
-              <div class="form-group">
-                <label class="form-label">API 密钥 <span class="form-required">*</span></label>
-                <input v-model="apiKeyForm.key" type="password" class="form-input" placeholder="sk-..." @keyup.enter="saveApiKey" />
-              </div>
-            </div>
-            <div class="modal-footer">
-              <button class="modal-btn cancel" @click="showApiKeyModal = false">取消</button>
-              <button class="modal-btn confirm" :disabled="!apiKeyForm.key.trim()" @click="saveApiKey">保存</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Fetch Models Modal -->
-        <div v-if="showFetchModal" class="modal-overlay">
-          <div class="modal">
-            <div class="modal-header">
-              <h3 class="modal-title">同步模型 <span v-if="fetchModelsResult.length" class="modal-title-count">{{ fetchModelsResult.length }}</span></h3>
-              <button class="modal-close" @click="showFetchModal = false">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
-            </div>
-            <div class="modal-body">
-              <div v-if="fetchError" class="modal-error">{{ fetchError }}</div>
-              <div v-if="!fetchModelsResult.length && !fetchError" class="modal-empty">暂无可用模型</div>
-              <div v-else class="fetch-model-list">
-                <div class="fetch-model-toolbar">
-                  <label class="fetch-toolbar-select-all">
-                    <input type="checkbox" :checked="selectedFetchIds.size === fetchModelsResult.length && fetchModelsResult.length > 0" @change="selectedFetchIds = selectedFetchIds.size === fetchModelsResult.length ? new Set() : new Set(fetchModelsResult.map(m => m.id))" />
-                    <span class="fetch-toolbar-label">全选 ({{ selectedFetchIds.size }}/{{ fetchModelsResult.length }})</span>
+              <div v-for="group in fetchModelGroups" :key="group.name" class="fetch-model-group">
+                <div class="fetch-model-group-header" @click="toggleFetchGroup(group.name)">
+                  <svg
+                    class="fetch-model-group-arrow"
+                    :class="{ expanded: expandedFetchGroups.has(group.name) }"
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
+                    <polyline points="6 9 12 15 18 9" />
+                  </svg>
+                  <label class="fetch-group-checkbox" @click.stop>
+                    <input
+                      type="checkbox"
+                      :checked="group.models.every((m) => selectedFetchIds.has(m.id))"
+                      @change="toggleFetchGroupSelection(group)"
+                    />
                   </label>
-                  <div class="fetch-toolbar-search">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                    <input v-model="fetchSearchQuery" type="text" placeholder="搜索模型..." />
-                  </div>
-                  <button class="fetch-toolbar-btn" @click="toggleAllFetchGroups" :title="fetchModelGroups.every(g => expandedFetchGroups.has(g.name)) ? '收起所有' : '展开所有'">
-                    <svg v-if="fetchModelGroups.every(g => expandedFetchGroups.has(g.name))" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
-                    <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="14 14 10 10 10 14"/><polyline points="10 10 14 10 10 4"/><line x1="10" y1="14" x2="3" y2="21"/><line x1="21" y1="3" x2="14" y2="10"/></svg>
-                  </button>
+                  <span class="fetch-group-icon" :style="{ background: getGroupColor(group.name) }">{{
+                    group.name.charAt(0).toUpperCase()
+                  }}</span>
+                  <span class="fetch-model-group-name">{{ group.name }}</span>
+                  <span class="fetch-model-group-count">{{ group.models.length }}</span>
                 </div>
-                <div v-for="group in fetchModelGroups" :key="group.name" class="fetch-model-group">
-                  <div class="fetch-model-group-header" @click="toggleFetchGroup(group.name)">
-                    <svg class="fetch-model-group-arrow" :class="{ expanded: expandedFetchGroups.has(group.name) }" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-                    <label class="fetch-group-checkbox" @click.stop>
-                      <input type="checkbox" :checked="group.models.every(m => selectedFetchIds.has(m.id))" @change="toggleFetchGroupSelection(group)" />
+                <div v-show="expandedFetchGroups.has(group.name)" class="fetch-model-group-items">
+                  <div v-for="m in group.models" :key="m.id" class="fetch-model-item" :class="{ selected: selectedFetchIds.has(m.id) }">
+                    <label class="fetch-model-checkbox">
+                      <input type="checkbox" :checked="selectedFetchIds.has(m.id)" @change="handleFetchModelToggle(m.id)" />
+                      <span class="fetch-item-icon" :style="{ background: getGroupColor(group.name) }">{{
+                        group.name.charAt(0).toUpperCase()
+                      }}</span>
+                      <span class="fetch-model-id">{{ m.id }}</span>
                     </label>
-                    <span class="fetch-group-icon" :style="{ background: getGroupColor(group.name) }">{{ group.name.charAt(0).toUpperCase() }}</span>
-                    <span class="fetch-model-group-name">{{ group.name }}</span>
-                    <span class="fetch-model-group-count">{{ group.models.length }}</span>
-                  </div>
-                  <div v-show="expandedFetchGroups.has(group.name)" class="fetch-model-group-items">
-                    <div
-                      v-for="m in group.models"
-                      :key="m.id"
-                      class="fetch-model-item"
-                      :class="{ selected: selectedFetchIds.has(m.id) }"
-                    >
-                      <label class="fetch-model-checkbox">
-                        <input type="checkbox" :checked="selectedFetchIds.has(m.id)" @change="handleFetchModelToggle(m.id)" />
-                        <span class="fetch-item-icon" :style="{ background: getGroupColor(group.name) }">{{ group.name.charAt(0).toUpperCase() }}</span>
-                        <span class="fetch-model-id">{{ m.id }}</span>
-                      </label>
-                    </div>
                   </div>
                 </div>
               </div>
             </div>
-            <div class="modal-footer">
-              <button class="modal-btn cancel" @click="showFetchModal = false">取消</button>
-              <button class="modal-btn confirm" :disabled="!selectedFetchIds.size" @click="confirmFetchModels">导入所选 ({{ selectedFetchIds.size }})</button>
-            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="modal-btn cancel" @click="showFetchModal = false">取消</button>
+            <button class="modal-btn confirm" :disabled="!selectedFetchIds.size" @click="confirmFetchModels">
+              导入所选 ({{ selectedFetchIds.size }})
+            </button>
           </div>
         </div>
+      </div>
 
       <!-- ===== TRANSLATION SETTINGS ===== -->
       <template v-if="activeSection === 'default-model'">
@@ -2243,18 +3010,18 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                   <div class="setting-row-desc">用于技能描述和内容的翻译功能。如果不设置，翻译功能将不可用。</div>
                 </div>
               </div>
-                <div class="default-model-select">
-                  <QuickSwitcher
-                    :items="translationModelItems"
-                    :selectedId="hasValidTranslationModel ? settings.translationModelId : null"
-                    placeholder="选择翻译模型"
-                    emptyText="暂无可用模型"
-                    @select="setTranslationModel($event)"
-                  />
+              <div class="default-model-select">
+                <QuickSwitcher
+                  :items="translationModelItems"
+                  :selected-id="hasValidTranslationModel ? settings.translationModelId : null"
+                  placeholder="选择翻译模型"
+                  empty-text="暂无可用模型"
+                  @select="setTranslationModel($event)"
+                />
               </div>
             </div>
 
-            <div class="setting-card" style="margin-top: 16px;">
+            <div class="setting-card" style="margin-top: 16px">
               <div class="setting-row">
                 <div class="setting-row-info">
                   <div class="setting-row-label">自动翻译</div>
@@ -2265,12 +3032,12 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                   :class="{ on: settings.autoTranslate }"
                   @click="updateSettings({ autoTranslate: !settings.autoTranslate })"
                 >
-                  <span class="toggle-thumb"></span>
+                  <span class="toggle-thumb" />
                 </button>
               </div>
             </div>
 
-            <div class="setting-card" style="margin-top: 16px;">
+            <div class="setting-card" style="margin-top: 16px">
               <div class="setting-row">
                 <div class="setting-row-info">
                   <div class="setting-row-label">继续上次未完成的翻译</div>
@@ -2281,12 +3048,12 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                   :class="{ on: settings.resumeTranslation }"
                   @click="updateSettings({ resumeTranslation: !settings.resumeTranslation })"
                 >
-                  <span class="toggle-thumb"></span>
+                  <span class="toggle-thumb" />
                 </button>
               </div>
             </div>
 
-            <div class="setting-card" style="margin-top: 16px;">
+            <div class="setting-card" style="margin-top: 16px">
               <div class="setting-row">
                 <div class="setting-row-info">
                   <div class="setting-row-label">翻译超时</div>
@@ -2294,7 +3061,7 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                 </div>
                 <div class="setting-row-control">
                   <div>
-                    <div style="display: flex; align-items: center; gap: 8px;">
+                    <div style="display: flex; align-items: center; gap: 8px">
                       <input
                         type="number"
                         class="number-input"
@@ -2313,20 +3080,22 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
               </div>
             </div>
 
-            <div class="setting-card" style="margin-top: 16px;">
+            <div class="setting-card" style="margin-top: 16px">
               <div class="setting-card-header">
                 <div class="setting-row-label">额外请求参数 (extra_body)</div>
-                <div class="setting-row-desc">以 JSON 格式指定附加到翻译请求体的额外字段，会覆盖供应商级别的同名配置。例如关闭 DeepSeek 思考模式：</div>
+                <div class="setting-row-desc">
+                  以 JSON 格式指定附加到翻译请求体的额外字段，会覆盖供应商级别的同名配置。例如关闭 DeepSeek 思考模式：
+                </div>
               </div>
-              <div style="padding: 0 16px 16px;">
+              <div style="padding: 0 16px 16px">
                 <textarea
                   class="json-textarea"
                   :value="translationExtraBodyText"
-                  @input="onTranslationExtraBodyInput"
                   placeholder='{"thinking": {"type": "disabled"}}'
                   rows="3"
                   spellcheck="false"
-                ></textarea>
+                  @input="onTranslationExtraBodyInput"
+                />
                 <span v-if="translationExtraBodyError" class="json-error">{{ translationExtraBodyError }}</span>
               </div>
             </div>
@@ -2344,8 +3113,8 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
             <div class="agent-toolbar">
               <button class="toolbar-btn reset-btn" @click="resetPlatformOrder">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <polyline points="1 4 1 10 7 10"/>
-                  <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+                  <polyline points="1 4 1 10 7 10" />
+                  <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
                 </svg>
                 重置顺序
               </button>
@@ -2355,10 +3124,10 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                 v-for="(p, index) in sortedPlatforms"
                 :key="p.id"
                 class="platform-order-item"
-                :class="{ 
-                  'dragging': dragIndex === index,
+                :class="{
+                  dragging: dragIndex === index,
                   'drag-over': dragOverIndex === index,
-                  'disabled': !p.enabled
+                  disabled: !p.enabled,
                 }"
                 draggable="true"
                 @dragstart="onDragStart(index, $event)"
@@ -2369,12 +3138,12 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
               >
                 <div class="platform-drag-handle">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                    <circle cx="8" cy="6" r="2"/>
-                    <circle cx="16" cy="6" r="2"/>
-                    <circle cx="8" cy="12" r="2"/>
-                    <circle cx="16" cy="12" r="2"/>
-                    <circle cx="8" cy="18" r="2"/>
-                    <circle cx="16" cy="18" r="2"/>
+                    <circle cx="8" cy="6" r="2" />
+                    <circle cx="16" cy="6" r="2" />
+                    <circle cx="8" cy="12" r="2" />
+                    <circle cx="16" cy="12" r="2" />
+                    <circle cx="8" cy="18" r="2" />
+                    <circle cx="16" cy="18" r="2" />
                   </svg>
                 </div>
                 <div class="platform-icon-wrapper">
@@ -2388,34 +3157,22 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
                       {{ detectAgent(p) ? '已启用' : '未检测' }}
                     </span>
                   </div>
-                  <div class="platform-path">{{ getPlatformOsPath(p) }}</div>
+                  <div class="platform-path">
+                    {{ getPlatformOsPath(p) }}
+                  </div>
                 </div>
                 <div class="platform-actions">
-                  <button
-                    class="toggle-switch"
-                    :class="{ on: p.enabled }"
-                    @click="togglePlatformEnabled(p)"
-                  >
-                    <span class="toggle-thumb"></span>
+                  <button class="toggle-switch" :class="{ on: p.enabled }" @click="togglePlatformEnabled(p)">
+                    <span class="toggle-thumb" />
                   </button>
-                  <button
-                    class="order-btn"
-                    :disabled="index === 0"
-                    @click="movePlatformUp(index)"
-                    title="上移"
-                  >
+                  <button class="order-btn" :disabled="index === 0" title="上移" @click="movePlatformUp(index)">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <polyline points="18 15 12 9 6 15"/>
+                      <polyline points="18 15 12 9 6 15" />
                     </svg>
                   </button>
-                  <button
-                    class="order-btn"
-                    :disabled="index === sortedPlatforms.length - 1"
-                    @click="movePlatformDown(index)"
-                    title="下移"
-                  >
+                  <button class="order-btn" :disabled="index === sortedPlatforms.length - 1" title="下移" @click="movePlatformDown(index)">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <polyline points="6 9 12 15 18 9"/>
+                      <polyline points="6 9 12 15 18 9" />
                     </svg>
                   </button>
                 </div>
@@ -2432,10 +3189,34 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
     </div>
   </div>
 
-  <ConfirmModal v-if="confirmDeleteProviderId" title="删除供应商" :message="`确定要删除供应商 <strong>${confirmDeleteProviderName}</strong> 吗？`" @confirm="deleteProvider(confirmDeleteProviderId!)" @cancel="confirmDeleteProviderId = null" />
-  <ConfirmModal v-if="confirmDeleteApiKey" title="删除密钥" :message="`确定要删除密钥 <strong>${confirmDeleteApiKeyLabel}</strong> 吗？`" @confirm="doDeleteApiKey" @cancel="confirmDeleteApiKey = null" />
-  <ConfirmModal v-if="confirmDeleteGroup" title="删除模型分组" :message="`确定要删除分组 <strong>${confirmDeleteGroupLabel}</strong> 中的所有模型吗？`" @confirm="doDeleteGroup" @cancel="confirmDeleteGroup = null" />
-  <ConfirmModal v-if="confirmDeleteModel" title="删除模型" :message="`确定要删除模型 <strong>${confirmDeleteModelLabel}</strong> 吗？`" @confirm="doDeleteModel" @cancel="confirmDeleteModel = null" />
+  <ConfirmModal
+    v-if="confirmDeleteProviderId"
+    title="删除供应商"
+    :message="`确定要删除供应商 <strong>${confirmDeleteProviderName}</strong> 吗？`"
+    @confirm="deleteProvider(confirmDeleteProviderId!)"
+    @cancel="confirmDeleteProviderId = null"
+  />
+  <ConfirmModal
+    v-if="confirmDeleteApiKey"
+    title="删除密钥"
+    :message="`确定要删除密钥 <strong>${confirmDeleteApiKeyLabel}</strong> 吗？`"
+    @confirm="doDeleteApiKey"
+    @cancel="confirmDeleteApiKey = null"
+  />
+  <ConfirmModal
+    v-if="confirmDeleteGroup"
+    title="删除模型分组"
+    :message="`确定要删除分组 <strong>${confirmDeleteGroupLabel}</strong> 中的所有模型吗？`"
+    @confirm="doDeleteGroup"
+    @cancel="confirmDeleteGroup = null"
+  />
+  <ConfirmModal
+    v-if="confirmDeleteModel"
+    title="删除模型"
+    :message="`确定要删除模型 <strong>${confirmDeleteModelLabel}</strong> 吗？`"
+    @confirm="doDeleteModel"
+    @cancel="confirmDeleteModel = null"
+  />
   <CleanupSelectModal v-if="showCleanupSelect" :dirs="unregisteredDirs" @close="showCleanupSelect = false" @deleted="onCleanupDeleted" />
 </template>
 
@@ -2564,8 +3345,12 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
 }
 
 @keyframes highlight-pulse {
-  0% { box-shadow: 0 0 0 4px hsl(var(--primary) / 0.4); }
-  100% { box-shadow: none; }
+  0% {
+    box-shadow: 0 0 0 4px hsl(var(--primary) / 0.4);
+  }
+  100% {
+    box-shadow: none;
+  }
 }
 
 /* Segmented Control */
@@ -2653,12 +3438,14 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
 }
 
 .color-swatch-btn.active {
-  box-shadow: 0 0 0 2px hsl(var(--background)), 0 0 0 4px hsl(var(--primary));
+  box-shadow:
+    0 0 0 2px hsl(var(--background)),
+    0 0 0 4px hsl(var(--primary));
 }
 
 .swatch-check {
   color: #fff;
-  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.3));
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3));
 }
 
 /* Custom Color Panel — only visible when custom is selected */
@@ -2672,8 +3459,14 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
 }
 
 @keyframes fadeSlideIn {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .custom-color-header {
@@ -2712,8 +3505,13 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
   cursor: pointer;
 }
 
-.color-picker-native::-webkit-color-swatch-wrapper { padding: 2px; }
-.color-picker-native::-webkit-color-swatch { border-radius: 4px; border: none; }
+.color-picker-native::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+.color-picker-native::-webkit-color-swatch {
+  border-radius: 4px;
+  border: none;
+}
 
 .color-hex-native {
   width: 110px;
@@ -2840,9 +3638,19 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
   background: hsl(var(--primary) / 0.06);
 }
 
-.mode-icon { font-size: 24px; }
-.mode-name { font-size: 13px; font-weight: 600; color: hsl(var(--foreground)); }
-.mode-desc { font-size: 11px; color: hsl(var(--muted-foreground)); text-align: center; }
+.mode-icon {
+  font-size: 24px;
+}
+.mode-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+.mode-desc {
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+  text-align: center;
+}
 
 /* Token */
 .token-row {
@@ -2929,7 +3737,9 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
   margin-top: 8px;
 }
 
-.token-link:hover { text-decoration: underline; }
+.token-link:hover {
+  text-decoration: underline;
+}
 
 /* Cleanup */
 /* Agent */
@@ -2987,8 +3797,14 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
   min-width: 0;
 }
 
-.agent-info { min-width: 0; }
-.agent-name { font-size: 13px; font-weight: 600; color: hsl(var(--foreground)); }
+.agent-info {
+  min-width: 0;
+}
+.agent-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
 .agent-path {
   font-size: 11px;
   color: hsl(var(--muted-foreground));
@@ -3007,7 +3823,9 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
   flex-shrink: 0;
 }
 
-.agent-status.detected { color: hsl(142 50% 45%); }
+.agent-status.detected {
+  color: hsl(142 50% 45%);
+}
 
 /* Platform Order List */
 .platform-order-list {
@@ -3183,7 +4001,9 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
   opacity: 0.7;
 }
 
-.tag-remove:hover { opacity: 1; }
+.tag-remove:hover {
+  opacity: 1;
+}
 
 .tag-input-row {
   display: flex;
@@ -3312,7 +4132,9 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
 .provider-card-icon.clickable {
   cursor: pointer;
   border-radius: 8px;
-  transition: background-color 0.2s, transform 0.15s;
+  transition:
+    background-color 0.2s,
+    transform 0.15s;
 }
 
 .provider-card-icon.clickable:hover {
@@ -3396,7 +4218,7 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
   background: white;
   border-radius: 50%;
   transition: transform var(--duration-base) var(--ease-standard);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 
 .provider-toggle.on .provider-toggle-slider {
@@ -3793,7 +4615,7 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
   background: white;
   border-radius: 50%;
   transition: transform var(--duration-base) var(--ease-standard);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 
 .model-group-toggle input:checked + .model-item-toggle-slider {
@@ -3815,7 +4637,9 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
   border-radius: 4px;
   cursor: pointer;
   color: hsl(var(--muted-foreground));
-  transition: color var(--duration-base) var(--ease-standard), background var(--duration-base) var(--ease-standard);
+  transition:
+    color var(--duration-base) var(--ease-standard),
+    background var(--duration-base) var(--ease-standard);
 }
 
 .model-group-btn:hover {
@@ -4006,7 +4830,7 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
   background: white;
   border-radius: 50%;
   transition: transform var(--duration-base) var(--ease-standard);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 
 .model-item-toggle input:checked + .model-item-toggle-slider {
@@ -4055,8 +4879,12 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
 }
 
 @keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .spin {
@@ -4100,8 +4928,12 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .modal {
@@ -4117,8 +4949,14 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
 }
 
 @keyframes slideUp {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .modal-sm {
@@ -4722,7 +5560,9 @@ function groupModels(models: Array<{ id: string; name: string; enabled: boolean;
   outline: none;
   resize: vertical;
   min-height: 60px;
-  transition: border-color var(--duration-base) var(--ease-standard), box-shadow var(--duration-base) var(--ease-standard);
+  transition:
+    border-color var(--duration-base) var(--ease-standard),
+    box-shadow var(--duration-base) var(--ease-standard);
   box-sizing: border-box;
   line-height: 1.5;
 }

@@ -39,7 +39,7 @@ export async function validateStoreUrl(url: string, type: StoreSourceType): Prom
       const data = await fetchJson(trimmed)
       if (!data) return { valid: false, message: '无法访问 URL，请检查地址或网络' }
 
-      const entries = Array.isArray(data) ? data : (data.skills || data.plugins || data.packages || [])
+      const entries = Array.isArray(data) ? data : data.skills || data.plugins || data.packages || []
       if (!Array.isArray(entries) || entries.length === 0) {
         return { valid: false, message: 'JSON 中未找到有效的技能列表（需要数组或 skills/plugins/packages 字段）' }
       }
@@ -49,8 +49,10 @@ export async function validateStoreUrl(url: string, type: StoreSourceType): Prom
     case 'well-known-index': {
       const urlsToTry: string[] = trimmed.endsWith('.json')
         ? [trimmed]
-        : [`${trimmed.replace(/\/+$/, '')}/.well-known/agent-skills/index.json`,
-           `${trimmed.replace(/\/+$/, '')}/.well-known/skills/index.json`]
+        : [
+            `${trimmed.replace(/\/+$/, '')}/.well-known/agent-skills/index.json`,
+            `${trimmed.replace(/\/+$/, '')}/.well-known/skills/index.json`,
+          ]
 
       for (const fetchUrl of urlsToTry) {
         const data = await fetchJson(fetchUrl)

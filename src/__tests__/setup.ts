@@ -5,8 +5,12 @@ const store = new Map<string, string>()
 vi.stubGlobal('ztools', {
   dbStorage: {
     getItem: (key: string) => store.get(key) ?? null,
-    setItem: (key: string, val: string) => { store.set(key, val) },
-    removeItem: (key: string) => { store.delete(key) },
+    setItem: (key: string, val: string) => {
+      store.set(key, val)
+    },
+    removeItem: (key: string) => {
+      store.delete(key)
+    },
     clear: () => store.clear(),
   },
   getPath: () => '/mock/path',
@@ -14,19 +18,43 @@ vi.stubGlobal('ztools', {
 })
 
 if (!window.matchMedia) {
-  window.matchMedia = () => ({ matches: false, addListener: () => {}, removeListener: () => {}, addEventListener: () => {}, removeEventListener: () => {}, dispatchEvent: () => false, media: '', onchange: null, } as any)
+  window.matchMedia = () =>
+    ({
+      matches: false,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+      media: '',
+      onchange: null,
+    }) as any
 }
 
 vi.stubGlobal('services', {
   hashContent: vi.fn((content: string) => content),
   scanForSkillFiles: vi.fn(() => []),
   pathJoin: vi.fn((...parts: string[]) => parts.join('/')),
+  safeJoin: vi.fn((base: string, ...parts: string[]) => {
+    const joined = [base, ...parts].filter(Boolean).join('/')
+    if (parts.some((p) => String(p).includes('..') || String(p).startsWith('/'))) {
+      throw new Error(`Path escapes base directory: "${parts.join('/')}"`)
+    }
+    return joined
+  }),
+  atomicReplaceDir: vi.fn(() => {}),
+  atomicWriteDir: vi.fn(() => {}),
+  setAllowedWriteRoots: vi.fn(() => {}),
+  getAllowedWriteRoots: vi.fn(() => ['/mock/path']),
+  isPathWritable: vi.fn(() => true),
   readDir: vi.fn(() => []),
   readFile: vi.fn(() => null),
   readFileText: vi.fn(() => ''),
   writeFile: vi.fn(() => {}),
   removeFile: vi.fn(() => {}),
+  removeEmptyAncestors: vi.fn(() => {}),
   copyFile: vi.fn(() => {}),
+  createSymlink: vi.fn((target: string, linkPath: string) => linkPath),
   pathExists: vi.fn(() => false),
   mkdir: vi.fn(() => {}),
   stat: vi.fn(async () => ({ isDirectory: () => false })),
@@ -36,13 +64,10 @@ vi.stubGlobal('services', {
   isMacOS: vi.fn(() => true),
   downloadFile: vi.fn(async () => {}),
   downloadFileTo: vi.fn(async () => {}),
-  fetchGitHubText: vi.fn(async () => null),
   extractBufferZip: vi.fn(async () => []),
   scanForSkills: vi.fn(async () => []),
   parseSkillFile: vi.fn(() => null),
-  checkSkillUpdate: vi.fn(() => ({ hasUpdate: false })),
   updateSkillFromGitHub: vi.fn(async () => {}),
-  fetchGitHubJSON: vi.fn(async () => ({})),
   getLatestCommitSha: vi.fn(async () => null),
   getRemoteSkillTree: vi.fn(async () => null),
   saveSkillMeta: vi.fn(() => {}),

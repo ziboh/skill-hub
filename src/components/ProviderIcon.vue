@@ -26,23 +26,28 @@
 import { computed, ref, watch } from 'vue'
 import { resolveStoreIcon } from '../data/store-icons'
 
-const props = withDefaults(defineProps<{
-  icon?: string
-  size?: number
-  variant?: 'avatar' | 'mono'
-}>(), {
-  size: 20,
-  variant: 'avatar',
-})
+const props = withDefaults(
+  defineProps<{
+    icon?: string
+    size?: number
+    variant?: 'avatar' | 'mono'
+  }>(),
+  {
+    size: 20,
+    variant: 'avatar',
+  },
+)
 
 /* ── Icon module registry (lazy) ─────────────────────────────── */
 
 const providerModules = import.meta.glob<string>('/src/assets/providers/*.svg', {
-  query: '?raw', import: 'default',
+  query: '?raw',
+  import: 'default',
 })
 
 const platformSvgModules = import.meta.glob<string>('/src/assets/platforms/*.svg', {
-  query: '?raw', import: 'default',
+  query: '?raw',
+  import: 'default',
 })
 
 const platformPngModules = import.meta.glob<string>('/src/assets/platforms/*.png', {
@@ -93,10 +98,10 @@ let uidCounter = 0
 function injectSvg(raw: string): string {
   const uid = `c${++uidCounter}`
   return raw
-    .replace(/\sid="([^"]+)"/g,      ` id="${uid}-$1"`)
-    .replace(/url\(#/g,               `url(#${uid}-`)
-    .replace(/xlink:href="#/g,        `xlink:href="#${uid}-`)
-    .replace(/\shref="#/g,            ` href="#${uid}-`)
+    .replace(/\sid="([^"]+)"/g, ` id="${uid}-$1"`)
+    .replace(/url\(#/g, `url(#${uid}-`)
+    .replace(/xlink:href="#/g, `xlink:href="#${uid}-`)
+    .replace(/\shref="#/g, ` href="#${uid}-`)
 }
 
 /* ── Reactive icon data (lazy loaded) ─────────────────────────── */
@@ -116,18 +121,9 @@ async function loadIconData(icon: string) {
   const name = resolveName(icon)
 
   const [svg, png, platformSvg] = await Promise.all([
-    loadIconModule(
-      `/src/assets/providers/${name}.svg`,
-      providerModules[`/src/assets/providers/${name}.svg`],
-    ),
-    loadIconModule(
-      `/src/assets/platforms/${name}.png`,
-      platformPngModules[`/src/assets/platforms/${name}.png`],
-    ),
-    loadIconModule(
-      `/src/assets/platforms/${name}.svg`,
-      platformSvgModules[`/src/assets/platforms/${name}.svg`],
-    ),
+    loadIconModule(`/src/assets/providers/${name}.svg`, providerModules[`/src/assets/providers/${name}.svg`]),
+    loadIconModule(`/src/assets/platforms/${name}.png`, platformPngModules[`/src/assets/platforms/${name}.png`]),
+    loadIconModule(`/src/assets/platforms/${name}.svg`, platformSvgModules[`/src/assets/platforms/${name}.svg`]),
   ])
 
   iconSvg.value = svg ? injectSvg(svg) : ''
@@ -142,7 +138,7 @@ const iconType = computed<IconType | null>(() => {
   return detectIconType(props.icon)
 })
 
-const iconSrc = computed(() => {
+const _iconSrc = computed(() => {
   if (!props.icon) return ''
   const t = iconType.value
   if (t === 'svg') return props.icon
@@ -155,67 +151,67 @@ const localFileDataUri = ref('')
 const storeIconSvg = ref('')
 const storeIconSrc = ref('')
 
-watch(() => props.icon, (icon) => {
-  if (!icon) {
-    iconSvg.value = ''
-    iconPng.value = ''
-    iconPlatformSvg.value = ''
-    localFileDataUri.value = ''
+watch(
+  () => props.icon,
+  (icon) => {
+    if (!icon) {
+      iconSvg.value = ''
+      iconPng.value = ''
+      iconPlatformSvg.value = ''
+      localFileDataUri.value = ''
+      storeIconSvg.value = ''
+      storeIconSrc.value = ''
+      return
+    }
+    const t = detectIconType(icon)
+    if (t === 'store-icon') {
+      const resolved = resolveStoreIcon(icon)
+      if (resolved?.startsWith('<svg')) {
+        storeIconSvg.value = injectSvg(resolved)
+        storeIconSrc.value = ''
+      } else if (resolved) {
+        storeIconSvg.value = ''
+        storeIconSrc.value = resolved
+      } else {
+        storeIconSvg.value = ''
+        storeIconSrc.value = ''
+      }
+      iconSvg.value = ''
+      iconPng.value = ''
+      iconPlatformSvg.value = ''
+      localFileDataUri.value = ''
+      return
+    }
     storeIconSvg.value = ''
     storeIconSrc.value = ''
-    return
-  }
-  const t = detectIconType(icon)
-  if (t === 'store-icon') {
-    const resolved = resolveStoreIcon(icon)
-    if (resolved?.startsWith('<svg')) {
-      storeIconSvg.value = injectSvg(resolved)
-      storeIconSrc.value = ''
-    } else if (resolved) {
-      storeIconSvg.value = ''
-      storeIconSrc.value = resolved
-    } else {
-      storeIconSvg.value = ''
-      storeIconSrc.value = ''
+    if (t === 'provider-icon') {
+      loadIconData(icon)
+      localFileDataUri.value = ''
+      return
     }
     iconSvg.value = ''
     iconPng.value = ''
     iconPlatformSvg.value = ''
-    localFileDataUri.value = ''
-    return
-  }
-  storeIconSvg.value = ''
-  storeIconSrc.value = ''
-  if (t === 'provider-icon') {
-    loadIconData(icon)
-    localFileDataUri.value = ''
-    return
-  }
-  iconSvg.value = ''
-  iconPng.value = ''
-  iconPlatformSvg.value = ''
-  if (t === 'svg' || t === 'data-uri' || t === 'url') {
-    localFileDataUri.value = ''
-    return
-  }
-  // local file path — read as data URI
-  if (window.services?.readFileAsDataUri) {
-    localFileDataUri.value = window.services.readFileAsDataUri(icon) || ''
-  } else {
-    localFileDataUri.value = ''
-  }
-}, { immediate: true })
+    if (t === 'svg' || t === 'data-uri' || t === 'url') {
+      localFileDataUri.value = ''
+      return
+    }
+    // local file path — read as data URI
+    if (window.services?.readFileAsDataUri) {
+      localFileDataUri.value = window.services.readFileAsDataUri(icon) || ''
+    } else {
+      localFileDataUri.value = ''
+    }
+  },
+  { immediate: true },
+)
 
-const isSvgInline = computed(() => iconType.value === 'svg' && iconSvg.value === '')
+const _isSvgInline = computed(() => iconType.value === 'svg' && iconSvg.value === '')
 </script>
 
 <template>
   <!-- Avatar variant: circular themed container -->
-  <span
-    v-if="variant === 'avatar'"
-    class="pi-avatar"
-    :style="{ width: size + 'px', height: size + 'px', minWidth: size + 'px' }"
-  >
+  <span v-if="variant === 'avatar'" class="pi-avatar" :style="{ width: size + 'px', height: size + 'px', minWidth: size + 'px' }">
     <span v-if="storeIconSvg" v-html="storeIconSvg" class="pi-avatar-icon pi-store-icon" />
     <img v-else-if="storeIconSrc" :src="storeIconSrc" class="pi-avatar-img" />
     <span v-else-if="iconSvg" v-html="iconSvg" class="pi-avatar-icon" />
@@ -228,54 +224,19 @@ const isSvgInline = computed(() => iconType.value === 'svg' && iconSvg.value ===
   </span>
 
   <!-- Mono variant: standalone icon, inherits text color -->
-  <span
-    v-else-if="storeIconSvg"
-    v-html="storeIconSvg"
-    class="pi-mono"
-    :style="{ width: size + 'px', height: size + 'px' }"
-  />
-  <img
-    v-else-if="storeIconSrc"
-    :src="storeIconSrc"
-    class="pi-mono-img"
-    :style="{ width: size + 'px', height: size + 'px' }"
-  />
-  <span
-    v-else-if="iconSvg"
-    v-html="iconSvg"
-    class="pi-mono"
-    :style="{ width: size + 'px', height: size + 'px' }"
-  />
-  <span
-    v-else-if="iconType === 'svg'"
-    v-html="icon"
-    class="pi-mono"
-    :style="{ width: size + 'px', height: size + 'px' }"
-  />
-  <img
-    v-else-if="iconPng"
-    :src="iconPng"
-    class="pi-mono-img"
-    :style="{ width: size + 'px', height: size + 'px' }"
-  />
-  <span
-    v-else-if="iconPlatformSvg"
-    v-html="iconPlatformSvg"
-    class="pi-mono"
-    :style="{ width: size + 'px', height: size + 'px' }"
-  />
+  <span v-else-if="storeIconSvg" v-html="storeIconSvg" class="pi-mono" :style="{ width: size + 'px', height: size + 'px' }" />
+  <img v-else-if="storeIconSrc" :src="storeIconSrc" class="pi-mono-img" :style="{ width: size + 'px', height: size + 'px' }" />
+  <span v-else-if="iconSvg" v-html="iconSvg" class="pi-mono" :style="{ width: size + 'px', height: size + 'px' }" />
+  <span v-else-if="iconType === 'svg'" v-html="icon" class="pi-mono" :style="{ width: size + 'px', height: size + 'px' }" />
+  <img v-else-if="iconPng" :src="iconPng" class="pi-mono-img" :style="{ width: size + 'px', height: size + 'px' }" />
+  <span v-else-if="iconPlatformSvg" v-html="iconPlatformSvg" class="pi-mono" :style="{ width: size + 'px', height: size + 'px' }" />
   <img
     v-else-if="iconType === 'url' || iconType === 'data-uri'"
     :src="icon"
     class="pi-mono-img"
     :style="{ width: size + 'px', height: size + 'px' }"
   />
-  <img
-    v-else-if="localFileDataUri"
-    :src="localFileDataUri"
-    class="pi-mono-img"
-    :style="{ width: size + 'px', height: size + 'px' }"
-  />
+  <img v-else-if="localFileDataUri" :src="localFileDataUri" class="pi-mono-img" :style="{ width: size + 'px', height: size + 'px' }" />
   <span v-else class="pi-fallback-mono">&#x2699;</span>
 </template>
 
@@ -343,28 +304,28 @@ const isSvgInline = computed(() => iconType.value === 'svg' && iconSvg.value ===
 }
 
 /* Dark mode: make dark fills/strokes visible without affecting brand colors */
-[data-theme="dark"] .pi-avatar-icon :deep(svg [fill="black"]) {
+[data-theme='dark'] .pi-avatar-icon :deep(svg [fill='black']) {
   fill: hsl(var(--foreground));
 }
-[data-theme="dark"] .pi-avatar-icon :deep(svg [fill="#1A1A1A"]),
-[data-theme="dark"] .pi-avatar-icon :deep(svg [fill="#222222"]),
-[data-theme="dark"] .pi-avatar-icon :deep(svg [fill="#24292F"]) {
+[data-theme='dark'] .pi-avatar-icon :deep(svg [fill='#1A1A1A']),
+[data-theme='dark'] .pi-avatar-icon :deep(svg [fill='#222222']),
+[data-theme='dark'] .pi-avatar-icon :deep(svg [fill='#24292F']) {
   fill: hsl(var(--foreground));
 }
-[data-theme="dark"] .pi-avatar-icon :deep(svg [stroke="#1A1A1A"]),
-[data-theme="dark"] .pi-avatar-icon :deep(svg [stroke="#222222"]),
-[data-theme="dark"] .pi-avatar-icon :deep(svg [stroke="#24292F"]) {
+[data-theme='dark'] .pi-avatar-icon :deep(svg [stroke='#1A1A1A']),
+[data-theme='dark'] .pi-avatar-icon :deep(svg [stroke='#222222']),
+[data-theme='dark'] .pi-avatar-icon :deep(svg [stroke='#24292F']) {
   stroke: hsl(var(--foreground));
 }
 /* Mono variant: dark fills/strokes need light foreground in dark mode */
-[data-theme="dark"] .pi-mono :deep(svg [fill="#1A1A1A"]),
-[data-theme="dark"] .pi-mono :deep(svg [fill="#222222"]),
-[data-theme="dark"] .pi-mono :deep(svg [fill="#24292F"]) {
+[data-theme='dark'] .pi-mono :deep(svg [fill='#1A1A1A']),
+[data-theme='dark'] .pi-mono :deep(svg [fill='#222222']),
+[data-theme='dark'] .pi-mono :deep(svg [fill='#24292F']) {
   fill: hsl(var(--foreground));
 }
-[data-theme="dark"] .pi-mono :deep(svg [stroke="#1A1A1A"]),
-[data-theme="dark"] .pi-mono :deep(svg [stroke="#222222"]),
-[data-theme="dark"] .pi-mono :deep(svg [stroke="#24292F"]) {
+[data-theme='dark'] .pi-mono :deep(svg [stroke='#1A1A1A']),
+[data-theme='dark'] .pi-mono :deep(svg [stroke='#222222']),
+[data-theme='dark'] .pi-mono :deep(svg [stroke='#24292F']) {
   stroke: hsl(var(--foreground));
 }
 </style>

@@ -1,5 +1,5 @@
 import { reactive } from 'vue'
-import type { AppSettings, ThemeMode, FontSize, MotionPreference } from '../types'
+import type { AppSettings } from '../types'
 import { storage } from '../utils/storage'
 import { applyTheme } from '../utils/theme'
 

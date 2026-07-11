@@ -2,7 +2,8 @@ import { ref, computed } from 'vue'
 import { storage } from '../utils/storage'
 import type { Skill, SkillScanResult } from '../types'
 
-export type RouteName = 'my' | 'store' | 'detail' | 'agent-skills' | 'agent-skill-detail' | 'project-skills' | 'sources' | 'settings' | 'records'
+export type RouteName =
+  'my' | 'store' | 'detail' | 'agent-skills' | 'agent-skill-detail' | 'project-skills' | 'sources' | 'settings' | 'records'
 
 export type DetailContext = 'my' | 'store' | 'project' | 'agent'
 

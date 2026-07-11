@@ -18,7 +18,10 @@ function processFoldedBlock(blockLines: string[], chomp: string): string {
   let current: string[] = []
   for (const bl of blockLines) {
     if (bl === '') {
-      if (current.length) { paragraphs.push(current.join(' ')); current = [] }
+      if (current.length) {
+        paragraphs.push(current.join(' '))
+        current = []
+      }
     } else {
       current.push(bl)
     }
@@ -26,7 +29,7 @@ function processFoldedBlock(blockLines: string[], chomp: string): string {
   if (current.length) paragraphs.push(current.join(' '))
   let val = paragraphs.join('\n\n')
   if (chomp === '+' && blockLines.length > 0) {
-    const trailing = blockLines.reduce((n, l) => l === '' ? n + 1 : 0, 0)
+    const trailing = blockLines.reduce((n, l) => (l === '' ? n + 1 : 0), 0)
     for (let t = 0; t < trailing; t++) val += '\n'
   }
   return val
@@ -108,7 +111,10 @@ export function parseFrontmatter(text: string): Record<string, string> {
     while (i < lines.length) {
       const line = lines[i]
       const parsed = parseKeyValue(line)
-      if (!parsed) { i++; continue }
+      if (!parsed) {
+        i++
+        continue
+      }
       const { key, val: rawVal } = parsed
 
       const quoted = tryParseQuotedValue(rawVal)
@@ -125,9 +131,7 @@ export function parseFrontmatter(text: string): Record<string, string> {
         const chomp = blockMatch[2]
         const { blockLines, nextI } = collectBlockLines(lines, i + 1)
         i = nextI - 1
-        val = style === '>'
-          ? processFoldedBlock(blockLines, chomp)
-          : processLiteralBlock(blockLines)
+        val = style === '>' ? processFoldedBlock(blockLines, chomp) : processLiteralBlock(blockLines)
       } else if (val === '' || val === '""' || val === "''") {
         if (i + 1 < lines.length && (lines[i + 1].startsWith(' ') || lines[i + 1].startsWith('\t'))) {
           const { blockLines, nextI } = collectIndentedLines(lines, i + 1)

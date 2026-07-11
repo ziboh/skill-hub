@@ -1,12 +1,5 @@
 import type { SkillIdentity, SkillSourceLocation, SkillScanResult } from '../types'
-
-export function isChineseContent(text: string): boolean {
-  if (!text) return false
-  const chineseChars = text.match(/[\u4e00-\u9fff]/g)
-  if (!chineseChars) return false
-  const chineseRatio = chineseChars.length / text.length
-  return chineseRatio > 0.1
-}
+import { isChineseContent } from './translate'
 
 export function addChineseTag(tags: string[], content?: string): string[] {
   const result = [...tags]
@@ -18,13 +11,12 @@ export function addChineseTag(tags: string[], content?: string): string[] {
 
 const STORAGE_KEY = 'sm_skill_registry'
 
-
 export function loadRegistry(): Map<string, SkillIdentity> {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return new Map()
     const entries: SkillIdentity[] = JSON.parse(raw)
-    return new Map(entries.map(e => [e.canonicalId, e]))
+    return new Map(entries.map((e) => [e.canonicalId, e]))
   } catch {
     return new Map()
   }
@@ -39,13 +31,11 @@ export function getOrCreateIdentity(
   registry: Map<string, SkillIdentity>,
   canonicalId: string,
   scanResult: SkillScanResult,
-  source: SkillSourceLocation
+  source: SkillSourceLocation,
 ): SkillIdentity {
   const existing = registry.get(canonicalId)
   if (existing) {
-    const alreadyHasSource = existing.sources.some(
-      s => s.type === source.type && s.location === source.location
-    )
+    const alreadyHasSource = existing.sources.some((s) => s.type === source.type && s.location === source.location)
     if (!alreadyHasSource) {
       existing.sources.push(source)
     }
@@ -69,14 +59,9 @@ export function getOrCreateIdentity(
   return identity
 }
 
-export function findIdentityByScanResult(
-  registry: Map<string, SkillIdentity>,
-  scanResult: SkillScanResult
-): SkillIdentity | undefined {
+export function findIdentityByScanResult(registry: Map<string, SkillIdentity>, scanResult: SkillScanResult): SkillIdentity | undefined {
   for (const identity of registry.values()) {
-    if (
-      identity.name.toLowerCase() === (scanResult.manifest.name || scanResult.name).toLowerCase()
-    ) {
+    if (identity.name.toLowerCase() === (scanResult.manifest.name || scanResult.name).toLowerCase()) {
       return identity
     }
   }
@@ -88,7 +73,7 @@ export function registerSkillFromStore(
   canonicalId: string,
   scanResult: SkillScanResult,
   sourceType: SkillSourceLocation['type'],
-  location: string
+  location: string,
 ): SkillIdentity {
   const source: SkillSourceLocation = {
     type: sourceType,
@@ -119,11 +104,10 @@ export function registerSkillFromStore(
   return identity
 }
 
-
 export function registerSkillFromProject(
   registry: Map<string, SkillIdentity>,
   scanResult: SkillScanResult,
-  projectId: string
+  projectId: string,
 ): SkillIdentity {
   const existing = findIdentityByScanResult(registry, scanResult)
   if (existing) {
@@ -134,7 +118,7 @@ export function registerSkillFromProject(
       installedAt: new Date().toISOString(),
     }
     const alreadyHasSource = existing.sources.some(
-      s => s.type === 'local-dir' && s.projectId === projectId && s.location === scanResult.dir
+      (s) => s.type === 'local-dir' && s.projectId === projectId && s.location === scanResult.dir,
     )
     if (!alreadyHasSource) {
       existing.sources.push(source)

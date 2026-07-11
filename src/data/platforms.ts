@@ -6,7 +6,11 @@ function joinPath(base: string, relative: string): string {
   if (!relative.trim()) return base
   const sep = base.includes('\\') ? '\\' : '/'
   const normBase = base.replace(/[\\/]+$/, '').replace(/[\\/]/g, sep)
-  const normRel = relative.trim().split(/[\\/]+/).filter(Boolean).join(sep)
+  const normRel = relative
+    .trim()
+    .split(/[\\/]+/)
+    .filter(Boolean)
+    .join(sep)
   return normRel ? `${normBase}${sep}${normRel}` : normBase
 }
 
@@ -22,7 +26,7 @@ function resolveRootDir(platform: { rootDir?: { darwin: string; win32: string; l
   return platform.rootDir[getOsKey()] || platform.rootDir.linux
 }
 
-function resolveSkillsPath(platform: { rootDir?: { darwin: string; win32: string; linux: string }; skillsRelativePath?: string }): string {
+function _resolveSkillsPath(platform: { rootDir?: { darwin: string; win32: string; linux: string }; skillsRelativePath?: string }): string {
   const root = resolveRootDir(platform)
   if (!root || !platform.skillsRelativePath) return ''
   return joinPath(root, platform.skillsRelativePath)
@@ -36,7 +40,8 @@ export const defaultPlatforms: PlatformInfo[] = [
     skillsRelativePath: 'skills',
     defaultPath: '~/.claude/skills/',
     projectPath: '.claude/skills/',
-    enabled: true, detected: false,
+    enabled: true,
+    detected: false,
   },
   {
     id: 'copilot',
@@ -45,7 +50,8 @@ export const defaultPlatforms: PlatformInfo[] = [
     skillsRelativePath: 'skills',
     defaultPath: '~/.copilot/skills/',
     projectPath: '.copilot/skills/',
-    enabled: true, detected: false,
+    enabled: true,
+    detected: false,
   },
   {
     id: 'cursor',
@@ -54,16 +60,22 @@ export const defaultPlatforms: PlatformInfo[] = [
     skillsRelativePath: 'skills',
     defaultPath: '~/.cursor/skills/',
     projectPath: '.cursor/skills/',
-    enabled: true, detected: false,
+    enabled: true,
+    detected: false,
   },
   {
     id: 'cherry-studio',
     name: 'Cherry Studio',
-    rootDir: { darwin: '~/Library/Application Support/CherryStudio', win32: '~/AppData/Roaming/CherryStudio', linux: '~/.config/CherryStudio' },
+    rootDir: {
+      darwin: '~/Library/Application Support/CherryStudio',
+      win32: '~/AppData/Roaming/CherryStudio',
+      linux: '~/.config/CherryStudio',
+    },
     skillsRelativePath: 'Data/Skills',
     defaultPath: '~/.config/CherryStudio/Data/Skills/',
     projectPath: 'Data/Skills/',
-    enabled: true, detected: false,
+    enabled: true,
+    detected: false,
   },
   {
     id: 'windsurf',
@@ -72,7 +84,8 @@ export const defaultPlatforms: PlatformInfo[] = [
     skillsRelativePath: 'skills',
     defaultPath: '~/.codeium/windsurf/skills/',
     projectPath: '.codeium/windsurf/skills/',
-    enabled: true, detected: false,
+    enabled: true,
+    detected: false,
   },
   {
     id: 'kiro',
@@ -81,7 +94,8 @@ export const defaultPlatforms: PlatformInfo[] = [
     skillsRelativePath: 'skills',
     defaultPath: '~/.kiro/skills/',
     projectPath: '.kiro/skills/',
-    enabled: true, detected: false,
+    enabled: true,
+    detected: false,
   },
   {
     id: 'gemini',
@@ -90,7 +104,8 @@ export const defaultPlatforms: PlatformInfo[] = [
     skillsRelativePath: 'skills',
     defaultPath: '~/.gemini/skills/',
     projectPath: '.gemini/skills/',
-    enabled: true, detected: false,
+    enabled: true,
+    detected: false,
   },
   {
     id: 'antigravity',
@@ -99,7 +114,8 @@ export const defaultPlatforms: PlatformInfo[] = [
     skillsRelativePath: 'skills',
     defaultPath: '~/.gemini/antigravity/skills/',
     projectPath: '.gemini/antigravity/skills/',
-    enabled: true, detected: false,
+    enabled: true,
+    detected: false,
   },
   {
     id: 'trae',
@@ -108,7 +124,8 @@ export const defaultPlatforms: PlatformInfo[] = [
     skillsRelativePath: 'skills',
     defaultPath: '~/.trae/skills/',
     projectPath: '.trae/skills/',
-    enabled: true, detected: false,
+    enabled: true,
+    detected: false,
   },
   {
     id: 'trae-cn',
@@ -117,7 +134,8 @@ export const defaultPlatforms: PlatformInfo[] = [
     skillsRelativePath: 'skills',
     defaultPath: '~/.trae-cn/skills/',
     projectPath: '.trae-cn/skills/',
-    enabled: true, detected: false,
+    enabled: true,
+    detected: false,
   },
   {
     id: 'opencode',
@@ -126,7 +144,8 @@ export const defaultPlatforms: PlatformInfo[] = [
     skillsRelativePath: 'skills',
     defaultPath: '~/.config/opencode/skills/',
     projectPath: '.opencode/skills/',
-    enabled: true, detected: false,
+    enabled: true,
+    detected: false,
   },
   {
     id: 'mimo',
@@ -135,7 +154,8 @@ export const defaultPlatforms: PlatformInfo[] = [
     skillsRelativePath: 'skills',
     defaultPath: '~/.config/mimocode/skills/',
     projectPath: '.mimocode/skills/',
-    enabled: true, detected: false,
+    enabled: true,
+    detected: false,
   },
   {
     id: 'cline',
@@ -144,7 +164,8 @@ export const defaultPlatforms: PlatformInfo[] = [
     skillsRelativePath: 'skills',
     defaultPath: '~/.cline/skills/',
     projectPath: '.cline/skills/',
-    enabled: true, detected: false,
+    enabled: true,
+    detected: false,
   },
   {
     id: 'codex',
@@ -153,7 +174,8 @@ export const defaultPlatforms: PlatformInfo[] = [
     skillsRelativePath: 'skills',
     defaultPath: '~/.codex/skills/',
     projectPath: '.codex/skills/',
-    enabled: true, detected: false,
+    enabled: true,
+    detected: false,
   },
   {
     id: 'kilo',
@@ -162,7 +184,8 @@ export const defaultPlatforms: PlatformInfo[] = [
     skillsRelativePath: 'skills',
     defaultPath: '~/.kilo/skills/',
     projectPath: '.kilo/skills/',
-    enabled: true, detected: false,
+    enabled: true,
+    detected: false,
   },
   {
     id: 'openclaw',
@@ -171,7 +194,8 @@ export const defaultPlatforms: PlatformInfo[] = [
     skillsRelativePath: 'skills',
     defaultPath: '~/.openclaw/skills/',
     projectPath: '.openclaw/skills/',
-    enabled: true, detected: false,
+    enabled: true,
+    detected: false,
   },
   {
     id: 'qoder',
@@ -180,7 +204,8 @@ export const defaultPlatforms: PlatformInfo[] = [
     skillsRelativePath: 'skills',
     defaultPath: '~/.qoder/skills/',
     projectPath: '.qoder/skills/',
-    enabled: true, detected: false,
+    enabled: true,
+    detected: false,
   },
   {
     id: 'hermes',
@@ -189,7 +214,8 @@ export const defaultPlatforms: PlatformInfo[] = [
     skillsRelativePath: 'skills',
     defaultPath: '~/.hermes/skills/',
     projectPath: '.hermes/skills/',
-    enabled: true, detected: false,
+    enabled: true,
+    detected: false,
   },
   {
     id: 'codebuddy',
@@ -198,7 +224,8 @@ export const defaultPlatforms: PlatformInfo[] = [
     skillsRelativePath: 'skills',
     defaultPath: '~/.codebuddy/skills/',
     projectPath: '.codebuddy/skills/',
-    enabled: true, detected: false,
+    enabled: true,
+    detected: false,
   },
 ]
 
@@ -228,8 +255,6 @@ export function getPlatformPath(platform: PlatformInfo, mode: 'global' | 'projec
     const root = resolveRootDir(platform).replace(/^~/, svc ? svc.homeDir() : '~')
     return joinPath(root, platform.skillsRelativePath)
   }
-  const base = mode === 'global'
-    ? platform.customPath || platform.defaultPath
-    : platform.customProjectPath || platform.projectPath
+  const base = mode === 'global' ? platform.customPath || platform.defaultPath : platform.customProjectPath || platform.projectPath
   return base ? base.replace(/^~/, svc ? svc.homeDir() : '~') : ''
 }

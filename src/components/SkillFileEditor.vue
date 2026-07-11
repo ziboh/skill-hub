@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, nextTick, inject } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, inject } from 'vue'
 import { KeyShowToast } from '../inject-keys'
 import SkillCodeEditor from './SkillCodeEditor.vue'
+import { safeJoin } from '../utils/fs-ops'
 
 interface FileTreeEntry {
   path: string
@@ -23,7 +24,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  'saved': []
+  saved: []
 }>()
 
 const showToast = inject(KeyShowToast, () => {})
@@ -81,7 +82,30 @@ function formatSize(bytes: number): string {
 function isEditableFile(path: string): boolean {
   const fileName = path.split('/').pop()?.toLowerCase() || ''
   const ext = fileName.includes('.') ? fileName.split('.').pop() || '' : ''
-  const binaryExts = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'ico', 'woff', 'woff2', 'ttf', 'eot', 'zip', 'tar', 'gz', 'exe', 'dll', 'so', 'dylib', 'pdf', 'mp3', 'mp4', 'wav', 'avi']
+  const binaryExts = [
+    'png',
+    'jpg',
+    'jpeg',
+    'gif',
+    'svg',
+    'ico',
+    'woff',
+    'woff2',
+    'ttf',
+    'eot',
+    'zip',
+    'tar',
+    'gz',
+    'exe',
+    'dll',
+    'so',
+    'dylib',
+    'pdf',
+    'mp3',
+    'mp4',
+    'wav',
+    'avi',
+  ]
   return !binaryExts.includes(ext)
 }
 
@@ -175,7 +199,7 @@ function cancelSwitch() {
 async function loadFileContent(relativePath: string) {
   if (relativePath in loadedFiles.value) return
   try {
-    const fullPath = window.services.pathJoin(props.skillDir, relativePath)
+    const fullPath = safeJoin(props.skillDir, relativePath)
     const stat = window.services.stat(fullPath)
     if (stat.isDirectory) {
       loadedFiles.value[relativePath] = {
@@ -216,7 +240,7 @@ async function saveCurrentFile() {
   isSaving.value = true
   try {
     const content = modifiedFiles.value[selectedFile.value]
-    const fullPath = window.services.pathJoin(props.skillDir, selectedFile.value)
+    const fullPath = safeJoin(props.skillDir, selectedFile.value)
     window.services.writeFile(fullPath, content)
     loadedFiles.value[selectedFile.value] = {
       path: selectedFile.value,
@@ -238,7 +262,7 @@ async function handleNewFile() {
   const name = dialogInput.value.trim()
   if (!name) return
   try {
-    const fullPath = window.services.pathJoin(props.skillDir, name)
+    const fullPath = safeJoin(props.skillDir, name)
     window.services.writeFile(fullPath, '')
     newFileDialogOpen.value = false
     dialogInput.value = ''
@@ -258,7 +282,7 @@ async function handleNewFolder() {
   const name = dialogInput.value.trim()
   if (!name) return
   try {
-    const fullPath = window.services.pathJoin(props.skillDir, name)
+    const fullPath = safeJoin(props.skillDir, name)
     window.services.mkdir(fullPath)
     newFolderDialogOpen.value = false
     dialogInput.value = ''
@@ -272,7 +296,7 @@ async function handleNewFolder() {
 async function handleDelete() {
   if (!deleteDialogFile.value) return
   try {
-    const fullPath = window.services.pathJoin(props.skillDir, deleteDialogFile.value)
+    const fullPath = safeJoin(props.skillDir, deleteDialogFile.value)
     window.services.removeFile(fullPath)
     if (selectedFile.value === deleteDialogFile.value) {
       selectedFile.value = null
@@ -303,12 +327,15 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyDown)
 })
 
-watch(() => props.skillDir, () => {
-  selectedFile.value = null
-  loadedFiles.value = {}
-  modifiedFiles.value = {}
-  loadFiles()
-})
+watch(
+  () => props.skillDir,
+  () => {
+    selectedFile.value = null
+    loadedFiles.value = {}
+    modifiedFiles.value = {}
+    loadFiles()
+  },
+)
 
 function toggleExpand(item: FileTreeEntry) {
   item.expanded = !item.expanded
@@ -337,39 +364,106 @@ function getFileIcon(name: string, isDir: boolean, expanded?: boolean): string {
         <span class="tree-title">文件</span>
         <div class="tree-actions">
           <button class="tree-btn" @click="openInExplorer" title="在文件浏览器中打开">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+              <polyline points="15 3 21 3 21 9" />
+              <line x1="10" y1="14" x2="21" y2="3" />
+            </svg>
           </button>
-          <button class="tree-btn" @click="dialogInput = ''; newFileDialogOpen = true" title="新建文件">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+          <button class="tree-btn" title="新建文件" @click="((dialogInput = ''), (newFileDialogOpen = true))">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="12" y1="18" x2="12" y2="12" />
+              <line x1="9" y1="15" x2="15" y2="15" />
+            </svg>
           </button>
-          <button class="tree-btn" @click="dialogInput = ''; newFolderDialogOpen = true" title="新建文件夹">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
+          <button class="tree-btn" title="新建文件夹" @click="((dialogInput = ''), (newFolderDialogOpen = true))">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+              <line x1="12" y1="11" x2="12" y2="17" />
+              <line x1="9" y1="14" x2="15" y2="14" />
+            </svg>
           </button>
         </div>
       </div>
 
       <div class="tree-list">
         <div v-if="isLoading" class="tree-loading">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            class="spin"
+          >
+            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+          </svg>
         </div>
         <div v-else-if="files.length === 0" class="tree-empty">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          <svg
+            width="32"
+            height="32"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+          </svg>
           <span>暂无文件</span>
         </div>
         <template v-else>
           <template v-for="item in files" :key="item.relativePath">
             <!-- Directory -->
             <div v-if="item.isDirectory" class="tree-item-group">
-              <button
-                class="tree-item directory"
-                @click="toggleExpand(item)"
-              >
+              <button class="tree-item directory" @click="toggleExpand(item)">
                 <svg
-                  width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
                   class="chevron"
                   :class="{ expanded: item.expanded }"
                 >
-                  <polyline points="9 18 15 12 9 6"/>
+                  <polyline points="9 18 15 12 9 6" />
                 </svg>
                 <span class="item-icon">{{ getFileIcon(item.relativePath, true, item.expanded) }}</span>
                 <span class="item-name">{{ item.relativePath.split('/').pop() }}</span>
@@ -416,37 +510,75 @@ function getFileIcon(name: string, isDir: boolean, expanded?: boolean): string {
             <span v-if="isModified" class="modified-dot" />
           </div>
           <div class="editor-actions">
-            <button
-              v-if="isModified"
-              class="editor-btn"
-              @click="saveCurrentFile"
-              :disabled="isSaving"
-              title="保存 (Ctrl+S)"
-            >
-              <svg v-if="isSaving" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-              <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            <button v-if="isModified" class="editor-btn" :disabled="isSaving" title="保存 (Ctrl+S)" @click="saveCurrentFile">
+              <svg
+                v-if="isSaving"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                class="spin"
+              >
+                <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+              </svg>
+              <svg
+                v-else
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                <polyline points="17 21 17 13 7 13 7 21" />
+                <polyline points="7 3 7 8 15 8" />
+              </svg>
               {{ isSaving ? '保存中...' : '保存' }}
             </button>
-            <button
-              class="editor-btn delete-btn"
-              @click="deleteDialogFile = selectedFile"
-              title="删除文件"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+            <button class="editor-btn delete-btn" @click="deleteDialogFile = selectedFile" title="删除文件">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M3 6h18" />
+                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+              </svg>
             </button>
           </div>
         </div>
 
         <!-- Code editor -->
         <div v-if="isEditableFile(selectedFile)" class="editor-content">
-          <SkillCodeEditor
-            :model-value="currentContent"
-            :language="currentLanguage"
-            @update:model-value="handleContentChange"
-          />
+          <SkillCodeEditor :model-value="currentContent" :language="currentLanguage" @update:model-value="handleContentChange" />
         </div>
         <div v-else class="editor-readonly">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          <svg
+            width="48"
+            height="48"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+          </svg>
           <p>此文件类型不支持编辑</p>
         </div>
 
@@ -462,7 +594,18 @@ function getFileIcon(name: string, isDir: boolean, expanded?: boolean): string {
         </div>
       </template>
       <div v-else class="editor-empty">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        <svg
+          width="48"
+          height="48"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+        </svg>
         <p>选择一个文件进行编辑</p>
       </div>
     </div>
@@ -475,9 +618,9 @@ function getFileIcon(name: string, isDir: boolean, expanded?: boolean): string {
           v-model="dialogInput"
           class="dialog-input"
           placeholder="输入文件名，如 helpers/utils.py"
+          autofocus
           @keydown.enter="handleNewFile"
           @keydown.escape="newFileDialogOpen = false"
-          autofocus
         />
         <div class="dialog-actions">
           <button class="dialog-btn cancel" @click="newFileDialogOpen = false">取消</button>
@@ -494,9 +637,9 @@ function getFileIcon(name: string, isDir: boolean, expanded?: boolean): string {
           v-model="dialogInput"
           class="dialog-input"
           placeholder="输入文件夹名"
+          autofocus
           @keydown.enter="handleNewFolder"
           @keydown.escape="newFolderDialogOpen = false"
-          autofocus
         />
         <div class="dialog-actions">
           <button class="dialog-btn cancel" @click="newFolderDialogOpen = false">取消</button>
@@ -521,7 +664,9 @@ function getFileIcon(name: string, isDir: boolean, expanded?: boolean): string {
     <div v-if="deleteDialogFile" class="dialog-overlay" @click.self="deleteDialogFile = null">
       <div class="dialog">
         <h3>确认删除</h3>
-        <p class="dialog-desc">确定要删除 <strong>{{ deleteDialogFile }}</strong> 吗？此操作不可撤销。</p>
+        <p class="dialog-desc">
+          确定要删除 <strong>{{ deleteDialogFile }}</strong> 吗？此操作不可撤销。
+        </p>
         <div class="dialog-actions">
           <button class="dialog-btn cancel" @click="deleteDialogFile = null">取消</button>
           <button class="dialog-btn danger" @click="handleDelete">删除</button>
@@ -906,6 +1051,12 @@ function getFileIcon(name: string, isDir: boolean, expanded?: boolean): string {
   opacity: 0.9;
 }
 
-@keyframes spin { to { transform: rotate(360deg); } }
-.spin { animation: spin 0.7s linear infinite; }
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.spin {
+  animation: spin 0.7s linear infinite;
+}
 </style>

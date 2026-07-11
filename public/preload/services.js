@@ -15,6 +15,170 @@ function expandPath(p) {
   return p.replace(/^~/, homeDir())
 }
 
+/** Resolve path under base; throw if result escapes base (Zip Slip / absolute / ..). */
+function safeResolveWithin(base, ...parts) {
+  if (!base) throw new Error('safeJoin: base is required')
+  const fullBase = path.resolve(expandPath(base))
+  for (const part of parts) {
+    if (part == null || part === '') continue
+    const s = String(part)
+    if (path.isAbsolute(s) || path.win32.isAbsolute(s)) {
+      throw new Error(`Path escapes base directory: "${s}"`)
+    }
+  }
+  const resolved = path.resolve(fullBase, ...parts.map((p) => String(p)))
+  const rel = path.relative(fullBase, resolved)
+  if (rel.startsWith('..') || path.isAbsolute(rel) || path.win32.isAbsolute(rel)) {
+    throw new Error(`Path escapes base directory: "${parts.filter(Boolean).join('/')}"`)
+  }
+  return resolved
+}
+
+// --- Write-root whitelist (mutating FS only) ---
+const _bootstrapRoots = new Set()
+const _dynamicRoots = new Set()
+let _rootsBootstrapped = false
+
+function _normRootKey(p) {
+  const full = path.resolve(expandPath(p))
+  return process.platform === 'win32' ? full.toLowerCase() : full
+}
+
+function _addRootTo(set, p) {
+  if (!p) return
+  try {
+    const full = path.resolve(expandPath(String(p)))
+    if (full) set.add(full)
+  } catch {}
+}
+
+function ensureBootstrapRoots() {
+  if (_rootsBootstrapped) return
+  _rootsBootstrapped = true
+  try {
+    const ud = typeof window !== 'undefined' && window.ztools?.getPath?.('userData')
+    if (ud) _addRootTo(_bootstrapRoots, ud)
+  } catch {}
+  _addRootTo(_bootstrapRoots, path.join(homeDir(), '.cache', 'skill-hub'))
+  _addRootTo(_bootstrapRoots, path.join(os.tmpdir(), 'skill-hub'))
+}
+
+function getAllowedWriteRoots() {
+  ensureBootstrapRoots()
+  return [..._bootstrapRoots, ..._dynamicRoots]
+}
+
+function isUnderAllowedRoot(filePath) {
+  const full = path.resolve(expandPath(filePath))
+  const key = process.platform === 'win32' ? full.toLowerCase() : full
+  for (const root of getAllowedWriteRoots()) {
+    const rk = process.platform === 'win32' ? root.toLowerCase() : root
+    if (key === rk || key.startsWith(rk + path.sep)) return true
+  }
+  return false
+}
+
+/** Resolve and assert path is under an allowed write root. Returns absolute path. */
+function assertWritable(filePath) {
+  const full = path.resolve(expandPath(filePath))
+  if (!isUnderAllowedRoot(full)) {
+    throw new Error(`Write blocked: path is outside allowed roots: ${full}`)
+  }
+  return full
+}
+
+/** Atomically replace targetDir with contents of sourceDir (copy). Keeps old dir until new is ready. */
+function doAtomicReplaceDir(sourceDir, targetDir) {
+  const fullSrc = expandPath(sourceDir)
+  const fullTarget = assertWritable(targetDir)
+  assertWritable(path.dirname(fullTarget))
+  if (!fs.existsSync(fullSrc)) {
+    throw new Error(`atomicReplaceDir: source does not exist: ${fullSrc}`)
+  }
+  const hasSkill = ['SKILL.md', 'skill.md'].some((f) => fs.existsSync(path.join(fullSrc, f)))
+  if (!hasSkill) {
+    throw new Error('SKILL.md not found in source directory')
+  }
+  const staging = fullTarget + `.tmp.${Date.now()}`
+  const bak = fullTarget + `.bak.${Date.now()}`
+  assertWritable(staging)
+  assertWritable(bak)
+  try {
+    fs.cpSync(fullSrc, staging, { recursive: true, dereference: true })
+    const stagingOk = ['SKILL.md', 'skill.md'].some((f) => fs.existsSync(path.join(staging, f)))
+    if (!stagingOk) {
+      throw new Error('SKILL.md missing after copy to staging')
+    }
+    if (fs.existsSync(fullTarget)) {
+      fs.renameSync(fullTarget, bak)
+    } else {
+      fs.mkdirSync(path.dirname(fullTarget), { recursive: true })
+    }
+    try {
+      fs.renameSync(staging, fullTarget)
+    } catch {
+      fs.cpSync(staging, fullTarget, { recursive: true, dereference: true })
+      fs.rmSync(staging, { recursive: true, force: true })
+    }
+    if (fs.existsSync(bak)) {
+      fs.rmSync(bak, { recursive: true, force: true })
+    }
+  } catch (err) {
+    try { if (fs.existsSync(staging)) fs.rmSync(staging, { recursive: true, force: true }) } catch {}
+    try {
+      if (fs.existsSync(bak) && !fs.existsSync(fullTarget)) {
+        fs.renameSync(bak, fullTarget)
+      }
+    } catch {}
+    throw err
+  }
+}
+
+/** Write relative files under base into a staging dir, then atomically swap into targetDir. */
+function doAtomicWriteDir(targetDir, files) {
+  const fullTarget = assertWritable(targetDir)
+  assertWritable(path.dirname(fullTarget))
+  const staging = fullTarget + `.tmp.${Date.now()}`
+  const bak = fullTarget + `.bak.${Date.now()}`
+  assertWritable(staging)
+  assertWritable(bak)
+  fs.mkdirSync(staging, { recursive: true })
+  try {
+    const entries = files instanceof Map ? files.entries() : Object.entries(files)
+    for (const [rel, content] of entries) {
+      const full = safeResolveWithin(staging, rel)
+      fs.mkdirSync(path.dirname(full), { recursive: true })
+      fs.writeFileSync(full, content, { encoding: 'utf-8' })
+    }
+    const hasSkill = ['SKILL.md', 'skill.md'].some((f) => fs.existsSync(path.join(staging, f)))
+    if (!hasSkill) {
+      throw new Error('SKILL.md not found in downloaded files')
+    }
+    if (fs.existsSync(fullTarget)) {
+      fs.renameSync(fullTarget, bak)
+    } else {
+      fs.mkdirSync(path.dirname(fullTarget), { recursive: true })
+    }
+    try {
+      fs.renameSync(staging, fullTarget)
+    } catch {
+      fs.cpSync(staging, fullTarget, { recursive: true, dereference: true })
+      fs.rmSync(staging, { recursive: true, force: true })
+    }
+    if (fs.existsSync(bak)) {
+      fs.rmSync(bak, { recursive: true, force: true })
+    }
+  } catch (err) {
+    try { if (fs.existsSync(staging)) fs.rmSync(staging, { recursive: true, force: true }) } catch {}
+    try {
+      if (fs.existsSync(bak) && !fs.existsSync(fullTarget)) {
+        fs.renameSync(bak, fullTarget)
+      }
+    } catch {}
+    throw err
+  }
+}
+
 function isWindows() {
   return process.platform === 'win32'
 }
@@ -71,52 +235,6 @@ function _downloadFileInternal(url, token, redirectCount) {
         const chunks = []
         res.on('data', (c) => chunks.push(c))
         res.on('end', () => resolve(Buffer.concat(chunks)))
-        res.on('error', reject)
-      }).on('error', (err) => {
-        if (retriesLeft > 0) {
-          _sleep(2000).then(() => doRequest(retriesLeft - 1))
-        } else {
-          reject(err)
-        }
-      })
-    }
-
-    _rateLimitWait().then(() => doRequest(2))
-  })
-}
-
-function _fetchGitHubTextInternal(url, token, redirectCount) {
-  return new Promise((resolve, reject) => {
-    if (redirectCount > 5) {
-      return reject(new Error('Too many redirects'))
-    }
-    const headers = {
-      Accept: 'application/vnd.github.v3.raw',
-      'User-Agent': 'skill-hub',
-    }
-    if (token) headers['Authorization'] = `Bearer ${token}`
-    const client = url.startsWith('https') ? https : http
-
-    function doRequest(retriesLeft) {
-      client.get(url, { headers }, (res) => {
-        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          return resolve(_fetchGitHubTextInternal(res.headers.location, token, redirectCount + 1))
-        }
-        _updateRateLimit(res.headers)
-
-        if ((res.statusCode === 429 || res.statusCode === 403) && retriesLeft > 0) {
-          res.resume()
-          const retryAfter = res.headers['retry-after']
-          const waitMs = retryAfter ? Number(retryAfter) * 1000 : (4 - retriesLeft) * 2000
-          return _sleep(Math.min(waitMs, 30000)).then(() => doRequest(retriesLeft - 1))
-        }
-
-        let data = ''
-        res.on('data', (c) => (data += c))
-        res.on('end', () => {
-          if (res.statusCode !== 200) reject(new Error(`GitHub raw: ${res.statusCode}`))
-          else resolve(data)
-        })
         res.on('error', reject)
       }).on('error', (err) => {
         if (retriesLeft > 0) {
@@ -198,6 +316,33 @@ window.services = {
   isWindows,
   isMacOS,
   pathJoin: (...parts) => path.join(...parts),
+  safeJoin(base, ...parts) {
+    return safeResolveWithin(base, ...parts)
+  },
+  /** Replace dynamic allowed write roots (projects, platforms). Bootstrap roots always kept. */
+  setAllowedWriteRoots(paths) {
+    _dynamicRoots.clear()
+    ensureBootstrapRoots()
+    if (Array.isArray(paths)) {
+      for (const p of paths) _addRootTo(_dynamicRoots, p)
+    }
+  },
+  getAllowedWriteRoots() {
+    return getAllowedWriteRoots()
+  },
+  isPathWritable(filePath) {
+    try {
+      return isUnderAllowedRoot(filePath)
+    } catch {
+      return false
+    }
+  },
+  atomicReplaceDir(sourceDir, targetDir) {
+    doAtomicReplaceDir(sourceDir, targetDir)
+  },
+  atomicWriteDir(targetDir, files) {
+    doAtomicWriteDir(targetDir, files)
+  },
   pathExists(p) {
     const full = expandPath(p)
     try {
@@ -208,7 +353,8 @@ window.services = {
     }
   },
   mkdir(dir) {
-    fs.mkdirSync(expandPath(dir), { recursive: true })
+    const full = assertWritable(dir)
+    fs.mkdirSync(full, { recursive: true })
   },
   openFolder(dir) {
     const fullPath = expandPath(dir)
@@ -242,12 +388,14 @@ window.services = {
     }
   },
   writeFile(filePath, content) {
-    const full = expandPath(filePath)
-    this.mkdir(path.dirname(full))
+    const full = assertWritable(filePath)
+    const parent = path.dirname(full)
+    assertWritable(parent)
+    fs.mkdirSync(parent, { recursive: true })
     fs.writeFileSync(full, content, { encoding: 'utf-8' })
   },
   removeFile(filePath) {
-    const full = expandPath(filePath)
+    const full = assertWritable(filePath)
     try {
       fs.lstatSync(full)
       fs.rmSync(full, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })
@@ -263,9 +411,14 @@ window.services = {
   removeEmptyAncestors(filePath) {
     const full = expandPath(filePath)
     if (!full) return
-    const stopDir = expandPath(path.join(window.ztools.getPath('userData'), 'skills-repo'))
+    const stopDir = path.resolve(expandPath(path.join(window.ztools.getPath('userData'), 'skills-repo')))
+    if (!isUnderAllowedRoot(full) && !isUnderAllowedRoot(path.dirname(full))) return
     let dir = path.dirname(full)
-    while (dir.length >= stopDir.length && dir.startsWith(stopDir)) {
+    const stopKey = process.platform === 'win32' ? stopDir.toLowerCase() : stopDir
+    while (true) {
+      const dirKey = process.platform === 'win32' ? dir.toLowerCase() : dir
+      if (dirKey.length < stopKey.length || !(dirKey === stopKey || dirKey.startsWith(stopKey + path.sep))) break
+      if (dirKey === stopKey) break
       try {
         const entries = fs.readdirSync(dir)
         if (entries.length === 0) {
@@ -281,9 +434,11 @@ window.services = {
   },
   copyFile(src, dest) {
     const fullSrc = expandPath(src)
-    const fullDest = expandPath(dest)
-    this.mkdir(path.dirname(fullDest))
+    const fullDest = assertWritable(dest)
+    assertWritable(path.dirname(fullDest))
+    fs.mkdirSync(path.dirname(fullDest), { recursive: true })
     const tempDest = fullDest + `.tmp.${Date.now()}`
+    assertWritable(tempDest)
     try {
       fs.cpSync(fullSrc, tempDest, { recursive: true, dereference: true })
       try { fs.rmSync(fullDest, { recursive: true, force: true }) } catch {}
@@ -330,8 +485,9 @@ window.services = {
   // === Symlink 支持 ===
   createSymlink(target, linkPath) {
     const fullTarget = expandPath(target)
-    const fullLink = expandPath(linkPath)
-    this.mkdir(path.dirname(fullLink))
+    const fullLink = assertWritable(linkPath)
+    assertWritable(path.dirname(fullLink))
+    fs.mkdirSync(path.dirname(fullLink), { recursive: true })
     try {
       fs.lstatSync(fullLink)
       fs.rmSync(fullLink, { recursive: true })
@@ -356,20 +512,17 @@ window.services = {
   downloadFile(url, token) {
     return _downloadFileInternal(url, token, 0)
   },
-  fetchGitHubText(url, token) {
-    return _fetchGitHubTextInternal(url, token, 0)
-  },
-
   // === 压缩包解压 ===
   extractBufferZip(buffer, dest) {
-    const fullDest = expandPath(dest)
-    this.mkdir(fullDest)
+    const fullDest = assertWritable(dest)
+    fs.mkdirSync(fullDest, { recursive: true })
     const zip = new AdmZip(Buffer.from(buffer))
     const entries = zip.getEntries()
     for (const entry of entries) {
       const entryPath = entry.entryName
-      const resolved = path.resolve(fullDest, entryPath)
-      if (!resolved.startsWith(fullDest + path.sep) && resolved !== fullDest) {
+      try {
+        safeResolveWithin(fullDest, entryPath)
+      } catch {
         throw new Error(`Zip Slip detected: "${entryPath}" escapes destination`)
       }
     }
@@ -435,38 +588,6 @@ window.services = {
     return { content, manifest: parseSkillFrontmatter(content) }
   },
 
-  // === GitHub JSON API ===
-  fetchGitHubJSON(url, token) {
-    return _fetchGitHubJSONInternal(url, token, 0)
-  },
-
-  // === Skill Update Check ===
-  async checkSkillUpdate(repo, skillPath, token, branch) {
-    const pathCandidates = [
-      skillPath ? `${skillPath}/SKILL.md` : null,
-      skillPath ? `skills/${skillPath}/SKILL.md` : null,
-      skillPath ? `agent-skills/${skillPath}/SKILL.md` : null,
-      'SKILL.md',
-    ].filter(Boolean)
-    const branches = branch ? [branch, 'main', 'master'] : ['main', 'master']
-    const tried = new Set()
-    for (const b of branches) {
-      if (tried.has(b)) continue
-      tried.add(b)
-      for (const p of pathCandidates) {
-        const url = `https://raw.githubusercontent.com/${repo}/${b}/${p}`
-        try {
-          const text = await this.fetchGitHubText(url, token)
-          return text
-        } catch (err) {
-          if (err.message?.includes('404')) continue
-          throw err
-        }
-      }
-    }
-    return null
-  },
-
   // === Full Skill Update Check (all files) ===
   async getLatestCommitSha(repo, branch, token) {
     const branches = branch ? [branch, 'main', 'master'] : ['main', 'master']
@@ -475,7 +596,7 @@ window.services = {
       if (tried.has(b)) continue
       tried.add(b)
       try {
-        const data = await this.fetchGitHubJSON(`https://api.github.com/repos/${repo}/commits/${b}`, token)
+        const data = await _fetchGitHubJSONInternal(`https://api.github.com/repos/${repo}/commits/${b}`, token, 0)
         return data.sha
       } catch (err) {
         if (err.message?.includes('404') && b !== branches[branches.length - 1]) continue
@@ -497,7 +618,7 @@ window.services = {
       // Get commit to find tree SHA
       let treeSha
       try {
-        const commit = await this.fetchGitHubJSON(`https://api.github.com/repos/${repo}/commits/${b}`, token)
+        const commit = await _fetchGitHubJSONInternal(`https://api.github.com/repos/${repo}/commits/${b}`, token, 0)
         treeSha = commit.commit?.tree?.sha || commit.sha
       } catch (err) {
         if (err.message?.includes('404') && b !== branches[branches.length - 1]) continue
@@ -506,9 +627,10 @@ window.services = {
       // Try each path candidate against the tree
       for (const p of pathCandidates) {
         try {
-          const data = await this.fetchGitHubJSON(
+          const data = await _fetchGitHubJSONInternal(
             `https://api.github.com/repos/${repo}/git/trees/${treeSha}?recursive=1`,
-            token
+            token,
+            0
           )
           if (data && data.tree) {
             const prefix = p ? `${p}/` : ''
@@ -530,8 +652,9 @@ window.services = {
   },
 
   saveSkillMeta(skillDir, meta) {
-    const metaPath = path.join(expandPath(skillDir), '.skill-meta.json')
     try {
+      const metaPath = path.join(assertWritable(skillDir), '.skill-meta.json')
+      assertWritable(metaPath)
       fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), { encoding: 'utf-8' })
     } catch {}
   },
@@ -659,10 +782,11 @@ window.services = {
       if (fs.existsSync(candidate)) { skillSourceDir = candidate; break }
     }
     if (!skillSourceDir) { fs.rmSync(extractDir, { recursive: true }); return false }
-    if (fs.existsSync(targetDir)) fs.rmSync(targetDir, { recursive: true })
-    fs.mkdirSync(targetDir, { recursive: true })
-    this.copyFile(skillSourceDir, targetDir)
-    fs.rmSync(extractDir, { recursive: true })
+    try {
+      doAtomicReplaceDir(skillSourceDir, targetDir)
+    } finally {
+      try { fs.rmSync(extractDir, { recursive: true, force: true }) } catch {}
+    }
 
     // Save skill meta for future update checks
     try {
@@ -700,60 +824,72 @@ function parseSkillFrontmatter(content) {
       const [, key, val] = kv
       if (key === 'tags') {
         manifest.tags = val.replace(/[[\]']/g, '').split(',').map((t) => t.trim()).filter(Boolean)
-      } else if (key === 'name') manifest.name = val.trim()
+      } else if (key === 'name') {
+        let n = val.trim()
+        if ((n.startsWith('"') && n.endsWith('"')) || (n.startsWith("'") && n.endsWith("'"))) {
+          n = n.slice(1, -1)
+        }
+        manifest.name = n
+      }
       else if (key === 'description') {
         let d = val.trim()
-        const blockMatch = d.match(/^([>|])([+-]?)$/)
-        if (blockMatch) {
-          const style = blockMatch[1]
-          const chomp = blockMatch[2]
-          const blockLines = []
-          i++
-          while (i < lines.length) {
-            const next = lines[i]
-            if (next === '' || next.startsWith(' ') || next.startsWith('\t')) {
-              blockLines.push(next.trimEnd())
-              i++
-            } else {
-              break
-            }
-          }
-          i--
-          if (style === '>') {
-            const paragraphs = []
-            let current = []
-            for (const bl of blockLines) {
-              if (bl === '') {
-                if (current.length) { paragraphs.push(current.join(' ')); current = [] }
-              } else {
-                current.push(bl)
-              }
-            }
-            if (current.length) paragraphs.push(current.join(' '))
-            d = paragraphs.join('\n\n')
-            if (chomp === '+' && blockLines.length > 0) {
-              const trailing = blockLines.reduce((n, l) => l === '' ? n + 1 : 0, 0)
-              for (let t = 0; t < trailing; t++) d += '\n'
-            }
-          } else {
-            d = blockLines.join('\n').trimEnd()
-          }
-        } else if (d === '' || d === '""' || d === "''") {
-          const nextIdx = i + 1
-          if (nextIdx < lines.length && (lines[nextIdx].startsWith(' ') || lines[nextIdx].startsWith('\t'))) {
+        if ((d.startsWith('"') && d.endsWith('"')) || (d.startsWith("'") && d.endsWith("'"))) {
+          d = d.slice(1, -1)
+        } else {
+          const blockMatch = d.match(/^([>|])([+-]?)$/)
+          if (blockMatch) {
+            const style = blockMatch[1]
+            const chomp = blockMatch[2]
             const blockLines = []
             i++
             while (i < lines.length) {
-              const curr = lines[i]
-              if (curr.startsWith(' ') || curr.startsWith('\t')) {
-                blockLines.push(curr.trimEnd())
+              const next = lines[i]
+              if (next === '' || next.startsWith(' ') || next.startsWith('\t')) {
+                blockLines.push(next.trimEnd())
                 i++
               } else {
                 break
               }
             }
             i--
-            d = blockLines.join(' ').replace(/\s+/g, ' ').trim()
+            if (style === '>') {
+              const paragraphs = []
+              let current = []
+              for (const bl of blockLines) {
+                if (bl === '') {
+                  if (current.length) { paragraphs.push(current.join(' ')); current = [] }
+                } else {
+                  current.push(bl)
+                }
+              }
+              if (current.length) paragraphs.push(current.join(' '))
+              d = paragraphs.join('\n\n')
+              if (chomp === '+' && blockLines.length > 0) {
+                const trailing = blockLines.reduce((n, l) => l === '' ? n + 1 : 0, 0)
+                for (let t = 0; t < trailing; t++) d += '\n'
+              }
+            } else {
+              d = blockLines.join('\n').trimEnd()
+            }
+          } else if (d === '' || d === '""' || d === "''") {
+            const nextIdx = i + 1
+            if (nextIdx < lines.length && (lines[nextIdx].startsWith(' ') || lines[nextIdx].startsWith('\t'))) {
+              const blockLines = []
+              i++
+              while (i < lines.length) {
+                const curr = lines[i]
+                if (curr.startsWith(' ') || curr.startsWith('\t')) {
+                  blockLines.push(curr.trimEnd())
+                  i++
+                } else {
+                  break
+                }
+              }
+              i--
+              d = blockLines.join(' ').replace(/\s+/g, ' ').trim()
+            } else if (d === '""' || d === "''") {
+              d = ''
+            }
           }
         }
         if (d.startsWith('[') && d.endsWith(']')) {
@@ -761,7 +897,13 @@ function parseSkillFrontmatter(content) {
         }
         manifest.description = d
       }
-      else if (key === 'author') manifest.author = val.trim()
+      else if (key === 'author') {
+        let a = val.trim()
+        if ((a.startsWith('"') && a.endsWith('"')) || (a.startsWith("'") && a.endsWith("'"))) {
+          a = a.slice(1, -1)
+        }
+        manifest.author = a
+      }
       else if (key === 'format') manifest.format = val.trim()
       else if (key === 'language') manifest.language = val.trim()
       i++

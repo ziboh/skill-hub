@@ -15,16 +15,21 @@ export function isSvgIcon(val: string | undefined | null): boolean {
 }
 
 export function isImageUrl(val: string | undefined | null): boolean {
-  return !!val && !val.startsWith('<svg') && !val.startsWith('data:')
-    && !isProviderIcon(val) && !isStoreIconKey(val)
-    && (val.startsWith('http') || val.includes('/'))
+  return (
+    !!val &&
+    !val.startsWith('<svg') &&
+    !val.startsWith('data:') &&
+    !isProviderIcon(val) &&
+    !isStoreIconKey(val) &&
+    (val.startsWith('http') || val.includes('/'))
+  )
 }
 
 export function getSourceInfo(skill: Skill, registry?: Map<string, SkillIdentity>): SourceInfo {
   if (registry) {
     const identity = registry.get(skill.canonicalId || skill.id)
     if (identity && identity.sources.length > 1) {
-      const labels = identity.sources.map(s => getSourceLabelFromLocation(s))
+      const labels = identity.sources.map((s) => getSourceLabelFromLocation(s))
       const uniqueLabels = [...new Set(labels)]
       return { label: uniqueLabels.join(' · '), icon: 'multi', color: '#8b5cf6', bg: '#ede9fe' }
     }
@@ -42,7 +47,7 @@ export function getSourceInfo(skill: Skill, registry?: Map<string, SkillIdentity
     if (skill.storeSourceId.startsWith('agent:')) {
       return { label: '本地', icon: 'folder', color: '#8b5cf6', bg: '#ede9fe' }
     }
-    const customStore = storage.getStoreSources().find(s => s.id === skill.storeSourceId)
+    const customStore = storage.getStoreSources().find((s) => s.id === skill.storeSourceId)
     if (customStore) {
       return { label: customStore.name, icon: getStoreIconFromSource(customStore), color: '#16a34a', bg: '#dcfce7' }
     }

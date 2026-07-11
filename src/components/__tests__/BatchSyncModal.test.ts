@@ -14,6 +14,7 @@ vi.mock('../../data/platforms', () => ({
     { id: 'windsurf', name: 'Windsurf', detected: true, defaultPath: '/mock/windsurf' },
     { id: 'cursor', name: 'Cursor', detected: true, defaultPath: '/mock/cursor' },
   ],
+  getPlatformPath: (p: { defaultPath?: string }) => p.defaultPath || '',
   defaultPlatforms: [],
 }))
 

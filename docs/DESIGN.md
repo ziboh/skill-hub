@@ -262,10 +262,10 @@ CommonJS 模块，暴露为 `window.services`。提供 Node.js 能力：
 | 文件系统 | `readFile`, `readFileText`, `writeFile`, `removeFile`, `copyFile`, `readDir`, `stat` |
 | 图标 | `saveIconFile`, `readFileAsDataUri` |
 | 符号链接 | `createSymlink`（Windows 使用 junction） |
-| 下载 | `downloadFile`, `fetchGitHubText`, `fetchGitHubJSON` |
+| 下载 | `downloadFile` |
 | 压缩 | `extractBufferZip`（AdmZip，含 zip-slip 防护） |
 | Skill 扫描 | `scanForSkills`, `scanForSkillFiles`, `parseSkillFile` |
-| GitHub | `checkSkillUpdate`, `updateSkillFromGitHub`, `getLatestCommitSha` |
+| GitHub | `checkSkillUpdateFull`, `updateSkillFromGitHub`, `getLatestCommitSha` |
 | 元数据 | `saveSkillMeta`, `loadSkillMeta`, `buildLocalFileManifest` |
 | 哈希 | `hashContent`（SHA-256） |
 

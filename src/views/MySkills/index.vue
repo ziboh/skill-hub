@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onActivated, onUnmounted, inject, watch, nextTick, reactive } from 'vue'
+import { ref, computed, onMounted, onActivated, onUnmounted, inject, watch, reactive } from 'vue'
 import { storage } from '../../utils/storage'
 import type { Skill, SkillIdentity } from '../../types'
-import { defaultPlatforms } from '../../data/platforms'
+import {} from '../../data/platforms'
 import { useSettings } from '../../composables/useSettings'
 import { useTheme } from '../../composables/useTheme'
 import { useFilteredSkills, SKILL_CATEGORIES, CATEGORY_ICONS } from '../../composables/useFilteredSkills'
@@ -14,12 +14,20 @@ import { loadRegistry, getSourceLabel as getRegistrySourceLabel } from '../../ut
 import { getSourceInfo as getSourceInfoUtil } from '../../utils/source-info'
 import { isChineseContent } from '../../utils/translate'
 import SkillCard from '../../components/SkillCard.vue'
-import { KeyFilterCategory, KeyFilterSource, KeyRefreshMySkills, KeyOpenImportModal, KeyCurrentRoute, KeyRefreshKey, KeyRefreshCounts } from '../../inject-keys'
+import {
+  KeyFilterCategory,
+  KeyFilterSource,
+  KeyRefreshMySkills,
+  KeyOpenImportModal,
+  KeyCurrentRoute,
+  KeyRefreshKey,
+  KeyRefreshCounts,
+} from '../../inject-keys'
 import { cacheVersion as translationCacheVersion } from '../../composables/useTranslationQueue'
 
 const emit = defineEmits(['navigate'])
 
-const { settings, updateSettings } = useSettings()
+const { settings: _settings, updateSettings: _updateSettings } = useSettings()
 
 const { isDarkMode, toggleTheme } = useTheme()
 
@@ -46,9 +54,10 @@ onActivated(() => {
   enrichLocalDescriptions()
 })
 
-
 const refreshKey = inject(KeyRefreshKey, ref(0))
-watch(refreshKey, () => { if (currentRoute.value === 'my') refreshData() })
+watch(refreshKey, () => {
+  if (currentRoute.value === 'my') refreshData()
+})
 
 watch(currentRoute, (r) => {
   if (r === 'my') refreshData()
@@ -75,9 +84,7 @@ async function enrichLocalDescriptions() {
 
 const distributedSkillIds = computed(() => storage.getDistributedSkillSet())
 
-const downloadedSkills = computed(() =>
-  allSkills.value.filter((s) => storage.isDownloaded(s.id))
-)
+const downloadedSkills = computed(() => allSkills.value.filter((s) => storage.isDownloaded(s.id)))
 
 const downloadedSkillStats = computed(() => {
   const list = downloadedSkills.value
@@ -106,12 +113,7 @@ const sourceCounts = computed(() => {
   return Array.from(map.entries())
 })
 
-const {
-  filteredSkills,
-  filteredBaseCount,
-  allUserTags,
-  getSkillCategory,
-} = useFilteredSkills({
+const { filteredSkills, filteredBaseCount, allUserTags, getSkillCategory } = useFilteredSkills({
   downloadedSkills: () => downloadedSkills.value,
   filterSource: () => filterSource.value,
   filterCategory: () => filterCategory.value,
@@ -121,34 +123,32 @@ const {
 })
 
 function getInstalledPlatforms(skillId: string): string[] {
-  return distributeRecords.value
-    .filter((r) => r.skillId === skillId && r.scope !== 'project')
-    .map((r) => r.platformId)
+  return distributeRecords.value.filter((r) => r.skillId === skillId && r.scope !== 'project').map((r) => r.platformId)
 }
 
 const iconRowCounts = reactive<Record<string, number>>({})
 const iconRowWidths = reactive<Record<string, number>>({})
 const iconObservers = new Map<string, ResizeObserver>()
 
-function getFirstRowIcons(skillId: string): string[] {
+function _getFirstRowIcons(skillId: string): string[] {
   const all = getInstalledPlatforms(skillId)
   const count = iconRowCounts[skillId]
   return count === undefined || count <= 0 ? all : all.slice(0, count)
 }
 
-function getSecondRowIcons(skillId: string): string[] {
+function _getSecondRowIcons(skillId: string): string[] {
   const all = getInstalledPlatforms(skillId)
   const count = iconRowCounts[skillId]
   if (count === undefined || count <= 0) return []
   return all.slice(count)
 }
 
-function hasSecondRow(skillId: string): boolean {
+function _hasSecondRow(skillId: string): boolean {
   const count = iconRowCounts[skillId]
   return count !== undefined && count > 0 && count < getInstalledPlatforms(skillId).length
 }
 
-function getSecondRowOffset(skillId: string): number {
+function _getSecondRowOffset(skillId: string): number {
   const count = iconRowCounts[skillId]
   const w = iconRowWidths[skillId]
   if (!count || !w) return 0
@@ -156,7 +156,7 @@ function getSecondRowOffset(skillId: string): number {
   return Math.max(0, w - iconsW)
 }
 
-function observeIconContainer(skillId: string, el: any) {
+function _observeIconContainer(skillId: string, el: any) {
   if (!el || !(el instanceof Element)) {
     if (!el) {
       iconObservers.get(skillId)?.disconnect()
@@ -184,8 +184,14 @@ onUnmounted(() => {
   iconObservers.clear()
 })
 
-function isFavorited(id: string) { return allSkills.value.find(s => s.id === id)?.isFavorited || false }
-function toggleFavorite(id: string) { storage.toggleFavorite(id); allSkills.value = storage.getCachedSkills(); refreshMySkills() }
+function isFavorited(id: string) {
+  return allSkills.value.find((s) => s.id === id)?.isFavorited || false
+}
+function toggleFavorite(id: string) {
+  storage.toggleFavorite(id)
+  allSkills.value = storage.getCachedSkills()
+  refreshMySkills()
+}
 function deleteSkill(skill: Skill) {
   deleteSkillTarget.value = skill
   showDeleteModal.value = true
@@ -204,10 +210,10 @@ function getSourceLabel(skill: Skill): string {
   return getSourceInfo(skill).label
 }
 
-function getAllSourceLabels(skill: Skill): string[] {
+function _getAllSourceLabels(skill: Skill): string[] {
   const identity = registry.value.get(skill.canonicalId || skill.id)
   if (identity) {
-    return [...new Set(identity.sources.map(s => getRegistrySourceLabel(s)))]
+    return [...new Set(identity.sources.map((s) => getRegistrySourceLabel(s)))]
   }
   return [getSourceInfo(skill).label]
 }
@@ -227,7 +233,11 @@ const translatedSkillIds = computed(() => {
 
   const caches = storage.getTranslationCaches()
 
-  const contentNames = new Set(Object.values(caches).map((e: any) => e.skillName).filter(Boolean))
+  const contentNames = new Set(
+    Object.values(caches)
+      .map((e: any) => e.skillName)
+      .filter(Boolean),
+  )
 
   const result = new Set<string>()
   for (const skill of allSkills.value) {
@@ -238,8 +248,6 @@ const translatedSkillIds = computed(() => {
   }
   return result
 })
-
-
 
 const showDeployModal = ref(false)
 const deploySkill = ref<Skill | null>(null)
@@ -293,19 +301,27 @@ const sourceFilterCount = computed(() => {
 
 const emptyMessage = computed(() => {
   switch (filterCategory.value) {
-    case 'favorites': return '暂无收藏的技能'
-    case 'distributed': return '暂无已分发的技能'
-    case 'pending': return '暂无待分发的技能'
-    default: return '暂无已下载的技能'
+    case 'favorites':
+      return '暂无收藏的技能'
+    case 'distributed':
+      return '暂无已分发的技能'
+    case 'pending':
+      return '暂无待分发的技能'
+    default:
+      return '暂无已下载的技能'
   }
 })
 
 const emptyHint = computed(() => {
   switch (filterCategory.value) {
-    case 'favorites': return '在技能卡片上点击星标即可收藏'
-    case 'distributed': return '在技能卡片上点击分发按钮即可分发到平台'
-    case 'pending': return '所有已下载的技能均已分发'
-    default: return null
+    case 'favorites':
+      return '在技能卡片上点击星标即可收藏'
+    case 'distributed':
+      return '在技能卡片上点击分发按钮即可分发到平台'
+    case 'pending':
+      return '所有已下载的技能均已分发'
+    default:
+      return null
   }
 })
 
@@ -333,13 +349,13 @@ const isAllSelected = computed(() => filteredSkills.value.length > 0 && selected
 
 const selectedAllFavorited = computed(() => {
   if (selectedIds.value.size === 0) return false
-  return Array.from(selectedIds.value).every((id) => allSkills.value.find(s => s.id === id)?.isFavorited)
+  return Array.from(selectedIds.value).every((id) => allSkills.value.find((s) => s.id === id)?.isFavorited)
 })
 
 function batchToggleFavorite() {
   const shouldFavorite = !selectedAllFavorited.value
   for (const id of selectedIds.value) {
-    const skill = allSkills.value.find(s => s.id === id)
+    const skill = allSkills.value.find((s) => s.id === id)
     const isFav = skill?.isFavorited || false
     if (shouldFavorite && !isFav) storage.toggleFavorite(id)
     else if (!shouldFavorite && isFav) storage.toggleFavorite(id)
@@ -381,42 +397,133 @@ function batchSyncToPlatform() {
       </div>
       <div class="header-toolbar">
         <button class="toolbar-btn add-skill-btn" title="新建 Skill" @click="openImportModal()">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M12 5v14M5 12h14" />
+          </svg>
           新建
         </button>
         <button class="toolbar-btn" :class="{ 'batch-active': batchMode }" :disabled="!filteredSkills.length" @click="toggleBatchMode">
-          <svg v-if="!batchMode" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+          <svg
+            v-if="!batchMode"
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <rect x="3" y="3" width="7" height="7" />
+            <rect x="14" y="3" width="7" height="7" />
+            <rect x="3" y="14" width="7" height="7" />
+            <rect x="14" y="14" width="7" height="7" />
           </svg>
-          <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          <svg
+            v-else
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
           </svg>
           批量管理
         </button>
         <div class="view-toggle">
           <button :class="{ active: viewMode === 'grid' }" @click="viewMode = 'grid'" title="网格视图">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <rect x="3" y="3" width="7" height="7" />
+              <rect x="14" y="3" width="7" height="7" />
+              <rect x="3" y="14" width="7" height="7" />
+              <rect x="14" y="14" width="7" height="7" />
             </svg>
           </button>
           <button :class="{ active: viewMode === 'list' }" @click="viewMode = 'list'" title="列表视图">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
-              <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <line x1="8" y1="6" x2="21" y2="6" />
+              <line x1="8" y1="12" x2="21" y2="12" />
+              <line x1="8" y1="18" x2="21" y2="18" />
+              <line x1="3" y1="6" x2="3.01" y2="6" />
+              <line x1="3" y1="12" x2="3.01" y2="12" />
+              <line x1="3" y1="18" x2="3.01" y2="18" />
             </svg>
           </button>
         </div>
         <button class="toolbar-icon-btn" title="刷新" @click="refreshData">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <polyline points="23 4 23 10 17 10" />
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
           </svg>
         </button>
         <button class="toolbar-icon-btn" @click="toggleTheme" :title="isDarkMode ? '切换亮色模式' : '切换暗色模式'">
-          <svg v-if="isDarkMode" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+          <svg
+            v-if="isDarkMode"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <circle cx="12" cy="12" r="5" />
+            <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
           </svg>
-          <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+          <svg
+            v-else
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
           </svg>
         </button>
       </div>
@@ -424,13 +531,18 @@ function batchSyncToPlatform() {
 
     <div class="filter-tabs-row">
       <div class="filter-tabs">
-        <button
-          class="tab-btn"
-          :class="{ active: filterCategory === 'all' }"
-          @click="filterCategory = 'all'"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        <button class="tab-btn" :class="{ active: filterCategory === 'all' }" @click="filterCategory = 'all'">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
           </svg>
           全部 Skill
           <span class="tab-count">{{ totalDownloaded }}</span>
@@ -440,8 +552,17 @@ function batchSyncToPlatform() {
           :class="{ active: filterCategory === 'favorites' }"
           @click="filterCategory = filterCategory === 'favorites' ? 'all' : 'favorites'"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
           </svg>
           收藏
           <span class="tab-count">{{ totalFavorites }}</span>
@@ -451,8 +572,18 @@ function batchSyncToPlatform() {
           :class="{ active: filterCategory === 'distributed' }"
           @click="filterCategory = filterCategory === 'distributed' ? 'all' : 'distributed'"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <line x1="22" y1="2" x2="11" y2="13" />
+            <polygon points="22 2 15 22 11 13 2 9 22 2" />
           </svg>
           已分发
           <span class="tab-count">{{ totalDistributed }}</span>
@@ -462,37 +593,47 @@ function batchSyncToPlatform() {
           :class="{ active: filterCategory === 'pending' }"
           @click="filterCategory = filterCategory === 'pending' ? 'all' : 'pending'"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <polyline points="12 6 12 12 16 14" />
           </svg>
           待分发
           <span class="tab-count">{{ totalPending }}</span>
         </button>
       </div>
       <div class="source-dropdown-wrap">
-        <button
-          ref="sourceBtnRef"
-          class="tab-btn source-tab"
-          :class="{ active: filterSource }"
-          @click="toggleSourceDropdown"
-        >
+        <button ref="sourceBtnRef" class="tab-btn source-tab" :class="{ active: filterSource }" @click="toggleSourceDropdown">
           {{ filterSource || '全部来源' }}
           <span class="tab-count">{{ sourceFilterCount }}</span>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="6 9 12 15 18 9"/>
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <polyline points="6 9 12 15 18 9" />
           </svg>
         </button>
       </div>
     </div>
 
     <Teleport to="body">
-      <div v-if="showSourceDropdown" class="source-dropdown-overlay" @click="showSourceDropdown = false"></div>
+      <div v-if="showSourceDropdown" class="source-dropdown-overlay" @click="showSourceDropdown = false" />
       <div v-if="showSourceDropdown" class="source-dropdown" :style="sourceDropdownStyle">
-        <button
-          class="dropdown-item"
-          :class="{ active: !filterSource }"
-          @click="filterSource = ''; showSourceDropdown = false"
-        >
+        <button class="dropdown-item" :class="{ active: !filterSource }" @click="((filterSource = ''), (showSourceDropdown = false))">
           全部来源
           <span class="dropdown-count">{{ totalSources }}</span>
         </button>
@@ -501,7 +642,7 @@ function batchSyncToPlatform() {
           :key="src"
           class="dropdown-item"
           :class="{ active: filterSource === src }"
-          @click="filterSource = filterSource === src ? '' : src; showSourceDropdown = false"
+          @click="((filterSource = filterSource === src ? '' : src), (showSourceDropdown = false))"
         >
           {{ src }}
           <span class="dropdown-count">{{ cnt }}</span>
@@ -510,13 +651,18 @@ function batchSyncToPlatform() {
     </Teleport>
 
     <div class="category-inline-wrap">
-      <button
-        class="category-pill"
-        :class="{ active: !filterTag }"
-        @click="filterTag = ''"
-      >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+      <button class="category-pill" :class="{ active: !filterTag }" @click="filterTag = ''">
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
         </svg>
         全部
         <span class="pill-count">{{ filteredBaseCount }}</span>
@@ -535,117 +681,236 @@ function batchSyncToPlatform() {
 
     <div class="ms-scroll">
       <div v-if="batchMode" class="batch-bar">
-      <div class="batch-left">
-        <span class="batch-label">批量模式</span>
-        <span class="batch-count">已选 {{ selectedIds.size }} 项</span>
+        <div class="batch-left">
+          <span class="batch-label">批量模式</span>
+          <span class="batch-count">已选 {{ selectedIds.size }} 项</span>
+        </div>
+        <div class="batch-actions">
+          <button class="batch-action-btn" @click="toggleSelectAll">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2" :fill="isAllSelected ? 'currentColor' : 'none'" />
+              <polyline v-if="isAllSelected" points="9 11 12 14 22 4" />
+            </svg>
+            全选
+          </button>
+          <button class="batch-action-btn" :disabled="selectedIds.size === 0" @click="batchToggleFavorite">
+            <svg
+              v-if="selectedAllFavorited"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="hsl(45 90% 55%)"
+              stroke="hsl(45 90% 55%)"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+            </svg>
+            <svg
+              v-else
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+            </svg>
+            {{ selectedAllFavorited ? '取消收藏' : '添加收藏' }}
+          </button>
+          <button class="batch-action-btn primary" :disabled="selectedIds.size === 0" @click="batchSyncToPlatform">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <line x1="22" y1="2" x2="11" y2="13" />
+              <polygon points="22 2 15 22 11 13 2 9 22 2" />
+            </svg>
+            批量同步到平台
+          </button>
+          <button class="batch-action-btn danger" :disabled="selectedIds.size === 0" @click="batchDelete">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M3 6h18" />
+              <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+              <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+            </svg>
+            删除
+          </button>
+        </div>
       </div>
-      <div class="batch-actions">
-        <button class="batch-action-btn" @click="toggleSelectAll">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="3" width="18" height="18" rx="2" ry="2" :fill="isAllSelected ? 'currentColor' : 'none'"/>
-            <polyline v-if="isAllSelected" points="9 11 12 14 22 4"/>
-          </svg>
-          全选
+
+      <div v-if="!filteredSkills.length" class="empty">
+        <p>{{ emptyMessage }}</p>
+        <p v-if="emptyHint" class="empty-hint">
+          {{ emptyHint }}
+        </p>
+        <button v-if="filterCategory === 'all'" class="btn-primary" @click="emit('navigate', 'store')">浏览商店</button>
+        <button v-else-if="filterCategory === 'favorites' && downloadedSkills.length" class="btn-primary" @click="filterCategory = 'all'">
+          查看已下载技能
         </button>
-        <button class="batch-action-btn" :disabled="selectedIds.size === 0" @click="batchToggleFavorite">
-          <svg v-if="selectedAllFavorited" width="14" height="14" viewBox="0 0 24 24" fill="hsl(45 90% 55%)" stroke="hsl(45 90% 55%)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-          </svg>
-          <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-          </svg>
-          {{ selectedAllFavorited ? '取消收藏' : '添加收藏' }}
-        </button>
-        <button class="batch-action-btn primary" :disabled="selectedIds.size === 0" @click="batchSyncToPlatform">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
-          </svg>
-          批量同步到平台
-        </button>
-        <button class="batch-action-btn danger" :disabled="selectedIds.size === 0" @click="batchDelete">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
-          </svg>
-          删除
-        </button>
+        <button v-else-if="filterCategory === 'distributed'" class="btn-primary" @click="filterCategory = 'all'">查看已下载技能</button>
       </div>
-    </div>
 
-    <div v-if="!filteredSkills.length" class="empty">
-      <p>{{ emptyMessage }}</p>
-      <p v-if="emptyHint" class="empty-hint">{{ emptyHint }}</p>
-      <button v-if="filterCategory === 'all'" class="btn-primary" @click="emit('navigate', 'store')">浏览商店</button>
-      <button v-else-if="filterCategory === 'favorites' && downloadedSkills.length" class="btn-primary" @click="filterCategory = 'all'">查看已下载技能</button>
-      <button v-else-if="filterCategory === 'distributed'" class="btn-primary" @click="filterCategory = 'all'">查看已下载技能</button>
-    </div>
-
-    <div v-else class="skill-grid" :class="viewMode">
-      <SkillCard
-        v-for="(skill, idx) in filteredSkills"
-        :key="skill.id"
-        :name="skill.name"
-        :description="skill.description || '暂无描述'"
-        :selected="selectedIds.has(skill.id)"
-        :show-batch-checkbox="batchMode"
-        :show-platform-icons="true"
-        :installed-platforms="getInstalledPlatforms(skill.id)"
-        :source-tag="getSourceInfo(skill)"
-        :category-tag="getCategoryInfo(skill)"
-        :show-chinese-tag="isChineseContent(skill.description || '')"
-        :show-translated-tag="translatedSkillIds.has(skill.id)"
-        @click="batchMode ? toggleSelect(skill.id) : emit('navigate', 'detail', { skill, context: 'my' })"
-        @select="toggleSelect(skill.id)"
-      >
-        <template #actions>
-          <button class="card-action-btn" title="分发" @click.stop="openDeploy(skill)">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-          </button>
-          <button class="card-action-btn" :class="{ filled: isFavorited(skill.id) }" :title="isFavorited(skill.id) ? '取消收藏' : '收藏'" @click.stop="toggleFavorite(skill.id)">
-            <svg v-if="isFavorited(skill.id)" width="14" height="14" viewBox="0 0 24 24" fill="hsl(45 90% 55%)" stroke="hsl(45 90% 55%)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-            <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-          </button>
-          <button class="card-action-btn danger" title="删除" @click.stop="deleteSkill(skill)">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
-          </button>
-        </template>
-      </SkillCard>
-    </div>
+      <div v-else class="skill-grid" :class="viewMode">
+        <SkillCard
+          v-for="skill in filteredSkills"
+          :key="skill.id"
+          :name="skill.name"
+          :description="skill.description || '暂无描述'"
+          :selected="selectedIds.has(skill.id)"
+          :show-batch-checkbox="batchMode"
+          :show-platform-icons="true"
+          :installed-platforms="getInstalledPlatforms(skill.id)"
+          :source-tag="getSourceInfo(skill)"
+          :category-tag="getCategoryInfo(skill)"
+          :show-chinese-tag="isChineseContent(skill.description || '')"
+          :show-translated-tag="translatedSkillIds.has(skill.id)"
+          @click="batchMode ? toggleSelect(skill.id) : emit('navigate', 'detail', { skill, context: 'my' })"
+          @select="toggleSelect(skill.id)"
+        >
+          <template #actions>
+            <button class="card-action-btn" title="分发" @click.stop="openDeploy(skill)">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <line x1="22" y1="2" x2="11" y2="13" />
+                <polygon points="22 2 15 22 11 13 2 9 22 2" />
+              </svg>
+            </button>
+            <button
+              class="card-action-btn"
+              :class="{ filled: isFavorited(skill.id) }"
+              :title="isFavorited(skill.id) ? '取消收藏' : '收藏'"
+              @click.stop="toggleFavorite(skill.id)"
+            >
+              <svg
+                v-if="isFavorited(skill.id)"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="hsl(45 90% 55%)"
+                stroke="hsl(45 90% 55%)"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+              </svg>
+              <svg
+                v-else
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+              </svg>
+            </button>
+            <button class="card-action-btn danger" title="删除" @click.stop="deleteSkill(skill)">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M3 6h18" />
+                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+              </svg>
+            </button>
+          </template>
+        </SkillCard>
+      </div>
     </div>
 
     <DeployModal
       v-if="showDeployModal && deploySkill"
       :skill="deploySkill"
-      @close="showDeployModal = false; deploySkill = null"
-      @deployed="showDeployModal = false; deploySkill = null; refreshData()"
+      @close="((showDeployModal = false), (deploySkill = null))"
+      @deployed="((showDeployModal = false), (deploySkill = null), refreshData())"
     />
 
     <BatchSyncModal
       v-if="showBatchSyncModal"
       :skills="batchSyncSkills"
-      @close="showBatchSyncModal = false; batchSyncSkills = []"
-      @deployed="showBatchSyncModal = false; batchSyncSkills = []; refreshData(); batchMode = false"
+      @close="((showBatchSyncModal = false), (batchSyncSkills = []))"
+      @deployed="((showBatchSyncModal = false), (batchSyncSkills = []), refreshData(), (batchMode = false))"
     />
 
     <ConfirmDeleteModal
       v-if="showDeleteModal && deleteSkillTarget"
       :skill="deleteSkillTarget"
-      @close="showDeleteModal = false; deleteSkillTarget = null"
+      @close="((showDeleteModal = false), (deleteSkillTarget = null))"
       @deleted="onSkillDeleted"
     />
 
     <ConfirmBatchDeleteModal
       v-if="showBatchDeleteModal"
-      :skills="downloadedSkills.filter(s => selectedIds.has(s.id))"
+      :skills="downloadedSkills.filter((s) => selectedIds.has(s.id))"
       @close="showBatchDeleteModal = false"
       @deleted="onBatchDeleted"
     />
-
   </div>
 </template>
 
 <style scoped>
-.my-skills { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 0; }
-.ms-scroll { flex: 1; overflow-y: auto; overscroll-behavior: contain; min-height: 0; scrollbar-gutter: stable; }
+.my-skills {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+.ms-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  min-height: 0;
+  scrollbar-gutter: stable;
+}
 
 /* Page header */
 .page-header {
@@ -1142,7 +1407,10 @@ function batchSyncToPlatform() {
   transition: all var(--duration-base) var(--ease-standard);
 }
 
-.btn-primary:hover { box-shadow: 0 4px 16px hsl(var(--primary) / 0.3); transform: translateY(-1px); }
+.btn-primary:hover {
+  box-shadow: 0 4px 16px hsl(var(--primary) / 0.3);
+  transform: translateY(-1px);
+}
 
 .empty {
   text-align: center;

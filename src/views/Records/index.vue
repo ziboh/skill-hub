@@ -12,9 +12,9 @@ import { getSourceInfo as getSourceInfoUtil, isSvgIcon, isImageUrl } from '../..
 import type { Skill } from '../../types'
 import ProviderIcon from '../../components/ProviderIcon.vue'
 
-const emit = defineEmits(['navigate'])
+const _emit = defineEmits(['navigate'])
 
-const currentRoute = inject(KeyCurrentRoute, ref('my'))
+const _currentRoute = inject(KeyCurrentRoute, ref('my'))
 const { settings, updateSettings } = useSettings()
 
 const isDarkMode = computed(() => {
@@ -31,15 +31,20 @@ function toggleTheme() {
 
 const activeTab = ref<'downloads' | 'dist' | 'translations' | 'failures'>('downloads')
 
-const { queue, activeCount, clearCompleted } = useDownloadQueue()
-const { queue: translationQueue, cacheVersion, addTranslation, removeTranslation, clearAll } = useTranslationQueue()
+const { queue, activeCount, clearCompleted: _clearCompleted } = useDownloadQueue()
+const { queue: translationQueue, cacheVersion, addTranslation, removeTranslation, clearAll: _clearAll } = useTranslationQueue()
 
 const failureRecords = ref<FailureRecord[]>([])
 const failureTypeFilter = ref<FailureType | 'all'>('all')
 
 const sessionDownloads = computed(() => storage.getSessionDownloads())
 const distributeRecords = ref<DistributeRecord[]>([])
-const translations = ref<Record<string, { sourceContent?: string; translatedContent?: string; translatedDesc?: string; mode?: string; updatedAt: number; skillName?: string }>>({})
+const translations = ref<
+  Record<
+    string,
+    { sourceContent?: string; translatedContent?: string; translatedDesc?: string; mode?: string; updatedAt: number; skillName?: string }
+  >
+>({})
 
 function getSkillNameByHash(hash: string): string {
   const cache = storage.getTranslationByHash(hash)
@@ -92,14 +97,14 @@ function toggleSelect(key: string) {
 
 function isAllSelected(items: Array<{ key: string }>) {
   if (items.length === 0) return false
-  return items.every(item => selectedItems.value.has(item.key))
+  return items.every((item) => selectedItems.value.has(item.key))
 }
 
 function toggleSelectAll(items: Array<{ key: string }>) {
   if (isAllSelected(items)) {
-    items.forEach(item => selectedItems.value.delete(item.key))
+    items.forEach((item) => selectedItems.value.delete(item.key))
   } else {
-    items.forEach(item => selectedItems.value.add(item.key))
+    items.forEach((item) => selectedItems.value.add(item.key))
   }
   selectedItems.value = new Set(selectedItems.value)
 }
@@ -239,7 +244,7 @@ function loadData() {
   failureRecords.value = storage.getFailureRecords()
 }
 
-function getTranslationModel(): ModelConfig | null {
+function _getTranslationModel(): ModelConfig | null {
   const settings = storage.getSettings()
   if (!settings.translationModelId) return null
   const providers = settings.aiModels || []
@@ -247,14 +252,14 @@ function getTranslationModel(): ModelConfig | null {
   if (sepIdx >= 0) {
     const providerId = settings.translationModelId.substring(0, sepIdx)
     const modelId = settings.translationModelId.substring(sepIdx + 2)
-    const provider = providers.find(m => m.id === providerId)
-    if (provider && provider.enabled !== false && provider.models?.some(m => m.id === modelId && m.enabled)) {
+    const provider = providers.find((m) => m.id === providerId)
+    if (provider && provider.enabled !== false && provider.models?.some((m) => m.id === modelId && m.enabled)) {
       return { ...provider, model: modelId } as ModelConfig
     }
   } else {
     for (const provider of providers) {
       if (provider.models) {
-        const model = provider.models.find(m => m.id === settings.translationModelId && m.enabled)
+        const model = provider.models.find((m) => m.id === settings.translationModelId && m.enabled)
         if (model && provider.enabled !== false) return { ...provider, model: model.id } as ModelConfig
       }
     }
@@ -262,16 +267,18 @@ function getTranslationModel(): ModelConfig | null {
   return null
 }
 
-function resumeTranslation(item: { skillId: string; type: 'content' | 'desc' }) {
+/** item.skillId here is the content hash (queue key), not skill id */
+function resumeTranslation(item: { skillId: string; type: 'content' | 'desc'; skillName?: string }) {
   storage.removeTranslationByHash(item.skillId, item.type)
-  addTranslation(item.skillId, item.type)
+  // skillId field on Records UI = translation content hash
+  addTranslation(item.skillId, item.type, item.skillName)
 }
 
-function clearStuckItem(item: { skillId: string; type: 'content' | 'desc' }) {
+function _clearStuckItem(item: { skillId: string; type: 'content' | 'desc' }) {
   removeTranslation(item.skillId, item.type)
 }
 
-function clearAllFailureRecords() {
+function _clearAllFailureRecords() {
   storage.clearFailureRecords()
   loadData()
 }
@@ -287,7 +294,7 @@ const hasStuckItems = computed(() => translationQueue.value.length > 0)
 
 function getSkillName(skillId: string): string {
   const cached = storage.getCachedSkills()
-  const skill = cached.find(s => s.id === skillId)
+  const skill = cached.find((s) => s.id === skillId)
   return skill?.name || skillId
 }
 
@@ -310,15 +317,25 @@ function formatTime(ts: number | string): string {
 
 function getSourceInfoForDownload(source: string): { label: string; icon: string; color: string; bg: string } {
   const skill: Skill = { id: '', name: '', description: '', author: '', tags: [], source: 'local' }
-  if (source === 'skills-sh') { skill.source = 'skills-sh' }
-  else if (source === 'claude') { skill.repo = 'anthropics/skills' }
-  else if (source === 'codex') { skill.repo = 'openai/skills' }
-  else if (source === 'import') { skill.repo = 'unknown' }
-  else if (source === 'agent') { skill.source = 'local' }
-  else if (source === 'local') { skill.source = 'local' }
-  else if (source === 'marketplace') { skill.storeSourceId = 'skills-sh' }
-  else if (source === 'project') { skill.source = 'local' }
-  else { skill.storeSourceId = source }
+  if (source === 'skills-sh') {
+    skill.source = 'skills-sh'
+  } else if (source === 'claude') {
+    skill.repo = 'anthropics/skills'
+  } else if (source === 'codex') {
+    skill.repo = 'openai/skills'
+  } else if (source === 'import') {
+    skill.repo = 'unknown'
+  } else if (source === 'agent') {
+    skill.source = 'local'
+  } else if (source === 'local') {
+    skill.source = 'local'
+  } else if (source === 'marketplace') {
+    skill.storeSourceId = 'skills-sh'
+  } else if (source === 'project') {
+    skill.source = 'local'
+  } else {
+    skill.storeSourceId = source
+  }
   return getSourceInfoUtil(skill)
 }
 
@@ -326,7 +343,7 @@ function getSourceLabel(source: string): string {
   return getSourceInfoForDownload(source).label
 }
 
-function getProjectFileName(targetPath: string): string {
+function _getProjectFileName(targetPath: string): string {
   if (!targetPath) return ''
   const parts = targetPath.replace(/\\/g, '/').split('/')
   for (let i = parts.length - 1; i >= 0; i--) {
@@ -344,7 +361,7 @@ function getProjectName(platformId: string): string {
   }
   if (!pid) return ''
   const projects = storage.getRegisteredProjects()
-  const project = projects.find(p => p.id === pid)
+  const project = projects.find((p) => p.id === pid)
   return project?.name || pid
 }
 
@@ -358,8 +375,6 @@ function getDistPlatformId(record: DistributeRecord): string {
   if (normalized.includes('.agents/skills')) return '_generic'
   return record.platformId
 }
-
-
 
 function truncate(str: string, len: number): string {
   if (!str) return ''
@@ -386,7 +401,7 @@ function formatQueueTime(ms: number) {
   return `${Math.floor(s / 60)}m${s % 60}s`
 }
 
-const downloadQueueItems = computed(() => queue.value.filter(item => item.type === 'download'))
+const downloadQueueItems = computed(() => queue.value.filter((item) => item.type === 'download'))
 const downloadsList = computed(() => {
   const list: Array<{ skillId: string; skillName: string; source: string; downloadedAt: string; status?: string; error?: string }> = []
   for (const item of downloadQueueItems.value) {
@@ -399,7 +414,7 @@ const downloadsList = computed(() => {
       error: item.error,
     })
   }
-  const queuedIds = new Set(downloadQueueItems.value.map(item => item.skillId))
+  const queuedIds = new Set(downloadQueueItems.value.map((item) => item.skillId))
   for (const record of sessionDownloads.value) {
     if (!queuedIds.has(record.skillId)) {
       list.push(record)
@@ -430,7 +445,14 @@ const distPaged = computed(() => {
 })
 
 const translationsList = computed(() => {
-  const list: Array<{ skillId: string; skillName: string; type: 'content' | 'desc'; preview: string; status: 'translating' | 'pending' | 'done'; updatedAt: number }> = []
+  const list: Array<{
+    skillId: string
+    skillName: string
+    type: 'content' | 'desc'
+    preview: string
+    status: 'translating' | 'pending' | 'done'
+    updatedAt: number
+  }> = []
   for (const item of translationQueue.value) {
     const isTranslating = item.status === 'translating'
     list.push({
@@ -444,10 +466,24 @@ const translationsList = computed(() => {
   }
   for (const [hash, data] of Object.entries(translations.value)) {
     if (data.translatedContent) {
-      list.push({ skillId: hash, skillName: getSkillNameByHash(hash), type: 'content', preview: data.translatedContent, status: 'done', updatedAt: data.updatedAt || 0 })
+      list.push({
+        skillId: hash,
+        skillName: getSkillNameByHash(hash),
+        type: 'content',
+        preview: data.translatedContent,
+        status: 'done',
+        updatedAt: data.updatedAt || 0,
+      })
     }
     if (data.translatedDesc) {
-      list.push({ skillId: hash, skillName: getSkillNameByHash(hash), type: 'desc', preview: data.translatedDesc, status: 'done', updatedAt: data.updatedAt || 0 })
+      list.push({
+        skillId: hash,
+        skillName: getSkillNameByHash(hash),
+        type: 'desc',
+        preview: data.translatedDesc,
+        status: 'done',
+        updatedAt: data.updatedAt || 0,
+      })
     }
   }
   list.sort((a, b) => {
@@ -467,7 +503,7 @@ const translationsPaged = computed(() => {
 
 const filteredFailureRecords = computed(() => {
   if (failureTypeFilter.value === 'all') return failureRecords.value
-  return failureRecords.value.filter(r => r.type === failureTypeFilter.value)
+  return failureRecords.value.filter((r) => r.type === failureTypeFilter.value)
 })
 const failuresTotal = computed(() => filteredFailureRecords.value.length)
 const failuresPages = computed(() => Math.max(1, Math.ceil(failuresTotal.value / pageSize.value)))
@@ -517,11 +553,32 @@ watch(activeTab, () => {
       </div>
       <div class="header-toolbar">
         <button class="toolbar-icon-btn" @click="toggleTheme" :title="isDarkMode ? '切换亮色模式' : '切换暗色模式'">
-          <svg v-if="isDarkMode" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+          <svg
+            v-if="isDarkMode"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <circle cx="12" cy="12" r="5" />
+            <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
           </svg>
-          <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+          <svg
+            v-else
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
           </svg>
         </button>
       </div>
@@ -530,37 +587,74 @@ watch(activeTab, () => {
     <div class="filter-tabs-row">
       <div class="filter-tabs">
         <button class="tab-btn" :class="{ active: activeTab === 'downloads' }" @click="activeTab = 'downloads'">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" :class="{ spinning: activeCount > 0 }">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-            <polyline points="7 10 12 15 17 10"/>
-            <line x1="12" y1="15" x2="12" y2="3"/>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            :class="{ spinning: activeCount > 0 }"
+          >
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
           </svg>
           下载记录
           <span v-if="activeCount > 0" class="tab-count active">{{ activeCount }}</span>
           <span v-else class="tab-count">{{ downloadsTotal }}</span>
         </button>
         <button class="tab-btn" :class="{ active: activeTab === 'dist' }" @click="activeTab = 'dist'">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="22" y1="2" x2="11" y2="13"/>
-            <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <line x1="22" y1="2" x2="11" y2="13" />
+            <polygon points="22 2 15 22 11 13 2 9 22 2" />
           </svg>
           分发记录
           <span class="tab-count">{{ distTotal }}</span>
         </button>
         <button class="tab-btn" :class="{ active: activeTab === 'translations' }" @click="activeTab = 'translations'">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10"/>
-            <line x1="2" y1="12" x2="22" y2="12"/>
-            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <line x1="2" y1="12" x2="22" y2="12" />
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
           </svg>
           翻译记录
           <span class="tab-count">{{ translationsTotal }}</span>
         </button>
         <button class="tab-btn" :class="{ active: activeTab === 'failures' }" @click="activeTab = 'failures'">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10"/>
-            <line x1="12" y1="8" x2="12" y2="12"/>
-            <line x1="12" y1="16" x2="12.01" y2="16"/>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
           </svg>
           失败记录
           <span v-if="failuresTotal > 0" class="tab-count error">{{ failuresTotal }}</span>
@@ -572,10 +666,20 @@ watch(activeTab, () => {
     <div class="records-content">
       <div v-if="activeTab === 'downloads'" class="records-list">
         <div v-if="downloadsTotal === 0 && downloadQueueItems.length === 0" class="empty">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color: hsl(var(--muted-foreground) / 0.4)">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-            <polyline points="7 10 12 15 17 10"/>
-            <line x1="12" y1="15" x2="12" y2="3"/>
+          <svg
+            width="48"
+            height="48"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            style="color: hsl(var(--muted-foreground) / 0.4)"
+          >
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
           </svg>
           <p>暂无下载记录</p>
           <p class="empty-hint">从商店下载 Skill 时，进度将显示在这里</p>
@@ -583,26 +687,56 @@ watch(activeTab, () => {
         <template v-else>
           <div class="record-table downloads-table">
             <div class="record-row header-row">
-              <div class="col-status"></div>
+              <div class="col-status" />
               <div class="col-name">Skill 名称</div>
               <div class="col-source">来源</div>
               <div class="col-time sortable" @click="toggleSort">
                 时间
                 <span class="sort-indicator" :class="{ active: true }">
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <path v-if="sortDirection === 'desc'" d="M7 10l5 5 5-5"/>
-                    <path v-else d="M7 14l5-5 5 5"/>
+                  <svg
+                    width="10"
+                    height="10"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path v-if="sortDirection === 'desc'" d="M7 10l5 5 5-5" />
+                    <path v-else d="M7 14l5-5 5 5" />
                   </svg>
                 </span>
               </div>
             </div>
             <div v-for="(record, idx) in downloadsPaged" :key="idx" class="record-row">
               <div class="col-status">
-                <svg v-if="record.status" width="14" height="14" viewBox="0 0 24 24" fill="none" :stroke="getStatusColor(record.status)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" :class="{ spinning: record.status === 'running' }">
+                <svg
+                  v-if="record.status"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  :stroke="getStatusColor(record.status)"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  :class="{ spinning: record.status === 'running' }"
+                >
                   <path :d="getStatusIcon(record.status)" />
                 </svg>
-                <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="hsl(142 50% 45%)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M20 6 9 17 4 12"/>
+                <svg
+                  v-else
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="hsl(142 50% 45%)"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M20 6 9 17 4 12" />
                 </svg>
               </div>
               <div class="col-name">
@@ -610,35 +744,82 @@ watch(activeTab, () => {
                 <span class="skill-id">{{ record.skillId }}</span>
               </div>
               <div class="col-source">
-                <span class="source-badge" :style="{ color: getSourceInfoForDownload(record.source).color, background: getSourceInfoForDownload(record.source).bg }">
-                  <svg v-if="getSourceInfoForDownload(record.source).icon === 'multi'" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="12" cy="12" r="10"/>
-                    <line x1="2" y1="12" x2="22" y2="12"/>
-                    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                <span
+                  class="source-badge"
+                  :style="{ color: getSourceInfoForDownload(record.source).color, background: getSourceInfoForDownload(record.source).bg }"
+                >
+                  <svg
+                    v-if="getSourceInfoForDownload(record.source).icon === 'multi'"
+                    width="10"
+                    height="10"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="2" y1="12" x2="22" y2="12" />
+                    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
                   </svg>
-                  <img v-else-if="isImageUrl(getSourceInfoForDownload(record.source).icon)" :src="getSourceInfoForDownload(record.source).icon" width="10" height="10" alt="" style="border-radius: 2px;" />
-                  <span v-else-if="isSvgIcon(getSourceInfoForDownload(record.source).icon)" v-html="getSourceInfoForDownload(record.source).icon" class="tag-icon-svg"></span>
-                  <svg v-else-if="getSourceInfoForDownload(record.source).icon === 'git'" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="18" cy="18" r="3"/>
-                    <circle cx="6" cy="6" r="3"/>
-                    <path d="M13 6h3a2 2 0 0 1 2 2v7"/>
-                    <line x1="6" y1="9" x2="6" y2="21"/>
+                  <img
+                    v-else-if="isImageUrl(getSourceInfoForDownload(record.source).icon)"
+                    :src="getSourceInfoForDownload(record.source).icon"
+                    width="10"
+                    height="10"
+                    alt=""
+                    style="border-radius: 2px"
+                  />
+                  <span
+                    v-else-if="isSvgIcon(getSourceInfoForDownload(record.source).icon)"
+                    class="tag-icon-svg"
+                    v-html="getSourceInfoForDownload(record.source).icon"
+                  />
+                  <svg
+                    v-else-if="getSourceInfoForDownload(record.source).icon === 'git'"
+                    width="10"
+                    height="10"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <circle cx="18" cy="18" r="3" />
+                    <circle cx="6" cy="6" r="3" />
+                    <path d="M13 6h3a2 2 0 0 1 2 2v7" />
+                    <line x1="6" y1="9" x2="6" y2="21" />
                   </svg>
                   {{ getSourceLabel(record.source) }}
                 </span>
               </div>
-              <div class="col-time">{{ record.status === 'running' ? formatQueueTime(new Date(record.downloadedAt).getTime()) : formatTime(record.downloadedAt) }}</div>
+              <div class="col-time">
+                {{
+                  record.status === 'running' ? formatQueueTime(new Date(record.downloadedAt).getTime()) : formatTime(record.downloadedAt)
+                }}
+              </div>
             </div>
           </div>
-
         </template>
       </div>
 
       <div v-else-if="activeTab === 'dist'" class="records-list">
         <div v-if="distTotal === 0" class="empty">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color: hsl(var(--muted-foreground) / 0.4)">
-            <line x1="22" y1="2" x2="11" y2="13"/>
-            <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+          <svg
+            width="48"
+            height="48"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            style="color: hsl(var(--muted-foreground) / 0.4)"
+          >
+            <line x1="22" y1="2" x2="11" y2="13" />
+            <polygon points="22 2 15 22 11 13 2 9 22 2" />
           </svg>
           <p>暂无分发记录</p>
           <p class="empty-hint">将 Skill 分发到平台后，记录将显示在这里</p>
@@ -648,8 +829,12 @@ watch(activeTab, () => {
             <div class="record-row header-row">
               <div class="col-check">
                 <label class="checkbox-wrap">
-                  <input type="checkbox" :checked="isAllSelected(distPaged.map(r => ({ key: `dist:${r.skillId}:${r.platformId}:${r.scope || ''}` })))" @change="toggleSelectAll(distPaged.map(r => ({ key: `dist:${r.skillId}:${r.platformId}:${r.scope || ''}` })))">
-                  <span class="checkbox-custom"></span>
+                  <input
+                    type="checkbox"
+                    :checked="isAllSelected(distPaged.map((r) => ({ key: `dist:${r.skillId}:${r.platformId}:${r.scope || ''}` })))"
+                    @change="toggleSelectAll(distPaged.map((r) => ({ key: `dist:${r.skillId}:${r.platformId}:${r.scope || ''}` })))"
+                  />
+                  <span class="checkbox-custom" />
                 </label>
               </div>
               <div class="col-name">Skill 名称</div>
@@ -658,19 +843,37 @@ watch(activeTab, () => {
               <div class="col-time sortable" @click="toggleSort">
                 时间
                 <span class="sort-indicator" :class="{ active: true }">
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <path v-if="sortDirection === 'desc'" d="M7 10l5 5 5-5"/>
-                    <path v-else d="M7 14l5-5 5 5"/>
+                  <svg
+                    width="10"
+                    height="10"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path v-if="sortDirection === 'desc'" d="M7 10l5 5 5-5" />
+                    <path v-else d="M7 14l5-5 5 5" />
                   </svg>
                 </span>
               </div>
-              <div class="col-action"></div>
+              <div class="col-action" />
             </div>
-            <div v-for="(record, idx) in distPaged" :key="idx" class="record-row" :class="{ selected: selectedItems.has(`dist:${record.skillId}:${record.platformId}:${record.scope || ''}`) }">
+            <div
+              v-for="(record, idx) in distPaged"
+              :key="idx"
+              class="record-row"
+              :class="{ selected: selectedItems.has(`dist:${record.skillId}:${record.platformId}:${record.scope || ''}`) }"
+            >
               <div class="col-check">
                 <label class="checkbox-wrap">
-                  <input type="checkbox" :checked="selectedItems.has(`dist:${record.skillId}:${record.platformId}:${record.scope || ''}`)" @change="toggleSelect(`dist:${record.skillId}:${record.platformId}:${record.scope || ''}`)">
-                  <span class="checkbox-custom"></span>
+                  <input
+                    type="checkbox"
+                    :checked="selectedItems.has(`dist:${record.skillId}:${record.platformId}:${record.scope || ''}`)"
+                    @change="toggleSelect(`dist:${record.skillId}:${record.platformId}:${record.scope || ''}`)"
+                  />
+                  <span class="checkbox-custom" />
                 </label>
               </div>
               <div class="col-name">
@@ -687,10 +890,25 @@ watch(activeTab, () => {
               <div class="col-mode">
                 <span class="mode-badge" :class="record.mode">{{ record.mode === 'symlink' ? '链接' : '复制' }}</span>
               </div>
-              <div class="col-time">{{ formatTime(record.distributedAt) }}</div>
+              <div class="col-time">
+                {{ formatTime(record.distributedAt) }}
+              </div>
               <div class="col-action">
                 <button class="delete-btn" @click.stop="confirmDeleteDist(record)" title="删除">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M3 6h18" />
+                    <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                    <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                  </svg>
                 </button>
               </div>
             </div>
@@ -704,34 +922,66 @@ watch(activeTab, () => {
           <button class="resume-all-btn" @click="resumeAllStuck">继续全部</button>
         </div>
         <div v-if="translationsTotal === 0" class="empty">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color: hsl(var(--muted-foreground) / 0.4)">
-            <circle cx="12" cy="12" r="10"/>
-            <line x1="2" y1="12" x2="22" y2="12"/>
-            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+          <svg
+            width="48"
+            height="48"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            style="color: hsl(var(--muted-foreground) / 0.4)"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <line x1="2" y1="12" x2="22" y2="12" />
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
           </svg>
           <p>暂无翻译记录</p>
           <p class="empty-hint">翻译 Skill 内容后，记录将显示在这里</p>
         </div>
         <template v-else>
           <div class="record-table trans-table">
-              <div class="record-row header-row">
+            <div class="record-row header-row">
               <div class="col-check">
                 <label class="checkbox-wrap">
-                  <input type="checkbox" :checked="isAllSelected(translationsPaged.filter(i => i.status === 'done').map(i => ({ key: `${i.type}:${i.skillId}` })))" @change="toggleSelectAll(translationsPaged.filter(i => i.status === 'done').map(i => ({ key: `${i.type}:${i.skillId}` })))">
-                  <span class="checkbox-custom"></span>
+                  <input
+                    type="checkbox"
+                    :checked="
+                      isAllSelected(translationsPaged.filter((i) => i.status === 'done').map((i) => ({ key: `${i.type}:${i.skillId}` })))
+                    "
+                    @change="
+                      toggleSelectAll(translationsPaged.filter((i) => i.status === 'done').map((i) => ({ key: `${i.type}:${i.skillId}` })))
+                    "
+                  />
+                  <span class="checkbox-custom" />
                 </label>
               </div>
               <div class="col-name">Skill 名称</div>
               <div class="col-type">翻译类型</div>
               <div class="col-preview">内容预览</div>
               <div class="col-time">时间</div>
-              <div class="col-action"></div>
+              <div class="col-action" />
             </div>
-            <div v-for="(item, idx) in translationsPaged" :key="idx" class="record-row" :class="{ 'in-progress': item.status !== 'done', 'translating': item.status === 'translating', 'pending': item.status === 'pending', selected: selectedItems.has(`${item.type}:${item.skillId}`) }">
+            <div
+              v-for="(item, idx) in translationsPaged"
+              :key="idx"
+              class="record-row"
+              :class="{
+                'in-progress': item.status !== 'done',
+                translating: item.status === 'translating',
+                pending: item.status === 'pending',
+                selected: selectedItems.has(`${item.type}:${item.skillId}`),
+              }"
+            >
               <div class="col-check">
                 <label v-if="item.status === 'done'" class="checkbox-wrap">
-                  <input type="checkbox" :checked="selectedItems.has(`${item.type}:${item.skillId}`)" @change="toggleSelect(`${item.type}:${item.skillId}`)">
-                  <span class="checkbox-custom"></span>
+                  <input
+                    type="checkbox"
+                    :checked="selectedItems.has(`${item.type}:${item.skillId}`)"
+                    @change="toggleSelect(`${item.type}:${item.skillId}`)"
+                  />
+                  <span class="checkbox-custom" />
                 </label>
               </div>
               <div class="col-name">
@@ -743,24 +993,48 @@ watch(activeTab, () => {
               </div>
               <div class="col-preview">
                 <span v-if="item.status === 'translating'" class="preview-text translating-preview">
-                  <svg class="spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+                  <svg class="spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                  </svg>
                   翻译中...
                 </span>
-                <span v-else-if="item.status === 'pending'" class="preview-text pending-preview">
-                  排队中...
-                </span>
+                <span v-else-if="item.status === 'pending'" class="preview-text pending-preview"> 排队中... </span>
                 <span v-else class="preview-text">{{ truncate(item.preview, 80) }}</span>
               </div>
               <div class="col-time">
                 <span class="time-text">{{ item.updatedAt ? formatTime(item.updatedAt) : '—' }}</span>
               </div>
               <div class="col-action">
-                <button v-if="item.status === 'done'" class="delete-btn" @click.stop="confirmDeleteTranslation(item)" title="删除">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                <button v-if="item.status === 'done'" class="delete-btn" title="删除" @click.stop="confirmDeleteTranslation(item)">
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M3 6h18" />
+                    <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                    <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                  </svg>
                 </button>
                 <template v-else>
                   <button class="stuck-resume-btn" @click.stop="resumeTranslation(item)" title="继续翻译">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <polygon points="5 3 19 12 5 21 5 3" />
+                    </svg>
                   </button>
                 </template>
               </div>
@@ -772,15 +1046,35 @@ watch(activeTab, () => {
       <div v-else-if="activeTab === 'failures'" class="records-list">
         <div class="failure-filters">
           <button class="filter-btn" :class="{ active: failureTypeFilter === 'all' }" @click="setFailureTypeFilter('all')">全部</button>
-          <button class="filter-btn" :class="{ active: failureTypeFilter === 'translation' }" @click="setFailureTypeFilter('translation')">翻译</button>
-          <button class="filter-btn" :class="{ active: failureTypeFilter === 'download' }" @click="setFailureTypeFilter('download')">下载</button>
-          <button class="filter-btn" :class="{ active: failureTypeFilter === 'distribution' }" @click="setFailureTypeFilter('distribution')">分发</button>
+          <button class="filter-btn" :class="{ active: failureTypeFilter === 'translation' }" @click="setFailureTypeFilter('translation')">
+            翻译
+          </button>
+          <button class="filter-btn" :class="{ active: failureTypeFilter === 'download' }" @click="setFailureTypeFilter('download')">
+            下载
+          </button>
+          <button
+            class="filter-btn"
+            :class="{ active: failureTypeFilter === 'distribution' }"
+            @click="setFailureTypeFilter('distribution')"
+          >
+            分发
+          </button>
         </div>
         <div v-if="failuresTotal === 0" class="empty">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color: hsl(var(--muted-foreground) / 0.4)">
-            <circle cx="12" cy="12" r="10"/>
-            <line x1="12" y1="8" x2="12" y2="12"/>
-            <line x1="12" y1="16" x2="12.01" y2="16"/>
+          <svg
+            width="48"
+            height="48"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            style="color: hsl(var(--muted-foreground) / 0.4)"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
           </svg>
           <p>暂无失败记录</p>
           <p class="empty-hint">翻译、下载或分发失败时，记录将显示在这里</p>
@@ -790,21 +1084,35 @@ watch(activeTab, () => {
             <div class="record-row header-row">
               <div class="col-check">
                 <label class="checkbox-wrap">
-                  <input type="checkbox" :checked="isAllSelected(failuresPaged.map(r => ({ key: `failure:${r.id}` })))" @change="toggleSelectAll(failuresPaged.map(r => ({ key: `failure:${r.id}` })))">
-                  <span class="checkbox-custom"></span>
+                  <input
+                    type="checkbox"
+                    :checked="isAllSelected(failuresPaged.map((r) => ({ key: `failure:${r.id}` })))"
+                    @change="toggleSelectAll(failuresPaged.map((r) => ({ key: `failure:${r.id}` })))"
+                  />
+                  <span class="checkbox-custom" />
                 </label>
               </div>
               <div class="col-type">类型</div>
               <div class="col-name">Skill 名称</div>
               <div class="col-error">错误信息</div>
               <div class="col-time">时间</div>
-              <div class="col-action"></div>
+              <div class="col-action" />
             </div>
-            <div v-for="(record, idx) in failuresPaged" :key="idx" class="record-row clickable" :class="{ selected: selectedItems.has(`failure:${record.id}`) }" @click="openFailureDetail(record)">
+            <div
+              v-for="(record, idx) in failuresPaged"
+              :key="idx"
+              class="record-row clickable"
+              :class="{ selected: selectedItems.has(`failure:${record.id}`) }"
+              @click="openFailureDetail(record)"
+            >
               <div class="col-check">
                 <label class="checkbox-wrap">
-                  <input type="checkbox" :checked="selectedItems.has(`failure:${record.id}`)" @change="toggleSelect(`failure:${record.id}`)">
-                  <span class="checkbox-custom"></span>
+                  <input
+                    type="checkbox"
+                    :checked="selectedItems.has(`failure:${record.id}`)"
+                    @change="toggleSelect(`failure:${record.id}`)"
+                  />
+                  <span class="checkbox-custom" />
                 </label>
               </div>
               <div class="col-type">
@@ -817,20 +1125,38 @@ watch(activeTab, () => {
                 <span class="skill-id">{{ record.skillId }}</span>
               </div>
               <div class="col-error">
-                <span v-if="record.errorCategory" class="error-category-badge" :style="{ color: getErrorCategoryColor(record.errorCategory) }">
+                <span
+                  v-if="record.errorCategory"
+                  class="error-category-badge"
+                  :style="{ color: getErrorCategoryColor(record.errorCategory) }"
+                >
                   {{ getErrorCategoryLabel(record.errorCategory) }}
                 </span>
                 <span class="error-text">{{ truncate(record.error, 60) }}</span>
               </div>
-              <div class="col-time">{{ formatTime(record.timestamp) }}</div>
+              <div class="col-time">
+                {{ formatTime(record.timestamp) }}
+              </div>
               <div class="col-action">
                 <button class="delete-btn" @click.stop="confirmDeleteFailure(record)" title="删除">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M3 6h18" />
+                    <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                    <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                  </svg>
                 </button>
               </div>
             </div>
           </div>
-
         </template>
       </div>
     </div>
@@ -849,10 +1175,27 @@ watch(activeTab, () => {
         <div class="page-size-dropdown-wrap">
           <button class="page-size-btn" @click="showPageSizeDropdown = !showPageSizeDropdown">
             {{ pageSize }}
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <polyline points="18 15 12 9 6 15" />
+            </svg>
           </button>
           <div v-if="showPageSizeDropdown" class="page-size-dropdown">
-            <button v-for="size in PAGE_SIZE_OPTIONS" :key="size" class="page-size-option" :class="{ active: pageSize === size }" @click="selectPageSize(size)">
+            <button
+              v-for="size in PAGE_SIZE_OPTIONS"
+              :key="size"
+              class="page-size-option"
+              :class="{ active: pageSize === size }"
+              @click="selectPageSize(size)"
+            >
               {{ size }}
             </button>
           </div>
@@ -860,11 +1203,33 @@ watch(activeTab, () => {
         <span class="footer-label">条</span>
         <div class="footer-pagination">
           <button class="page-btn" :disabled="currentPage <= 1" @click="goToPage(currentPage - 1)">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
           </button>
           <span class="page-info">{{ currentPage }} / {{ currentPages }}</span>
           <button class="page-btn" :disabled="currentPage >= currentPages" @click="goToPage(currentPage + 1)">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
           </button>
         </div>
       </div>
@@ -887,9 +1252,7 @@ watch(activeTab, () => {
     <div v-if="showBatchDeleteConfirm" class="confirm-overlay" @click="showBatchDeleteConfirm = false">
       <div class="confirm-modal" @click.stop>
         <div class="confirm-title">批量删除</div>
-        <div class="confirm-message">
-          确定要删除选中的 {{ selectedItems.size }} 条记录吗？此操作不可撤销。
-        </div>
+        <div class="confirm-message">确定要删除选中的 {{ selectedItems.size }} 条记录吗？此操作不可撤销。</div>
         <div class="confirm-actions">
           <button class="confirm-cancel" @click="showBatchDeleteConfirm = false">取消</button>
           <button class="confirm-ok" @click="executeBatchDelete">删除 {{ selectedItems.size }} 项</button>
@@ -901,7 +1264,19 @@ watch(activeTab, () => {
         <div class="failure-detail-header">
           <h3 class="failure-detail-title">错误详情</h3>
           <button class="panel-close" @click="closeFailureDetail">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
           </button>
         </div>
         <div class="failure-detail-content">
@@ -933,7 +1308,10 @@ watch(activeTab, () => {
             </div>
           </div>
 
-          <div v-if="selectedFailureRecord.errorCategory || selectedFailureRecord.model || selectedFailureRecord.provider" class="detail-section">
+          <div
+            v-if="selectedFailureRecord.errorCategory || selectedFailureRecord.model || selectedFailureRecord.provider"
+            class="detail-section"
+          >
             <h4 class="section-title">技术信息</h4>
             <div v-if="selectedFailureRecord.errorCategory" class="detail-row">
               <span class="detail-label">错误分类</span>
@@ -996,10 +1374,30 @@ watch(activeTab, () => {
   border-bottom: 1px solid hsl(var(--border));
 }
 
-.header-left { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.header-title-row { display: flex; align-items: center; gap: 10px; }
-.header-left h2 { font-size: 22px; font-weight: 600; color: hsl(var(--foreground)); margin: 0; }
-.page-subtitle { font-size: 13px; color: hsl(var(--muted-foreground)); margin: 0; white-space: nowrap; overflow: hidden; }
+.header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.header-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.header-left h2 {
+  font-size: 22px;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  margin: 0;
+}
+.page-subtitle {
+  font-size: 13px;
+  color: hsl(var(--muted-foreground));
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+}
 
 .header-toolbar {
   display: flex;
@@ -1027,53 +1425,117 @@ watch(activeTab, () => {
   color: hsl(var(--foreground));
 }
 
-.filter-tabs-row { display: flex; align-items: center; gap: 6px; padding: 10px 28px 0; }
-.filter-tabs { display: flex; align-items: center; gap: 4px; }
+.filter-tabs-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 28px 0;
+}
+.filter-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
 
 .tab-btn {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 8px 14px; font-size: 13px; font-weight: 500;
-  border: 1px solid transparent; border-radius: 8px; background: transparent;
-  color: hsl(var(--muted-foreground)); cursor: pointer;
-  transition: all var(--duration-base) var(--ease-standard); white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  transition: all var(--duration-base) var(--ease-standard);
+  white-space: nowrap;
 }
-.tab-btn:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); border-color: hsl(var(--border)); }
-.tab-btn.active { background: hsl(var(--primary) / 0.1); color: hsl(var(--primary)); font-weight: 600; border-color: hsl(var(--primary) / 0.2); }
+.tab-btn:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
+  border-color: hsl(var(--border));
+}
+.tab-btn.active {
+  background: hsl(var(--primary) / 0.1);
+  color: hsl(var(--primary));
+  font-weight: 600;
+  border-color: hsl(var(--primary) / 0.2);
+}
 
 .tab-count {
-  font-size: 11px; font-weight: 600; padding: 0 6px; min-width: 22px;
-  text-align: center; border-radius: 10px;
-  background: hsl(var(--muted) / 0.7); color: hsl(var(--muted-foreground)); line-height: 1.8;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 0 6px;
+  min-width: 22px;
+  text-align: center;
+  border-radius: 10px;
+  background: hsl(var(--muted) / 0.7);
+  color: hsl(var(--muted-foreground));
+  line-height: 1.8;
 }
-.tab-btn.active .tab-count { background: hsl(var(--primary) / 0.15); color: hsl(var(--primary)); }
-.tab-count.active { background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); }
+.tab-btn.active .tab-count {
+  background: hsl(var(--primary) / 0.15);
+  color: hsl(var(--primary));
+}
+.tab-count.active {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
 
 .records-content {
-  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 0 28px 16px;
 }
 
 .empty {
-  text-align: center; padding: 72px 32px; color: hsl(var(--muted-foreground));
-  font-size: 14px; display: flex; flex-direction: column; align-items: center; gap: 14px;
+  text-align: center;
+  padding: 72px 32px;
+  color: hsl(var(--muted-foreground));
+  font-size: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
 }
-.empty-hint { font-size: 13px; color: hsl(var(--muted-foreground) / 0.7); }
+.empty-hint {
+  font-size: 13px;
+  color: hsl(var(--muted-foreground) / 0.7);
+}
 
 .record-table {
-  background: hsl(var(--card)); border: 1px solid hsl(var(--border));
-  border-radius: 12px; width: 100%; margin-top: 16px;
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: 12px;
+  width: 100%;
+  margin-top: 16px;
   box-shadow: var(--shadow-sm);
 }
 
-.record-table .record-row:first-child { border-radius: 12px 12px 0 0; }
-.record-table .record-row:last-child { border-radius: 0 0 12px 12px; }
-.record-table .record-row:only-child { border-radius: 12px; }
+.record-table .record-row:first-child {
+  border-radius: 12px 12px 0 0;
+}
+.record-table .record-row:last-child {
+  border-radius: 0 0 12px 12px;
+}
+.record-table .record-row:only-child {
+  border-radius: 12px;
+}
 
 .record-row {
-  display: grid; grid-template-columns: 2fr 1fr 1fr 0.7fr 1.2fr;
-  gap: 14px; align-items: center; padding: 14px 18px;
-  border-bottom: 1px solid hsl(var(--border)); font-size: 13px;
-  color: hsl(var(--foreground)); transition: background var(--duration-base) var(--ease-standard);
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 0.7fr 1.2fr;
+  gap: 14px;
+  align-items: center;
+  padding: 14px 18px;
+  border-bottom: 1px solid hsl(var(--border));
+  font-size: 13px;
+  color: hsl(var(--foreground));
+  transition: background var(--duration-base) var(--ease-standard);
   min-width: 0;
 }
 
@@ -1084,353 +1546,922 @@ watch(activeTab, () => {
 .dist-table .record-row {
   grid-template-columns: 36px 2fr 2fr 1fr 1.2fr 40px;
 }
-.record-row:last-child { border-bottom: none; }
-.record-row:not(.header-row):hover { background: hsl(var(--accent) / 0.4); }
-.record-row.selected { background: hsl(var(--primary) / 0.06); }
-
-.header-row {
-  background: hsl(var(--muted)); font-weight: 600; font-size: 12px; color: hsl(var(--muted-foreground));
-  position: sticky; top: 0; z-index: 2;
-  text-transform: uppercase; letter-spacing: 0.3px;
+.record-row:last-child {
+  border-bottom: none;
+}
+.record-row:not(.header-row):hover {
+  background: hsl(var(--accent) / 0.4);
+}
+.record-row.selected {
+  background: hsl(var(--primary) / 0.06);
 }
 
-.col-action { width: 40px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.header-row {
+  background: hsl(var(--muted));
+  font-weight: 600;
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
 
-.sortable { cursor: pointer; display: inline-flex; align-items: center; gap: 4px; user-select: none; }
-.sortable:hover { color: hsl(var(--foreground)); }
-.sort-indicator { display: inline-flex; align-items: center; color: hsl(var(--muted-foreground)); transition: color var(--duration-base) var(--ease-standard); }
-.sortable:hover .sort-indicator { color: hsl(var(--foreground)); }
-.sort-indicator.active { color: hsl(var(--primary)); }
+.col-action {
+  width: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.sortable {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  user-select: none;
+}
+.sortable:hover {
+  color: hsl(var(--foreground));
+}
+.sort-indicator {
+  display: inline-flex;
+  align-items: center;
+  color: hsl(var(--muted-foreground));
+  transition: color var(--duration-base) var(--ease-standard);
+}
+.sortable:hover .sort-indicator {
+  color: hsl(var(--foreground));
+}
+.sort-indicator.active {
+  color: hsl(var(--primary));
+}
 
 .trans-table .record-row {
   grid-template-columns: 36px 2fr 1fr 2fr 1fr 40px;
 }
 
-.col-time { font-size: 12px; color: hsl(var(--muted-foreground)); white-space: nowrap; }
-
-.col-status { width: 28px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-
-.col-name, .col-source, .col-time, .col-platform, .col-mode, .col-scope, .col-type, .col-preview {
-  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+.col-time {
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+  white-space: nowrap;
 }
 
-.skill-name { font-weight: 500; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.skill-id { font-size: 11px; color: hsl(var(--muted-foreground)); display: block; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.source-badge, .platform-badge {
-  font-size: 11px; font-weight: 500; padding: 3px 10px; border-radius: 6px;
-  white-space: nowrap; display: inline-flex; align-items: center; gap: 4px;
+.col-status {
+  width: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
-.platform-info { display: flex; align-items: center; gap: 8px; width: 100%; }
-.platform-label { font-size: 12px; font-weight: 500; color: hsl(var(--foreground)); }
+.col-name,
+.col-source,
+.col-time,
+.col-platform,
+.col-mode,
+.col-scope,
+.col-type,
+.col-preview {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
-.tag-icon-svg { display: inline-flex; align-items: center; }
-.tag-icon-svg svg { width: 10px; height: 10px; }
+.skill-name {
+  font-weight: 500;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.skill-id {
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+  display: block;
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-badge,
+.platform-badge {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: 6px;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.platform-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.platform-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: hsl(var(--foreground));
+}
+
+.tag-icon-svg {
+  display: inline-flex;
+  align-items: center;
+}
+.tag-icon-svg svg {
+  width: 10px;
+  height: 10px;
+}
 
 .delete-btn {
-  width: 30px; height: 30px; border: none; background: transparent;
-  color: hsl(var(--muted-foreground)); cursor: pointer; border-radius: 8px;
-  display: flex; align-items: center; justify-content: center;
-  transition: all var(--duration-base) var(--ease-standard); opacity: 0;
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--duration-base) var(--ease-standard);
+  opacity: 0;
 }
-.record-row:hover .delete-btn { opacity: 1; }
-.delete-btn:hover { background: hsl(var(--destructive) / 0.1); color: hsl(var(--destructive)); }
+.record-row:hover .delete-btn {
+  opacity: 1;
+}
+.delete-btn:hover {
+  background: hsl(var(--destructive) / 0.1);
+  color: hsl(var(--destructive));
+}
 
 .confirm-overlay {
-  position: fixed; inset: 0; z-index: 9999;
-  background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center;
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .confirm-modal {
-  width: 380px; background: hsl(var(--card));
-  border: 1px solid hsl(var(--border)); border-radius: 14px;
-  box-shadow: var(--shadow-lg); overflow: hidden;
+  width: 380px;
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: 14px;
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
 }
-.confirm-title { padding: 18px 22px 0; font-weight: 600; font-size: 16px; }
-.confirm-message { padding: 14px 22px; font-size: 13px; color: hsl(var(--muted-foreground)); line-height: 1.5; }
-.confirm-actions { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 22px 18px; }
+.confirm-title {
+  padding: 18px 22px 0;
+  font-weight: 600;
+  font-size: 16px;
+}
+.confirm-message {
+  padding: 14px 22px;
+  font-size: 13px;
+  color: hsl(var(--muted-foreground));
+  line-height: 1.5;
+}
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 22px 18px;
+}
 .confirm-cancel {
-  padding: 8px 18px; font-size: 13px; border: 1px solid hsl(var(--border));
-  border-radius: 8px; background: transparent; color: hsl(var(--foreground));
-  cursor: pointer; transition: all var(--duration-base) var(--ease-standard);
+  padding: 8px 18px;
+  font-size: 13px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  background: transparent;
+  color: hsl(var(--foreground));
+  cursor: pointer;
+  transition: all var(--duration-base) var(--ease-standard);
 }
-.confirm-cancel:hover { background: hsl(var(--accent)); }
+.confirm-cancel:hover {
+  background: hsl(var(--accent));
+}
 .confirm-ok {
-  padding: 8px 18px; font-size: 13px; border: none;
-  border-radius: 8px; background: hsl(var(--destructive));
-  color: hsl(var(--destructive-foreground)); cursor: pointer;
+  padding: 8px 18px;
+  font-size: 13px;
+  border: none;
+  border-radius: 8px;
+  background: hsl(var(--destructive));
+  color: hsl(var(--destructive-foreground));
+  cursor: pointer;
   transition: all var(--duration-base) var(--ease-standard);
 }
-.confirm-ok:hover { opacity: 0.9; }
+.confirm-ok:hover {
+  opacity: 0.9;
+}
 
-.mode-badge { font-size: 11px; font-weight: 500; padding: 3px 10px; border-radius: 6px; white-space: nowrap; }
-.mode-badge.symlink { background: hsl(142 60% 44% / 0.1); color: hsl(142 60% 44%); }
-.mode-badge.copy { background: hsl(210 80% 50% / 0.1); color: hsl(210 80% 50%); }
+.mode-badge {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+.mode-badge.symlink {
+  background: hsl(142 60% 44% / 0.1);
+  color: hsl(142 60% 44%);
+}
+.mode-badge.copy {
+  background: hsl(210 80% 50% / 0.1);
+  color: hsl(210 80% 50%);
+}
 
-.type-badge { font-size: 11px; font-weight: 500; padding: 3px 10px; border-radius: 6px; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; }
-.type-badge.content { background: hsl(260 60% 55% / 0.1); color: hsl(260 60% 55%); }
-.type-badge.desc { background: hsl(38 90% 50% / 0.1); color: hsl(38 90% 50%); }
-.type-badge.translating { background: hsl(210 80% 50% / 0.1); color: hsl(210 80% 50%); }
-.record-row.in-progress { background: hsl(210 80% 50% / 0.03); }
-.record-row.translating { background: hsl(210 80% 50% / 0.06); }
-.record-row.pending { background: hsl(38 90% 50% / 0.05); }
+.type-badge {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: 6px;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.type-badge.content {
+  background: hsl(260 60% 55% / 0.1);
+  color: hsl(260 60% 55%);
+}
+.type-badge.desc {
+  background: hsl(38 90% 50% / 0.1);
+  color: hsl(38 90% 50%);
+}
+.type-badge.translating {
+  background: hsl(210 80% 50% / 0.1);
+  color: hsl(210 80% 50%);
+}
+.record-row.in-progress {
+  background: hsl(210 80% 50% / 0.03);
+}
+.record-row.translating {
+  background: hsl(210 80% 50% / 0.06);
+}
+.record-row.pending {
+  background: hsl(38 90% 50% / 0.05);
+}
 
-.col-preview { overflow: hidden; }
-.preview-text { font-size: 12px; color: hsl(var(--muted-foreground)); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.translating-preview { display: inline-flex; align-items: center; gap: 5px; color: hsl(210 80% 50%); }
-.pending-preview { display: inline-flex; align-items: center; gap: 5px; color: hsl(38 90% 50%); }
+.col-preview {
+  overflow: hidden;
+}
+.preview-text {
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.translating-preview {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: hsl(210 80% 50%);
+}
+.pending-preview {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: hsl(38 90% 50%);
+}
 
-.col-check { width: 36px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-.checkbox-wrap { display: inline-flex; align-items: center; cursor: pointer; }
-.checkbox-wrap input[type="checkbox"] { display: none; }
+.col-check {
+  width: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.checkbox-wrap {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+.checkbox-wrap input[type='checkbox'] {
+  display: none;
+}
 .checkbox-custom {
-  width: 16px; height: 16px; border: 1.5px solid hsl(var(--border)); border-radius: 4px;
-  background: hsl(var(--card)); display: flex; align-items: center; justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid hsl(var(--border));
+  border-radius: 4px;
+  background: hsl(var(--card));
+  display: flex;
+  align-items: center;
+  justify-content: center;
   transition: all var(--duration-base) var(--ease-standard);
 }
 
-[data-theme="dark"] .checkbox-custom {
+[data-theme='dark'] .checkbox-custom {
   border-color: hsl(250 15% 22%);
   box-shadow: 0 0 0 1px hsl(250 15% 14%);
 }
-.checkbox-wrap input[type="checkbox"]:checked + .checkbox-custom {
-  background: hsl(var(--primary)); border-color: hsl(var(--primary));
+.checkbox-wrap input[type='checkbox']:checked + .checkbox-custom {
+  background: hsl(var(--primary));
+  border-color: hsl(var(--primary));
 }
-.checkbox-wrap input[type="checkbox"]:checked + .checkbox-custom::after {
-  content: ''; width: 8px; height: 5px; border-left: 2px solid white; border-bottom: 2px solid white;
+.checkbox-wrap input[type='checkbox']:checked + .checkbox-custom::after {
+  content: '';
+  width: 8px;
+  height: 5px;
+  border-left: 2px solid white;
+  border-bottom: 2px solid white;
   transform: rotate(-45deg) translateY(-1px);
 }
-.checkbox-wrap:hover .checkbox-custom { border-color: hsl(var(--primary) / 0.5); }
+.checkbox-wrap:hover .checkbox-custom {
+  border-color: hsl(var(--primary) / 0.5);
+}
 
-[data-theme="dark"] .checkbox-wrap:hover .checkbox-custom {
+[data-theme='dark'] .checkbox-wrap:hover .checkbox-custom {
   border-color: hsl(var(--primary) / 0.6);
   box-shadow: 0 0 0 1px hsl(var(--primary) / 0.2);
 }
 
 .batch-toolbar {
-  display: flex; align-items: center; gap: 14px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
 }
-.batch-count { font-size: 13px; font-weight: 500; color: hsl(var(--primary)); }
+.batch-count {
+  font-size: 13px;
+  font-weight: 500;
+  color: hsl(var(--primary));
+}
 .batch-delete-btn {
-  padding: 6px 14px; font-size: 12px; font-weight: 500; border: none; border-radius: 7px;
-  background: hsl(var(--destructive)); color: hsl(var(--destructive-foreground)); cursor: pointer;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  border: none;
+  border-radius: 7px;
+  background: hsl(var(--destructive));
+  color: hsl(var(--destructive-foreground));
+  cursor: pointer;
   transition: opacity var(--duration-base) var(--ease-standard);
 }
-.batch-delete-btn:hover { opacity: 0.9; }
+.batch-delete-btn:hover {
+  opacity: 0.9;
+}
 .batch-cancel-btn {
-  padding: 6px 14px; font-size: 12px; font-weight: 500; border: 1px solid hsl(var(--border));
-  border-radius: 7px; background: transparent; color: hsl(var(--muted-foreground)); cursor: pointer;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid hsl(var(--border));
+  border-radius: 7px;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
   transition: all var(--duration-base) var(--ease-standard);
 }
-.batch-cancel-btn:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
-
-@keyframes spin { to { transform: rotate(360deg); } }
-.spinning { animation: spin 1s linear infinite; }
-.spin { animation: spin 0.7s linear infinite; }
-
-.queue-list { background: hsl(var(--card)); border: 1px solid hsl(var(--border)); border-radius: 12px; overflow: hidden; }
-.queue-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 18px; border-bottom: 1px solid hsl(var(--border)); background: hsl(var(--muted) / 0.3); }
-.queue-title { font-size: 13px; font-weight: 600; color: hsl(var(--foreground)); }
-.queue-clear-btn { font-size: 12px; padding: 5px 12px; border: 1px solid hsl(var(--border)); border-radius: 6px; background: transparent; color: hsl(var(--muted-foreground)); cursor: pointer; transition: all var(--duration-base) var(--ease-standard); }
-.queue-clear-btn:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
-
-.clear-bar { display: flex; justify-content: flex-end; padding: 12px 0 0; }
-.clear-btn { font-size: 12px; padding: 6px 14px; border: 1px solid hsl(var(--border)); border-radius: 7px; background: transparent; color: hsl(var(--muted-foreground)); cursor: pointer; transition: all var(--duration-base) var(--ease-standard); }
-.clear-btn:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
-
-.queue-item { display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-bottom: 1px solid hsl(var(--border)); transition: background var(--duration-base) var(--ease-standard); }
-.queue-item:last-child { border-bottom: none; }
-.queue-item:hover { background: hsl(var(--accent) / 0.4); }
-.queue-item-icon { flex-shrink: 0; }
-.queue-item-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.queue-item-name { font-size: 13px; font-weight: 500; color: hsl(var(--foreground)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.queue-item-meta { font-size: 11px; color: hsl(var(--muted-foreground)); }
-.queue-item.success .queue-item-name { color: hsl(142 50% 40%); }
-.queue-item.error .queue-item-name { color: hsl(var(--destructive)); }
-.queue-item-error { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; font-size: 11px; font-weight: 700; border-radius: 50%; background: hsl(var(--destructive)); color: hsl(var(--destructive-foreground)); flex-shrink: 0; }
-
-.page-footer {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 12px 28px; border-top: 1px solid hsl(var(--border));
-  background: hsl(var(--card)); flex-shrink: 0;
+.batch-cancel-btn:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
 }
 
-.footer-left { display: flex; align-items: center; gap: 10px; }
-.footer-total { font-size: 13px; color: hsl(var(--muted-foreground)); }
-.footer-right { display: flex; align-items: center; gap: 10px; }
-.footer-label { font-size: 13px; color: hsl(var(--muted-foreground)); }
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.spinning {
+  animation: spin 1s linear infinite;
+}
+.spin {
+  animation: spin 0.7s linear infinite;
+}
+
+.queue-list {
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: 12px;
+  overflow: hidden;
+}
+.queue-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--muted) / 0.3);
+}
+.queue-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+.queue-clear-btn {
+  font-size: 12px;
+  padding: 5px 12px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  transition: all var(--duration-base) var(--ease-standard);
+}
+.queue-clear-btn:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
+}
+
+.clear-bar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 0 0;
+}
+.clear-btn {
+  font-size: 12px;
+  padding: 6px 14px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 7px;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  transition: all var(--duration-base) var(--ease-standard);
+}
+.clear-btn:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
+}
+
+.queue-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  border-bottom: 1px solid hsl(var(--border));
+  transition: background var(--duration-base) var(--ease-standard);
+}
+.queue-item:last-child {
+  border-bottom: none;
+}
+.queue-item:hover {
+  background: hsl(var(--accent) / 0.4);
+}
+.queue-item-icon {
+  flex-shrink: 0;
+}
+.queue-item-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.queue-item-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: hsl(var(--foreground));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.queue-item-meta {
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+}
+.queue-item.success .queue-item-name {
+  color: hsl(142 50% 40%);
+}
+.queue-item.error .queue-item-name {
+  color: hsl(var(--destructive));
+}
+.queue-item-error {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 50%;
+  background: hsl(var(--destructive));
+  color: hsl(var(--destructive-foreground));
+  flex-shrink: 0;
+}
+
+.page-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 28px;
+  border-top: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+  flex-shrink: 0;
+}
+
+.footer-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.footer-total {
+  font-size: 13px;
+  color: hsl(var(--muted-foreground));
+}
+.footer-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.footer-label {
+  font-size: 13px;
+  color: hsl(var(--muted-foreground));
+}
 
 .footer-pagination {
-  display: flex; align-items: center; gap: 6px; margin-left: 10px; padding-left: 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+  padding-left: 14px;
   border-left: 1px solid hsl(var(--border));
 }
 
 .page-btn {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 30px; height: 30px; border: 1px solid hsl(var(--border));
-  border-radius: 8px; background: hsl(var(--card)); color: hsl(var(--foreground));
-  cursor: pointer; transition: all var(--duration-base) var(--ease-standard);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  cursor: pointer;
+  transition: all var(--duration-base) var(--ease-standard);
 }
-.page-btn:hover:not(:disabled) { background: hsl(var(--accent)); border-color: hsl(var(--primary) / 0.3); }
-.page-btn:disabled { opacity: 0.35; cursor: default; }
+.page-btn:hover:not(:disabled) {
+  background: hsl(var(--accent));
+  border-color: hsl(var(--primary) / 0.3);
+}
+.page-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
 
-.page-info { font-size: 13px; color: hsl(var(--muted-foreground)); min-width: 50px; text-align: center; }
+.page-info {
+  font-size: 13px;
+  color: hsl(var(--muted-foreground));
+  min-width: 50px;
+  text-align: center;
+}
 
 .page-size-dropdown-wrap {
   position: relative;
 }
 
 .page-size-btn {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 5px 10px; font-size: 13px; border: 1px solid hsl(var(--border));
-  border-radius: 8px; background: hsl(var(--card)); color: hsl(var(--foreground));
-  cursor: pointer; outline: none; transition: border-color var(--duration-base) var(--ease-standard);
-  width: 52px; justify-content: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  font-size: 13px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  cursor: pointer;
+  outline: none;
+  transition: border-color var(--duration-base) var(--ease-standard);
+  width: 52px;
+  justify-content: center;
 }
-.page-size-btn:hover { border-color: hsl(var(--primary) / 0.5); }
+.page-size-btn:hover {
+  border-color: hsl(var(--primary) / 0.5);
+}
 
 .page-size-dropdown {
-  position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
-  margin-bottom: 6px; min-width: 84px;
-  background: hsl(var(--app-settings-card-bg)); border: 1px solid hsl(var(--app-settings-card-border));
-  border-radius: 10px; box-shadow: var(--app-settings-card-shadow); z-index: 100;
-  padding: 4px; overflow: hidden;
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 6px;
+  min-width: 84px;
+  background: hsl(var(--app-settings-card-bg));
+  border: 1px solid hsl(var(--app-settings-card-border));
+  border-radius: 10px;
+  box-shadow: var(--app-settings-card-shadow);
+  z-index: 100;
+  padding: 4px;
+  overflow: hidden;
 }
 
 .page-size-option {
-  display: block; width: 100%; padding: 7px 14px; font-size: 13px;
-  border: none; border-radius: 6px; background: transparent;
-  color: hsl(var(--foreground)); cursor: pointer; text-align: left;
+  display: block;
+  width: 100%;
+  padding: 7px 14px;
+  font-size: 13px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: hsl(var(--foreground));
+  cursor: pointer;
+  text-align: left;
   transition: background var(--duration-base) var(--ease-standard);
 }
-.page-size-option:hover { background: hsl(var(--accent)); }
-.page-size-option.active { background: hsl(var(--primary) / 0.1); color: hsl(var(--primary)); font-weight: 600; }
+.page-size-option:hover {
+  background: hsl(var(--accent));
+}
+.page-size-option.active {
+  background: hsl(var(--primary) / 0.1);
+  color: hsl(var(--primary));
+  font-weight: 600;
+}
 
 .stuck-bar {
-  display: flex; align-items: center; gap: 12px;
-  padding: 12px 18px; margin-top: 16px;
-  background: hsl(38 90% 50% / 0.08); border: 1px solid hsl(38 90% 50% / 0.2);
-  border-radius: 12px; font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  margin-top: 16px;
+  background: hsl(38 90% 50% / 0.08);
+  border: 1px solid hsl(38 90% 50% / 0.2);
+  border-radius: 12px;
+  font-size: 13px;
 }
-.stuck-bar-text { flex: 1; color: hsl(38 90% 40%); font-weight: 500; }
+.stuck-bar-text {
+  flex: 1;
+  color: hsl(38 90% 40%);
+  font-weight: 500;
+}
 .resume-all-btn {
-  padding: 6px 14px; font-size: 12px; font-weight: 600;
-  border: none; border-radius: 7px;
-  background: hsl(var(--primary)); color: hsl(var(--primary-foreground));
-  cursor: pointer; transition: opacity var(--duration-base) var(--ease-standard);
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  border: none;
+  border-radius: 7px;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  cursor: pointer;
+  transition: opacity var(--duration-base) var(--ease-standard);
 }
-.resume-all-btn:hover { opacity: 0.9; }
+.resume-all-btn:hover {
+  opacity: 0.9;
+}
 .clear-all-stuck-btn {
-  padding: 6px 14px; font-size: 12px; font-weight: 500;
-  border: 1px solid hsl(var(--border)); border-radius: 7px;
-  background: transparent; color: hsl(var(--muted-foreground));
-  cursor: pointer; transition: all var(--duration-base) var(--ease-standard);
-}
-.clear-all-stuck-btn:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
-
-.stuck-resume-btn, .stuck-clear-btn {
-  width: 30px; height: 30px; border: none; background: transparent;
-  color: hsl(var(--muted-foreground)); cursor: pointer; border-radius: 8px;
-  display: inline-flex; align-items: center; justify-content: center;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid hsl(var(--border));
+  border-radius: 7px;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
   transition: all var(--duration-base) var(--ease-standard);
 }
-.stuck-resume-btn:hover { background: hsl(var(--primary) / 0.1); color: hsl(var(--primary)); }
-.stuck-clear-btn:hover { background: hsl(var(--destructive) / 0.1); color: hsl(var(--destructive)); }
+.clear-all-stuck-btn:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
+}
+
+.stuck-resume-btn,
+.stuck-clear-btn {
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--duration-base) var(--ease-standard);
+}
+.stuck-resume-btn:hover {
+  background: hsl(var(--primary) / 0.1);
+  color: hsl(var(--primary));
+}
+.stuck-clear-btn:hover {
+  background: hsl(var(--destructive) / 0.1);
+  color: hsl(var(--destructive));
+}
 
 .failure-filters {
-  display: flex; align-items: center; gap: 6px; padding: 12px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 0 0;
 }
 .filter-btn {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 7px 12px; font-size: 13px; font-weight: 500;
-  border: 1px solid transparent; border-radius: 8px; background: transparent;
-  color: hsl(var(--muted-foreground)); cursor: pointer;
-  transition: all var(--duration-base) var(--ease-standard); white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  transition: all var(--duration-base) var(--ease-standard);
+  white-space: nowrap;
 }
-.filter-btn:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); border-color: hsl(var(--border)); }
-.filter-btn.active { background: hsl(var(--primary) / 0.1); color: hsl(var(--primary)); font-weight: 600; border-color: hsl(var(--primary) / 0.2); }
+.filter-btn:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
+  border-color: hsl(var(--border));
+}
+.filter-btn.active {
+  background: hsl(var(--primary) / 0.1);
+  color: hsl(var(--primary));
+  font-weight: 600;
+  border-color: hsl(var(--primary) / 0.2);
+}
 
 .failures-table .record-row {
   grid-template-columns: 36px 100px 2fr 2fr 1.2fr 40px;
 }
 
 .failure-type-badge {
-  font-size: 11px; font-weight: 500; padding: 3px 10px; border-radius: 6px;
-  white-space: nowrap; display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: 6px;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
-.failure-type-badge.translation { background: hsl(260 60% 55% / 0.1); color: hsl(260 60% 55%); }
-.failure-type-badge.download { background: hsl(210 80% 50% / 0.1); color: hsl(210 80% 50%); }
-.failure-type-badge.distribution { background: hsl(142 60% 44% / 0.1); color: hsl(142 60% 44%); }
+.failure-type-badge.translation {
+  background: hsl(260 60% 55% / 0.1);
+  color: hsl(260 60% 55%);
+}
+.failure-type-badge.download {
+  background: hsl(210 80% 50% / 0.1);
+  color: hsl(210 80% 50%);
+}
+.failure-type-badge.distribution {
+  background: hsl(142 60% 44% / 0.1);
+  color: hsl(142 60% 44%);
+}
 
-.col-error { overflow: hidden; }
-.error-text { font-size: 12px; color: hsl(var(--destructive)); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.error-category-badge { font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 5px; display: inline-block; margin-bottom: 3px; background: hsl(var(--muted)); }
+.col-error {
+  overflow: hidden;
+}
+.error-text {
+  font-size: 12px;
+  color: hsl(var(--destructive));
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.error-category-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 5px;
+  display: inline-block;
+  margin-bottom: 3px;
+  background: hsl(var(--muted));
+}
 
-.tab-count.error { background: hsl(var(--destructive) / 0.15); color: hsl(var(--destructive)); }
+.tab-count.error {
+  background: hsl(var(--destructive) / 0.15);
+  color: hsl(var(--destructive));
+}
 
-.clickable { cursor: pointer; }
-.clickable:hover { background: hsl(var(--accent) / 0.6); }
+.clickable {
+  cursor: pointer;
+}
+.clickable:hover {
+  background: hsl(var(--accent) / 0.6);
+}
 
 .failure-detail-modal {
-  width: 580px; max-width: 95vw; max-height: 80vh;
-  background: hsl(var(--card)); border: 1px solid hsl(var(--border));
-  border-radius: 14px; box-shadow: var(--shadow-lg); overflow: hidden;
-  display: flex; flex-direction: column;
+  width: 580px;
+  max-width: 95vw;
+  max-height: 80vh;
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: 14px;
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .failure-detail-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 18px 22px; border-bottom: 1px solid hsl(var(--border));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px;
+  border-bottom: 1px solid hsl(var(--border));
 }
 
-.failure-detail-title { margin: 0; font-size: 16px; font-weight: 600; color: hsl(var(--foreground)); }
+.failure-detail-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
 
 .panel-close {
-  width: 30px; height: 30px; border-radius: 8px; border: none;
-  background: transparent; color: hsl(var(--muted-foreground));
-  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   transition: all var(--duration-base) var(--ease-standard);
 }
-.panel-close:hover { background: hsl(var(--muted)); color: hsl(var(--foreground)); }
+.panel-close:hover {
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+}
 
 .failure-detail-content {
-  flex: 1; overflow-y: auto; padding: 18px 22px;
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px 22px;
 }
 
 .detail-section {
-  margin-bottom: 18px; padding-bottom: 18px;
+  margin-bottom: 18px;
+  padding-bottom: 18px;
   border-bottom: 1px solid hsl(var(--border));
 }
-.detail-section:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+.detail-section:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
 
 .section-title {
-  font-size: 12px; font-weight: 600; color: hsl(var(--muted-foreground));
-  margin: 0 0 12px; text-transform: uppercase; letter-spacing: 0.5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: hsl(var(--muted-foreground));
+  margin: 0 0 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .detail-row {
-  display: flex; align-items: flex-start; gap: 14px;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
   margin-bottom: 10px;
 }
-.detail-row:last-child { margin-bottom: 0; }
+.detail-row:last-child {
+  margin-bottom: 0;
+}
 
 .detail-label {
-  font-size: 12px; font-weight: 500; color: hsl(var(--muted-foreground));
-  min-width: 84px; flex-shrink: 0; padding-top: 2px;
+  font-size: 12px;
+  font-weight: 500;
+  color: hsl(var(--muted-foreground));
+  min-width: 84px;
+  flex-shrink: 0;
+  padding-top: 2px;
 }
 
 .detail-value {
-  font-size: 13px; color: hsl(var(--foreground)); word-break: break-word;
+  font-size: 13px;
+  color: hsl(var(--foreground));
+  word-break: break-word;
 }
-.detail-value.mono { font-family: monospace; font-size: 12px; }
-.detail-value.small { font-size: 11px; }
-.detail-value.error-message { color: hsl(var(--destructive)); font-weight: 500; }
+.detail-value.mono {
+  font-family: monospace;
+  font-size: 12px;
+}
+.detail-value.small {
+  font-size: 11px;
+}
+.detail-value.error-message {
+  color: hsl(var(--destructive));
+  font-weight: 500;
+}
 
 .raw-response {
-  font-family: monospace; font-size: 11px; line-height: 1.6;
-  background: hsl(var(--muted)); border: 1px solid hsl(var(--border));
-  border-radius: 8px; padding: 12px 14px; margin: 0;
-  overflow-x: auto; white-space: pre-wrap; word-break: break-all;
-  max-height: 160px; overflow-y: auto;
+  font-family: monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  background: hsl(var(--muted));
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin: 0;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 160px;
+  overflow-y: auto;
 }
 </style>

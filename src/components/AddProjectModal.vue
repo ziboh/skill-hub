@@ -21,19 +21,23 @@ const isSubmitting = ref(false)
 
 const isEdit = () => !!props.project
 
-watch(() => props.project, (p) => {
-  if (p) {
-    rootDir.value = p.rootDir || ''
-    projectName.value = p.name || ''
-    scanPaths.value = [...(p.scanPaths || [])]
-  } else {
-    rootDir.value = ''
-    projectName.value = ''
-    scanPaths.value = []
-  }
-  error.value = ''
-  isSubmitting.value = false
-}, { immediate: true })
+watch(
+  () => props.project,
+  (p) => {
+    if (p) {
+      rootDir.value = p.rootDir || ''
+      projectName.value = p.name || ''
+      scanPaths.value = [...(p.scanPaths || [])]
+    } else {
+      rootDir.value = ''
+      projectName.value = ''
+      scanPaths.value = []
+    }
+    error.value = ''
+    isSubmitting.value = false
+  },
+  { immediate: true },
+)
 
 function addScanPath() {
   const p = newScanPath.value.trim()
@@ -69,16 +73,19 @@ async function selectFolder(target: string) {
         scanPaths.value.push(dirs[0])
       }
     }
-  } catch (e) {
+  } catch {
     error.value = '选择文件夹失败，请手动输入路径。'
   }
 }
 
-watch(() => props.submitError, (newError) => {
-  if (newError) {
-    isSubmitting.value = false
-  }
-})
+watch(
+  () => props.submitError,
+  (newError) => {
+    if (newError) {
+      isSubmitting.value = false
+    }
+  },
+)
 
 function handleSubmit() {
   const root = rootDir.value.trim()
@@ -109,9 +116,20 @@ function handleSubmit() {
   <div class="modal-overlay" @click.self="emit('close')">
     <div class="modal-panel">
       <div class="modal-header">
-        <h2 class="modal-title">{{ project ? '编辑项目' : '添加项目' }}</h2>
+        <h2 class="modal-title">
+          {{ project ? '编辑项目' : '添加项目' }}
+        </h2>
         <button class="modal-close" @click="emit('close')">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
             <path d="M18 6L6 18M6 6l12 12" />
           </svg>
         </button>
@@ -119,12 +137,28 @@ function handleSubmit() {
       <div class="modal-body">
         <div class="field">
           <label class="field-label">项目根目录</label>
-          <p class="field-desc" v-if="!isEdit()">选择根目录后自动填写项目名称并开始扫描。</p>
-          <p class="field-desc" v-else>项目根目录在添加后不可修改。</p>
+          <p v-if="!isEdit()" class="field-desc">选择根目录后自动填写项目名称并开始扫描。</p>
+          <p v-else class="field-desc">项目根目录在添加后不可修改。</p>
           <div class="field-row">
-            <input v-model="rootDir" type="text" class="field-input" :class="{ readonly: isEdit() }" placeholder="/path/to/project" :readonly="isEdit()" />
+            <input
+              v-model="rootDir"
+              type="text"
+              class="field-input"
+              :class="{ readonly: isEdit() }"
+              placeholder="/path/to/project"
+              :readonly="isEdit()"
+            />
             <button v-if="!isEdit()" class="btn-browse" @click="selectFolder('root')">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
                 <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
               </svg>
               浏览
@@ -144,13 +178,31 @@ function handleSubmit() {
           <div class="field-row">
             <input v-model="newScanPath" type="text" class="field-input" placeholder="可选的额外扫描目录" @keyup.enter="addScanPath" />
             <button class="btn-secondary" @click="addScanPath">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
                 <path d="M12 5v14M5 12h14" />
               </svg>
               添加
             </button>
             <button class="btn-browse" @click="selectFolder('scan')">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
                 <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
               </svg>
               浏览
@@ -161,7 +213,16 @@ function handleSubmit() {
             <div v-for="(p, i) in scanPaths" :key="i" class="scan-path-item">
               <span class="scan-path-text">{{ p }}</span>
               <button class="scan-path-remove" @click="removeScanPath(i)">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
                   <path d="M18 6L6 18M6 6l12 12" />
                 </svg>
               </button>
@@ -171,10 +232,12 @@ function handleSubmit() {
         </div>
       </div>
       <div class="modal-footer">
-        <div class="modal-error" v-if="error || props.submitError">{{ error || props.submitError }}</div>
+        <div v-if="error || props.submitError" class="modal-error">
+          {{ error || props.submitError }}
+        </div>
         <button class="btn-cancel" @click="emit('close')">取消</button>
         <button class="btn-primary" :disabled="isSubmitting || !rootDir.trim() || !projectName.trim()" @click="handleSubmit">
-          {{ isSubmitting ? '保存中…' : (project ? '保存' : '添加项目') }}
+          {{ isSubmitting ? '保存中…' : project ? '保存' : '添加项目' }}
         </button>
       </div>
     </div>

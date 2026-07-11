@@ -1,6 +1,14 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, shallowRef } from 'vue'
-import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, rectangularSelection } from '@codemirror/view'
+import {
+  EditorView,
+  keymap,
+  lineNumbers,
+  highlightActiveLine,
+  highlightActiveLineGutter,
+  drawSelection,
+  rectangularSelection,
+} from '@codemirror/view'
 import { EditorState, Compartment, Annotation } from '@codemirror/state'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { bracketMatching, foldGutter, indentOnInput, HighlightStyle, syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
@@ -80,19 +88,19 @@ const cmTheme = EditorView.theme({
 function getLanguageExtension(lang?: string): any {
   switch (lang) {
     case 'markdown':
-      return import('@codemirror/lang-markdown').then(m => m.markdown())
+      return import('@codemirror/lang-markdown').then((m) => m.markdown())
     case 'javascript':
-      return import('@codemirror/lang-javascript').then(m => m.javascript())
+      return import('@codemirror/lang-javascript').then((m) => m.javascript())
     case 'json':
-      return import('@codemirror/lang-json').then(m => m.json())
+      return import('@codemirror/lang-json').then((m) => m.json())
     case 'yaml':
-      return import('@codemirror/lang-yaml').then(m => m.yaml())
+      return import('@codemirror/lang-yaml').then((m) => m.yaml())
     case 'python':
-      return import('@codemirror/lang-python').then(m => m.python())
+      return import('@codemirror/lang-python').then((m) => m.python())
     case 'html':
-      return import('@codemirror/lang-html').then(m => m.html())
+      return import('@codemirror/lang-html').then((m) => m.html())
     case 'css':
-      return import('@codemirror/lang-css').then(m => m.css())
+      return import('@codemirror/lang-css').then((m) => m.css())
     default:
       return Promise.resolve([])
   }
@@ -117,28 +125,19 @@ function buildExtensions(readonly: boolean) {
     cmTheme,
     EditorView.lineWrapping,
     languageCompartment.of([]),
-    editableCompartment.of([
-      EditorView.editable.of(!readonly),
-      EditorState.readOnly.of(readonly),
-    ]),
+    editableCompartment.of([EditorView.editable.of(!readonly), EditorState.readOnly.of(readonly)]),
     EditorView.contentAttributes.of({
       'aria-label': readonly ? 'Code viewer' : 'Code editor',
       role: 'textbox',
       spellcheck: 'false',
     }),
     EditorView.updateListener.of((update) => {
-      const isParentSync = update.transactions.some(t => t.annotation(parentSyncAnnotation))
+      const isParentSync = update.transactions.some((t) => t.annotation(parentSyncAnnotation))
       if (update.docChanged && !isParentSync) {
         emit('update:modelValue', update.state.doc.toString())
       }
     }),
-    keymap.of([
-      ...defaultKeymap,
-      ...historyKeymap,
-      ...searchKeymap,
-      ...completionKeymap,
-      indentWithTab,
-    ]),
+    keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, ...completionKeymap, indentWithTab]),
   ]
 }
 
@@ -168,29 +167,35 @@ onUnmounted(() => {
   view.value = undefined
 })
 
-watch(() => props.language, (lang) => {
-  loadLanguage(lang)
-})
+watch(
+  () => props.language,
+  (lang) => {
+    loadLanguage(lang)
+  },
+)
 
-watch(() => props.readonly, (ro) => {
-  view.value?.dispatch({
-    effects: editableCompartment.reconfigure([
-      EditorView.editable.of(!ro),
-      EditorState.readOnly.of(ro),
-    ]),
-  })
-})
+watch(
+  () => props.readonly,
+  (ro) => {
+    view.value?.dispatch({
+      effects: editableCompartment.reconfigure([EditorView.editable.of(!ro), EditorState.readOnly.of(ro)]),
+    })
+  },
+)
 
-watch(() => props.modelValue, (val) => {
-  const v = view.value
-  if (!v) return
-  const current = v.state.doc.toString()
-  if (current === val) return
-  v.dispatch({
-    changes: { from: 0, to: current.length, insert: val },
-    annotations: parentSyncAnnotation.of(true),
-  })
-})
+watch(
+  () => props.modelValue,
+  (val) => {
+    const v = view.value
+    if (!v) return
+    const current = v.state.doc.toString()
+    if (current === val) return
+    v.dispatch({
+      changes: { from: 0, to: current.length, insert: val },
+      annotations: parentSyncAnnotation.of(true),
+    })
+  },
+)
 </script>
 
 <template>

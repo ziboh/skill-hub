@@ -94,7 +94,10 @@ describe('useRouter', () => {
 
   test('navigate sets duplicateSkills', () => {
     const { selectedDuplicateSkills, navigate } = useRouter()
-    const duplicates = [{ dir: '/a', name: 'a' }, { dir: '/b', name: 'b' }]
+    const duplicates = [
+      { dir: '/a', name: 'a' },
+      { dir: '/b', name: 'b' },
+    ]
     navigate('detail', { duplicateSkills: duplicates as any })
     expect(selectedDuplicateSkills.value).toHaveLength(2)
   })

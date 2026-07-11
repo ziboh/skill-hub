@@ -10,7 +10,7 @@ const html = computed(() => renderMarkdown(props.content))
 </script>
 
 <template>
-  <div class="markdown-body" v-html="html"></div>
+  <div class="markdown-body" v-html="html" />
 </template>
 
 <style scoped>

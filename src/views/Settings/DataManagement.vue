@@ -3,12 +3,16 @@ import { ref, computed, inject } from 'vue'
 import { storage } from '../../utils/storage'
 import { KeyShowToast } from '../../inject-keys'
 import ConfirmModal from '../../components/ConfirmModal.vue'
-import type { Skill, DistributeRecord, StoreSource, FailureRecord } from '../../types'
+import type { Skill, DistributeRecord, FailureRecord } from '../../types'
 
-const showToast = inject(KeyShowToast, () => {})
+const _showToast = inject(KeyShowToast, () => {})
 
 function getSizeBytes(data: any): number {
-  try { return new Blob([JSON.stringify(data)]).size } catch { return 0 }
+  try {
+    return new Blob([JSON.stringify(data)]).size
+  } catch {
+    return 0
+  }
 }
 
 function formatBytes(bytes: number): string {
@@ -55,10 +59,12 @@ interface BucketDef {
 
 const buckets: BucketDef[] = [
   {
-    key: 'downloaded_skills', label: '已下载技能',
+    key: 'downloaded_skills',
+    label: '已下载技能',
     getData: () => storage.getCachedSkills(),
     viewType: 'table',
-    groupKey: 'source', groupLabel: '来源',
+    groupKey: 'source',
+    groupLabel: '来源',
     searchField: 'name',
     columns: [
       { key: 'name', label: '名称', width: 'auto' },
@@ -68,10 +74,12 @@ const buckets: BucketDef[] = [
       { key: 'tags', label: '标签', width: '90px', render: (v: string[]) => v?.join(', ') || '' },
       { key: 'userTags', label: '用户标签', width: '80px', render: (v: string[]) => v?.join(', ') || '' },
     ],
-    filterKey: 'source', filterLabel: '来源',
+    filterKey: 'source',
+    filterLabel: '来源',
   },
   {
-    key: 'github_cache', label: 'GitHub 缓存',
+    key: 'github_cache',
+    label: 'GitHub 缓存',
     getData: () => Object.values(storage.getGitHubCache()),
     viewType: 'table',
     searchField: 'name',
@@ -84,7 +92,8 @@ const buckets: BucketDef[] = [
     ],
   },
   {
-    key: 'web_cache', label: 'Web 缓存',
+    key: 'web_cache',
+    label: 'Web 缓存',
     getData: () => {
       const all = storage.getAllWebCaches()
       const rows: any[] = []
@@ -96,19 +105,22 @@ const buckets: BucketDef[] = [
       return rows
     },
     viewType: 'table',
-    groupKey: '_source', groupLabel: '源',
+    groupKey: '_source',
+    groupLabel: '源',
     searchField: 'name',
     columns: [
       { key: '_source', label: '源', width: '80px' },
       { key: 'name', label: '名称', width: 'auto' },
       { key: 'description', label: '描述', width: 'auto', render: (v: string) => v?.slice(0, 80) || '暂无描述' },
-      { key: 'readme', label: 'SKILL.md', width: '70px', render: (v: string) => v ? '✓' : '' },
+      { key: 'readme', label: 'SKILL.md', width: '70px', render: (v: string) => (v ? '✓' : '') },
       { key: '_fetchedAt', label: '缓存时间', width: '120px' },
     ],
-    filterKey: '_source', filterLabel: '源',
+    filterKey: '_source',
+    filterLabel: '源',
   },
   {
-    key: 'distribute_records', label: '分发记录',
+    key: 'distribute_records',
+    label: '分发记录',
     getData: () => storage.getDistributeRecords(),
     viewType: 'table',
     columns: [
@@ -119,7 +131,8 @@ const buckets: BucketDef[] = [
     ],
   },
   {
-    key: 'translations', label: '翻译缓存',
+    key: 'translations',
+    label: '翻译缓存',
     getData: () => {
       const cache = storage.getTranslationCaches()
       return Object.entries(cache || {}).map(([hash, val]) => ({
@@ -146,42 +159,48 @@ const buckets: BucketDef[] = [
     searchField: 'skillName',
   },
   {
-    key: 'store_sources', label: '商店源',
+    key: 'store_sources',
+    label: '商店源',
     getData: () => storage.getStoreSources(),
     viewType: 'table',
     columns: [
       { key: 'name', label: '名称', width: 'auto' },
       { key: 'type', label: '类型', width: '80px' },
       { key: 'url', label: 'URL', width: 'auto', render: (v: string) => v?.replace(/^https?:\/\//, '') || '-' },
-      { key: 'enabled', label: '启用', width: '50px', render: (v: boolean) => v ? '✓' : '✗' },
+      { key: 'enabled', label: '启用', width: '50px', render: (v: boolean) => (v ? '✓' : '✗') },
     ],
   },
   {
-    key: 'platform_configs', label: '平台配置',
+    key: 'platform_configs',
+    label: '平台配置',
     getData: () => storage.getPlatformConfigs(),
     viewType: 'table',
     columns: [
       { key: 'name', label: '名称', width: 'auto' },
       { key: 'id', label: 'ID', width: '80px' },
-      { key: 'enabled', label: '启用', width: '50px', render: (v: boolean) => v ? '✓' : '✗' },
-      { key: 'detected', label: '已检测', width: '60px', render: (v: boolean) => v ? '✓' : '✗' },
+      { key: 'enabled', label: '启用', width: '50px', render: (v: boolean) => (v ? '✓' : '✗') },
+      { key: 'detected', label: '已检测', width: '60px', render: (v: boolean) => (v ? '✓' : '✗') },
     ],
   },
   {
-    key: 'failure_records', label: '失败记录',
+    key: 'failure_records',
+    label: '失败记录',
     getData: () => storage.getFailureRecords(),
     viewType: 'table',
-    groupKey: 'type', groupLabel: '类型',
+    groupKey: 'type',
+    groupLabel: '类型',
     columns: [
       { key: 'type', label: '类型', width: '80px' },
       { key: 'skillName', label: '技能', width: 'auto' },
       { key: 'error', label: '错误', width: 'auto' },
-      { key: 'timestamp', label: '时间', width: '120px', render: (v: number) => v ? new Date(v).toLocaleString() : '-' },
+      { key: 'timestamp', label: '时间', width: '120px', render: (v: number) => (v ? new Date(v).toLocaleString() : '-') },
     ],
-    filterKey: 'type', filterLabel: '类型',
+    filterKey: 'type',
+    filterLabel: '类型',
   },
   {
-    key: 'registered_projects', label: '注册项目',
+    key: 'registered_projects',
+    label: '注册项目',
     getData: () => storage.getRegisteredProjects(),
     viewType: 'table',
     searchField: 'name',
@@ -192,7 +211,8 @@ const buckets: BucketDef[] = [
     ],
   },
   {
-    key: 'platform_order', label: '平台排序',
+    key: 'platform_order',
+    label: '平台排序',
     getData: () => storage.getPlatformOrder(),
     viewType: 'table',
     columns: [
@@ -201,23 +221,25 @@ const buckets: BucketDef[] = [
     ],
   },
   {
-    key: 'settings', label: '应用设置',
+    key: 'settings',
+    label: '应用设置',
     getData: () => storage.getSettings(),
     viewType: 'json',
   },
   {
-    key: 'page_state', label: '页面状态',
+    key: 'page_state',
+    label: '页面状态',
     getData: () => storage.getAllPageStates(),
     viewType: 'kv',
   },
 ]
 
 // ===== Summary helpers =====
-function getSummary(bucket: BucketDef): { label: string; count: number }[] {
+function _getSummary(bucket: BucketDef): { label: string; count: number }[] {
   const data = bucket.getData()
   if (!data || !Array.isArray(data)) return []
   if (bucket.groupKey && data.length > 0) {
-    return groupBy(data, (item: any) => item[bucket.groupKey!] || '未知').map(g => ({ label: g.key, count: g.count }))
+    return groupBy(data, (item: any) => item[bucket.groupKey!] || '未知').map((g) => ({ label: g.key, count: g.count }))
   }
   return []
 }
@@ -260,12 +282,12 @@ const tableData = computed(() => {
   if (!bucket) return []
   const data = bucket.getData()
   if (!Array.isArray(data)) return Object.entries(data || {}).map(([k, v]) => ({ key: k, value: v }))
-  
+
   // 处理原始值数组（如字符串数组）
   if (data.length > 0 && typeof data[0] !== 'object') {
     return data.map((item: any, index: number) => ({ index, value: item }))
   }
-  
+
   let items = data as any[]
   if (bucket.filterKey && tableFilter.value !== 'all') {
     items = items.filter((item: any) => (item[bucket.filterKey!] || '') === tableFilter.value)
@@ -275,11 +297,17 @@ const tableData = computed(() => {
     if (bucket.searchField) {
       const field = bucket.searchField
       items = items.filter((item: any) =>
-        String(item[field] ?? '').toLowerCase().includes(q)
+        String(item[field] ?? '')
+          .toLowerCase()
+          .includes(q),
       )
     } else {
       items = items.filter((item: any) =>
-        Object.values(item).some(v => String(v ?? '').toLowerCase().includes(q))
+        Object.values(item).some((v) =>
+          String(v ?? '')
+            .toLowerCase()
+            .includes(q),
+        ),
       )
     }
   }
@@ -293,16 +321,16 @@ const tableColumnDefs = computed<ColumnDef[]>(() => {
   if (bucket.columns?.length) return bucket.columns as any
   const data = bucket.getData()
   if (!Array.isArray(data) || data.length === 0) return []
-  
+
   // 如果数据是原始值数组，返回默认列配置
   if (data.length > 0 && typeof data[0] !== 'object') {
     return [
       { key: 'index', label: '序号', width: '60px' },
-      { key: 'value', label: '值', width: 'auto' }
+      { key: 'value', label: '值', width: 'auto' },
     ]
   }
-  
-  return Object.keys(data[0]).map(k => ({ key: k, label: k, width: 'auto' }))
+
+  return Object.keys(data[0]).map((k) => ({ key: k, label: k, width: 'auto' }))
 })
 
 const filterOptions = computed(() => {
@@ -314,9 +342,7 @@ const filterOptions = computed(() => {
   return Array.from(keys).sort()
 })
 
-const allSelected = computed(() =>
-  tableData.value.length > 0 && tableSelected.value.size === tableData.value.length
-)
+const allSelected = computed(() => tableData.value.length > 0 && tableSelected.value.size === tableData.value.length)
 
 function toggleAll() {
   if (allSelected.value) tableSelected.value = new Set()
@@ -358,9 +384,9 @@ function deleteSelectedItems() {
 
 function doDelete(bucket: BucketDef, indices: number[]) {
   const allData = bucket.getData()
-      if (bucket.key === 'downloaded_skills') {
-    const idsToRemove = indices.map(i => (tableData.value[i] as Skill).id)
-    const remaining = (allData as Skill[]).filter(s => !idsToRemove.includes(s.id))
+  if (bucket.key === 'downloaded_skills') {
+    const idsToRemove = indices.map((i) => (tableData.value[i] as Skill).id)
+    const remaining = (allData as Skill[]).filter((s) => !idsToRemove.includes(s.id))
     storage.replaceCachedSkills(remaining)
   } else if (bucket.key === 'distribute_records') {
     const records = allData as DistributeRecord[]
@@ -373,7 +399,7 @@ function doDelete(bucket: BucketDef, indices: number[]) {
       storage.removeFailureRecord(records[i].id)
     }
   } else if (bucket.key === 'github_cache') {
-    const idsToRemove = indices.map(i => (tableData.value[i] as Skill).id)
+    const idsToRemove = indices.map((i) => (tableData.value[i] as Skill).id)
     for (const id of idsToRemove) {
       storage.removeGitHubSkill(id)
     }
@@ -389,7 +415,7 @@ function doDelete(bucket: BucketDef, indices: number[]) {
     for (const [src, ids] of Object.entries(toRemove)) {
       const cached = storage.getWebCache(src)
       if (cached) {
-        const remaining = cached.skills.filter(s => !ids.includes(s.id))
+        const remaining = cached.skills.filter((s) => !ids.includes(s.id))
         if (remaining.length === 0) {
           storage.clearWebCache(src)
         } else {
@@ -417,14 +443,23 @@ function doDelete(bucket: BucketDef, indices: number[]) {
   refreshSummary()
 }
 
-const manageableBucketKeys = ['github_cache','web_cache','distribute_records','failure_records','translations','registered_projects','platform_order','page_state']
+const manageableBucketKeys = [
+  'github_cache',
+  'web_cache',
+  'distribute_records',
+  'failure_records',
+  'translations',
+  'registered_projects',
+  'platform_order',
+  'page_state',
+]
 
 const dataSummary = computed(() => {
   summaryVersion.value
   const totalItems = buckets.reduce((sum, bucket) => sum + Number(getCountInfo(bucket) || 0), 0)
   const totalBytes = buckets.reduce((sum, bucket) => sum + getSizeBytes(bucket.getData()), 0)
   const cleanableItems = buckets
-    .filter(bucket => manageableBucketKeys.includes(bucket.key))
+    .filter((bucket) => manageableBucketKeys.includes(bucket.key))
     .reduce((sum, bucket) => sum + Number(getCountInfo(bucket) || 0), 0)
   return [
     { label: '数据集', value: String(buckets.length), hint: '本地存储分类' },
@@ -435,34 +470,36 @@ const dataSummary = computed(() => {
 })
 
 const summaryVersion = ref(0)
-function refreshSummary() { summaryVersion.value++ }
+function refreshSummary() {
+  summaryVersion.value++
+}
 
 // ===== Cleanup by source =====
-function confirmCleanupBySource(source: string) {
-  const skills = storage.getCachedSkills().filter(s => s.source === source)
+function _confirmCleanupBySource(source: string) {
+  const skills = storage.getCachedSkills().filter((s) => s.source === source)
   confirmDelete.value = {
     title: `清理 ${source} 缓存`,
     message: `确定要删除所有 <strong>${source}</strong> 来源的缓存技能吗？共 <strong>${skills.length}</strong> 个。此操作不可撤销。`,
     onConfirm: () => {
-      const remaining = storage.getCachedSkills().filter(s => s.source !== source)
+      const remaining = storage.getCachedSkills().filter((s) => s.source !== source)
       storage.replaceCachedSkills(remaining)
       refreshSummary()
       closeModal()
-    }
+    },
   }
 }
 
-function confirmCleanupByStoreSource(storeSourceId: string) {
-  const skills = storage.getCachedSkills().filter(s => s.storeSourceId === storeSourceId)
+function _confirmCleanupByStoreSource(storeSourceId: string) {
+  const skills = storage.getCachedSkills().filter((s) => s.storeSourceId === storeSourceId)
   confirmDelete.value = {
     title: `清理商店源缓存`,
     message: `确定要删除商店源 <strong>${storeSourceId}</strong> 的所有缓存技能吗？共 <strong>${skills.length}</strong> 个。此操作不可撤销。`,
     onConfirm: () => {
-      const remaining = storage.getCachedSkills().filter(s => s.storeSourceId !== storeSourceId)
+      const remaining = storage.getCachedSkills().filter((s) => s.storeSourceId !== storeSourceId)
       storage.replaceCachedSkills(remaining)
       refreshSummary()
       if (modalBucket.value) modalBucket.value = { ...modalBucket.value }
-    }
+    },
   }
 }
 
@@ -472,7 +509,7 @@ function confirmClearAll(bucket: BucketDef) {
     title: `清空 ${label}`,
     message: `确定要清空所有 <strong>${label}</strong> 吗？此操作不可撤销。`,
     onConfirm: () => {
-  if (bucket.key === 'downloaded_skills') {
+      if (bucket.key === 'downloaded_skills') {
         storage.replaceCachedSkills([])
       } else if (bucket.key === 'distribute_records') {
         const records = storage.getDistributeRecords()
@@ -485,7 +522,7 @@ function confirmClearAll(bucket: BucketDef) {
         storage.clearGitHubCache()
       } else if (bucket.key === 'translations') {
         const keys = Object.keys(storage.getTranslationCaches())
-        keys.forEach(h => storage.removeTranslationByHash(h))
+        keys.forEach((h) => storage.removeTranslationByHash(h))
       } else if (bucket.key === 'registered_projects') {
         storage.saveRegisteredProjects([])
       } else if (bucket.key === 'platform_order') {
@@ -495,10 +532,9 @@ function confirmClearAll(bucket: BucketDef) {
       }
       refreshSummary()
       closeModal()
-    }
+    },
   }
 }
-
 </script>
 
 <template>
@@ -510,10 +546,14 @@ function confirmClearAll(bucket: BucketDef) {
     <div class="setting-section">
       <h3 class="setting-section-title">数据概览</h3>
       <div class="setting-card">
-        <div class="setting-row" v-for="item in dataSummary" :key="item.label">
+        <div v-for="item in dataSummary" class="setting-row" :key="item.label">
           <div class="setting-row-info">
-            <div class="setting-row-label">{{ item.label }}</div>
-            <div class="setting-row-desc">{{ item.hint }}</div>
+            <div class="setting-row-label">
+              {{ item.label }}
+            </div>
+            <div class="setting-row-desc">
+              {{ item.hint }}
+            </div>
           </div>
           <span class="dm-stat-value">{{ item.value }}</span>
         </div>
@@ -524,27 +564,17 @@ function confirmClearAll(bucket: BucketDef) {
     <div class="setting-section">
       <h3 class="setting-section-title">缓存数据一览</h3>
       <div class="setting-card">
-        <div
-          v-for="bucket in buckets"
-          :key="`${bucket.key}-${summaryVersion}`"
-          class="setting-row"
-        >
+        <div v-for="bucket in buckets" :key="`${bucket.key}-${summaryVersion}`" class="setting-row">
           <div class="setting-row-info">
-            <div class="setting-row-label">{{ bucket.label }}</div>
-            <div class="setting-row-desc">
-              {{ getCountInfo(bucket) }} 条 · {{ estimateSize(bucket.getData()) }}
+            <div class="setting-row-label">
+              {{ bucket.label }}
             </div>
-
-
+            <div class="setting-row-desc">{{ getCountInfo(bucket) }} 条 · {{ estimateSize(bucket.getData()) }}</div>
           </div>
 
           <div class="dm-row-actions">
             <button class="btn" @click="openModal(bucket)">查看</button>
-            <button
-              v-if="manageableBucketKeys.includes(bucket.key)"
-              class="btn btn-danger"
-              @click="confirmClearAll(bucket)"
-            >清空</button>
+            <button v-if="manageableBucketKeys.includes(bucket.key)" class="btn btn-danger" @click="confirmClearAll(bucket)">清空</button>
           </div>
         </div>
       </div>
@@ -556,12 +586,26 @@ function confirmClearAll(bucket: BucketDef) {
         <div class="dm-modal">
           <div class="dm-modal-header">
             <div>
-              <h3 class="dm-modal-title">{{ modalBucket.label }}</h3>
+              <h3 class="dm-modal-title">
+                {{ modalBucket.label }}
+              </h3>
               <p class="dm-modal-subtitle">{{ tableData.length }} 条记录 · {{ estimateSize(modalBucket.getData()) }}</p>
             </div>
             <div class="dm-modal-header-btn">
               <button class="dm-btn-close" @click="closeModal">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
               </button>
             </div>
           </div>
@@ -575,14 +619,27 @@ function confirmClearAll(bucket: BucketDef) {
                 <div v-if="filterOptions.length > 0 || modalBucket.searchField" class="dm-filter-row">
                   <select v-if="filterOptions.length > 0" v-model="tableFilter" class="dm-select">
                     <option value="all">全部{{ modalBucket.filterLabel ? ` ${modalBucket.filterLabel}` : '' }}</option>
-                    <option v-for="opt in filterOptions" :key="opt" :value="opt">{{ opt }}</option>
+                    <option v-for="opt in filterOptions" :key="opt" :value="opt">
+                      {{ opt }}
+                    </option>
                   </select>
                   <div class="dm-search-box">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <circle cx="11" cy="11" r="8" />
+                      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                    </svg>
                     <input v-model="tableSearch" type="text" placeholder="搜索..." class="dm-search-input" />
                   </div>
-                  <span class="dm-filter-spacer"></span>
-
+                  <span class="dm-filter-spacer" />
                 </div>
                 <!-- Batch actions -->
                 <div class="dm-batch-row">
@@ -591,12 +648,10 @@ function confirmClearAll(bucket: BucketDef) {
                     全选
                   </label>
                   <span class="dm-batch-info">已选 {{ tableSelected.size }} / {{ tableData.length }}</span>
-                  <span class="dm-batch-spacer"></span>
-                  <button
-                    class="btn btn-danger btn-sm"
-                    :class="{ 'dm-btn-visible': tableSelected.size > 0 }"
-                    @click="deleteSelectedItems"
-                  >删除选中</button>
+                  <span class="dm-batch-spacer" />
+                  <button class="btn btn-danger btn-sm" :class="{ 'dm-btn-visible': tableSelected.size > 0 }" @click="deleteSelectedItems">
+                    删除选中
+                  </button>
                 </div>
               </div>
 
@@ -606,17 +661,28 @@ function confirmClearAll(bucket: BucketDef) {
                   <table class="dm-table">
                     <thead>
                       <tr>
-                        <th class="dm-th-check"></th>
-                        <th v-for="col in tableColumnDefs" :key="col.key" class="dm-th" :style="{ width: col.width }">{{ col.label }}</th>
+                        <th class="dm-th-check" />
+                        <th v-for="col in tableColumnDefs" :key="col.key" class="dm-th" :style="{ width: col.width }">
+                          {{ col.label }}
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
-                      <tr v-for="(row, i) in tableData" :key="i" class="dm-tr" :class="{ selected: tableSelected.has(i) }" @click="tableDetailItem = row">
+                      <tr
+                        v-for="(row, i) in tableData"
+                        :key="i"
+                        class="dm-tr"
+                        :class="{ selected: tableSelected.has(i) }"
+                        @click="tableDetailItem = row"
+                      >
                         <td class="dm-td-check" @click.stop>
                           <input
                             type="checkbox"
                             :checked="tableSelected.has(i)"
-                            @change="tableSelected.has(i) ? tableSelected.delete(i) : tableSelected.add(i); tableSelected = new Set(tableSelected)"
+                            @change="
+                              (tableSelected.has(i) ? tableSelected.delete(i) : tableSelected.add(i),
+                              (tableSelected = new Set(tableSelected)))
+                            "
                           />
                         </td>
                         <td v-for="col in tableColumnDefs" :key="col.key" class="dm-td">
@@ -661,16 +727,45 @@ function confirmClearAll(bucket: BucketDef) {
       <div v-if="tableDetailItem" class="dm-detail-fixed" @click.self="tableDetailItem = null">
         <div class="dm-detail-card">
           <div class="dm-detail-card-header">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="16" x2="12" y2="12" />
+              <line x1="12" y1="8" x2="12.01" y2="8" />
+            </svg>
             <span class="dm-detail-card-title">行详情</span>
             <button class="dm-btn-close" @click="tableDetailItem = null">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
             </button>
           </div>
           <div class="dm-detail-card-body">
             <div v-for="(val, key) in tableDetailItem" :key="key" class="dm-detail-field">
-              <div class="dm-detail-field-key">{{ key }}</div>
-              <div class="dm-detail-field-val">{{ formatDetailValue(val) }}</div>
+              <div class="dm-detail-field-key">
+                {{ key }}
+              </div>
+              <div class="dm-detail-field-val">
+                {{ formatDetailValue(val) }}
+              </div>
             </div>
           </div>
         </div>
@@ -684,7 +779,7 @@ function confirmClearAll(bucket: BucketDef) {
           :title="confirmDelete.title"
           :message="confirmDelete.message"
           confirm-text="确定"
-          @confirm="confirmDelete.onConfirm(); confirmDelete = null"
+          @confirm="(confirmDelete.onConfirm(), (confirmDelete = null))"
           @cancel="confirmDelete = null"
         />
       </div>
@@ -765,7 +860,9 @@ function confirmClearAll(bucket: BucketDef) {
   background: hsl(var(--card));
   border: 1px solid hsl(var(--border));
   border-radius: 16px;
-  box-shadow: 0 32px 80px hsl(0 0% 0% / 0.25), 0 0 0 1px hsl(var(--border) / 0.5);
+  box-shadow:
+    0 32px 80px hsl(0 0% 0% / 0.25),
+    0 0 0 1px hsl(var(--border) / 0.5);
   overflow: hidden;
   animation: dm-modal-in 0.2s ease-out;
 }
@@ -1016,7 +1113,8 @@ function confirmClearAll(bucket: BucketDef) {
   border-bottom: 2px solid hsl(var(--border));
   background: hsl(var(--muted));
 }
-.dm-th-check input, .dm-td-check input {
+.dm-th-check input,
+.dm-td-check input {
   accent-color: hsl(var(--primary));
   width: 14px;
   height: 14px;
@@ -1116,8 +1214,14 @@ function confirmClearAll(bucket: BucketDef) {
   flex-shrink: 0;
 }
 @keyframes dm-toast-in {
-  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
-  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
 }
 
 /* JSON view */

@@ -1,4 +1,4 @@
-import { describe, test, expect, vi, beforeEach } from 'vitest'
+import { describe, test, expect, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import StoreConfigModal from '../StoreConfigModal.vue'
 import type { StoreSource } from '../../types'
@@ -113,7 +113,7 @@ describe('StoreConfigModal', () => {
   test('edit mode disables type selection', () => {
     const wrapper = createWrapper({ editSource: sampleSource })
     const typeCards = wrapper.findAll('.type-card')
-    typeCards.forEach(card => {
+    typeCards.forEach((card) => {
       expect(card.attributes('disabled')).toBeDefined()
     })
   })

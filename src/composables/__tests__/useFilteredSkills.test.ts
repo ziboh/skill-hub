@@ -83,7 +83,7 @@ describe('useFilteredSkills', () => {
       filterTag: () => '',
       favoriteIds: () => [],
       distributedSkillIds: () => new Set(),
-      getSourceLabel: (s) => s.source === 'github' ? 'GitHub' : 'Local',
+      getSourceLabel: (s) => (s.source === 'github' ? 'GitHub' : 'Local'),
     })
     expect(filteredSkills.value).toHaveLength(0)
   })

@@ -3,7 +3,17 @@ import { ref, computed, onMounted, onActivated, inject } from 'vue'
 import { storage } from '../../utils/storage'
 import { useSettings } from '../../composables/useSettings'
 import type { StoreSource, StoreSourceType } from '../../types'
-import { getDefaultStoreIcon, getStoreIconFromSource, getIconRenderType, resolveStoreIcon, ICON_GITHUB, ICON_MARKETPLACE, ICON_WELL_KNOWN, ICON_FOLDER, ICON_STORE } from '../../data/store-icons'
+import {
+  getDefaultStoreIcon,
+  getStoreIconFromSource,
+  getIconRenderType,
+  resolveStoreIcon,
+  ICON_GITHUB,
+  ICON_MARKETPLACE,
+  ICON_WELL_KNOWN,
+  ICON_FOLDER,
+  ICON_STORE,
+} from '../../data/store-icons'
 import ConfirmModal from '../../components/ConfirmModal.vue'
 import StoreIconPicker from '../../components/StoreIconPicker.vue'
 import ProviderIcon from '../../components/ProviderIcon.vue'
@@ -11,7 +21,7 @@ import { KeyShowToast } from '../../inject-keys'
 import { validateStoreUrl } from '../../utils/validate-store'
 
 const emit = defineEmits(['navigate'])
-const showToast = inject(KeyShowToast, (msg: string, type?: 'success' | 'error' | 'info' | 'warning') => {})
+const showToast = inject(KeyShowToast, (_msg: string, _type?: 'success' | 'error' | 'info' | 'warning') => {})
 
 const { settings, updateSettings } = useSettings()
 
@@ -46,7 +56,10 @@ const typeOptions: { value: StoreSourceType; icon: string; label: string; hint: 
 
 const examples: Record<StoreSourceType, { label: string; lines: string[] }> = {
   'marketplace-json': { label: 'Example', lines: ['https://raw.githubusercontent.com/user/repo/main/marketplace.json'] },
-  'well-known-index': { label: 'Examples', lines: ['https://example.com/.well-known/skills/index.json', 'https://example.com (自动发现 index.json)'] },
+  'well-known-index': {
+    label: 'Examples',
+    lines: ['https://example.com/.well-known/skills/index.json', 'https://example.com (自动发现 index.json)'],
+  },
   'git-repo': { label: 'Examples', lines: ['https://github.com/anthropics/skills', 'Branch: main | Dir: skills/.curated'] },
   'local-dir': { label: 'Example', lines: ['~/Documents/my-skills'] },
 }
@@ -72,7 +85,9 @@ onActivated(() => {
   loadLocalIcons(sources.value)
 })
 
-function canAdd(): boolean { return !!(sourceName.value.trim() && sourceUrl.value.trim()) }
+function canAdd(): boolean {
+  return !!(sourceName.value.trim() && sourceUrl.value.trim())
+}
 
 function startEdit(source: StoreSource) {
   editingId.value = source.id
@@ -86,7 +101,11 @@ function startEdit(source: StoreSource) {
 
 function cancelEdit() {
   editingId.value = null
-  sourceName.value = ''; sourceUrl.value = ''; sourceBranch.value = ''; sourceDirectory.value = ''; sourceIcon.value = ''
+  sourceName.value = ''
+  sourceUrl.value = ''
+  sourceBranch.value = ''
+  sourceDirectory.value = ''
+  sourceIcon.value = ''
 }
 
 async function handleAddOrSave() {
@@ -120,15 +139,48 @@ async function handleAddOrSave() {
   validating.value = false
   sources.value = storage.getStoreSources().filter((s) => s.type !== 'builtin')
   loadLocalIcons(sources.value)
-  sourceName.value = ''; sourceUrl.value = ''; sourceBranch.value = ''; sourceDirectory.value = ''; sourceIcon.value = ''
+  sourceName.value = ''
+  sourceUrl.value = ''
+  sourceBranch.value = ''
+  sourceDirectory.value = ''
+  sourceIcon.value = ''
 }
 
 const confirmDeleteSourceId = ref<string | null>(null)
 const confirmDeleteSourceName = ref('')
-function removeSource(id: string) { storage.removeStoreSource(id); sources.value = storage.getStoreSources().filter((s) => s.type !== 'builtin'); confirmDeleteSourceId.value = null }
-function toggleEnabled(source: StoreSource) { source.enabled = !source.enabled; storage.saveStoreSource(source) }
-function getSourceIcon(type: string): string { return { 'marketplace-json': ICON_MARKETPLACE, 'well-known-index': ICON_WELL_KNOWN, 'git-repo': ICON_GITHUB, 'local-dir': ICON_FOLDER, 'github': ICON_GITHUB, 'skills-sh': '📦' }[type] || ICON_STORE }
-function getSourceLabel(type: string): string { return { 'marketplace-json': 'Marketplace JSON', 'well-known-index': 'Well-Known Index', 'git-repo': 'Git Repository', 'local-dir': 'Local Directory', 'github': 'GitHub', 'skills-sh': 'skills.sh' }[type] || type }
+function removeSource(id: string) {
+  storage.removeStoreSource(id)
+  sources.value = storage.getStoreSources().filter((s) => s.type !== 'builtin')
+  confirmDeleteSourceId.value = null
+}
+function toggleEnabled(source: StoreSource) {
+  source.enabled = !source.enabled
+  storage.saveStoreSource(source)
+}
+function _getSourceIcon(type: string): string {
+  return (
+    {
+      'marketplace-json': ICON_MARKETPLACE,
+      'well-known-index': ICON_WELL_KNOWN,
+      'git-repo': ICON_GITHUB,
+      'local-dir': ICON_FOLDER,
+      github: ICON_GITHUB,
+      'skills-sh': '📦',
+    }[type] || ICON_STORE
+  )
+}
+function getSourceLabel(type: string): string {
+  return (
+    {
+      'marketplace-json': 'Marketplace JSON',
+      'well-known-index': 'Well-Known Index',
+      'git-repo': 'Git Repository',
+      'local-dir': 'Local Directory',
+      github: 'GitHub',
+      'skills-sh': 'skills.sh',
+    }[type] || type
+  )
+}
 </script>
 
 <template>
@@ -137,21 +189,53 @@ function getSourceLabel(type: string): string { return { 'marketplace-json': 'Ma
       <div class="header-left">
         <div class="header-title-row">
           <button class="back-btn" @click="emit('navigate', 'store')" title="返回商店">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="15 18 9 12 15 6"/>
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <polyline points="15 18 9 12 15 6" />
             </svg>
           </button>
           <h2>{{ editingId ? '编辑商店' : '添加商店' }}</h2>
         </div>
-        <p class="page-subtitle">{{ editingId ? '修改自定义商店配置' : '连接自定义技能仓库或本地目录' }}</p>
+        <p class="page-subtitle">
+          {{ editingId ? '修改自定义商店配置' : '连接自定义技能仓库或本地目录' }}
+        </p>
       </div>
       <div class="header-toolbar">
         <button class="toolbar-icon-btn" @click="toggleTheme" :title="isDarkMode ? '切换亮色模式' : '切换暗色模式'">
-          <svg v-if="isDarkMode" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+          <svg
+            v-if="isDarkMode"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <circle cx="12" cy="12" r="5" />
+            <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
           </svg>
-          <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+          <svg
+            v-else
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
           </svg>
         </button>
       </div>
@@ -161,18 +245,31 @@ function getSourceLabel(type: string): string { return { 'marketplace-json': 'Ma
       <div class="form-section">
         <div class="section-label">商店类型</div>
         <div class="type-grid">
-          <button v-for="option in typeOptions" :key="option.value" :class="['type-card', { active: sourceType === option.value }]" :disabled="!!editingId" @click="sourceType = option.value">
+          <button
+            v-for="option in typeOptions"
+            :key="option.value"
+            :class="['type-card', { active: sourceType === option.value }]"
+            :disabled="!!editingId"
+            @click="sourceType = option.value"
+          >
             <div class="type-card-header">
-              <span class="type-icon" v-html="option.icon"></span>
+              <span class="type-icon" v-html="option.icon" />
               <span class="type-label">{{ option.label }}</span>
             </div>
-            <div class="type-hint">{{ option.hint }}</div>
+            <div class="type-hint">
+              {{ option.hint }}
+            </div>
           </button>
         </div>
       </div>
       <div class="form-row">
         <input v-model="sourceName" type="text" placeholder="商店名称" class="form-input" />
-        <input v-model="sourceUrl" type="text" :placeholder="sourceType === 'local-dir' ? '本地路径' : 'URL / manifest'" class="form-input url-input" />
+        <input
+          v-model="sourceUrl"
+          type="text"
+          :placeholder="sourceType === 'local-dir' ? '本地路径' : 'URL / manifest'"
+          class="form-input url-input"
+        />
       </div>
       <div v-if="sourceType === 'git-repo'" class="form-row">
         <input v-model="sourceBranch" type="text" placeholder="分支（可选）" class="form-input" />
@@ -181,12 +278,18 @@ function getSourceLabel(type: string): string { return { 'marketplace-json': 'Ma
       <StoreIconPicker v-model="sourceIcon" :defaultIcon="getDefaultStoreIcon(sourceType)" />
       <div class="form-actions">
         <div class="examples-box">
-          <div class="examples-label">{{ examples[sourceType]?.label || 'Example' }}</div>
-          <div v-for="(line, i) in examples[sourceType]?.lines || []" :key="i" class="examples-line">{{ line }}</div>
+          <div class="examples-label">
+            {{ examples[sourceType]?.label || 'Example' }}
+          </div>
+          <div v-for="(line, i) in examples[sourceType]?.lines || []" :key="i" class="examples-line">
+            {{ line }}
+          </div>
         </div>
         <div class="form-btn-group">
           <button v-if="editingId" class="cancel-btn" @click="cancelEdit">取消</button>
-          <button class="add-btn" :disabled="!canAdd() || validating" @click="handleAddOrSave">{{ validating ? '验证中...' : (editingId ? '保存' : '添加') }}</button>
+          <button class="add-btn" :disabled="!canAdd() || validating" @click="handleAddOrSave">
+            {{ validating ? '验证中...' : editingId ? '保存' : '添加' }}
+          </button>
         </div>
       </div>
     </div>
@@ -196,25 +299,30 @@ function getSourceLabel(type: string): string { return { 'marketplace-json': 'Ma
         <div class="source-info">
           <span class="source-icon">
             <template v-if="getIconRenderType(s.icon) === 'svg'">
-              <span v-html="getStoreIconFromSource(s)"></span>
+              <span v-html="getStoreIconFromSource(s)" />
             </template>
             <template v-else-if="getIconRenderType(s.icon) === 'store-icon' && s.icon && resolveStoreIcon(s.icon)">
-              <img v-if="resolveStoreIcon(s.icon)!.startsWith('data:') || resolveStoreIcon(s.icon)!.startsWith('http')" :src="resolveStoreIcon(s.icon)" />
-              <span v-else v-html="resolveStoreIcon(s.icon)"></span>
+              <img
+                v-if="resolveStoreIcon(s.icon)!.startsWith('data:') || resolveStoreIcon(s.icon)!.startsWith('http')"
+                :src="resolveStoreIcon(s.icon)"
+              />
+              <span v-else v-html="resolveStoreIcon(s.icon)" />
             </template>
             <template v-else-if="getIconRenderType(s.icon) === 'provider-icon'">
               <ProviderIcon :icon="s.icon" :size="18" />
             </template>
             <template v-else-if="getIconRenderType(s.icon) === 'local-path'">
               <img v-if="localIconCache[s.id]" :src="localIconCache[s.id]" />
-              <span v-else v-html="getDefaultStoreIcon(s.type)"></span>
+              <span v-else v-html="getDefaultStoreIcon(s.type)" />
             </template>
             <template v-else>
               <img :src="s.icon" />
             </template>
           </span>
           <div>
-            <div class="source-name">{{ s.name }}</div>
+            <div class="source-name">
+              {{ s.name }}
+            </div>
             <div class="source-meta">
               <span class="source-type-badge">{{ getSourceLabel(s.type) }}</span>
               <span v-if="s.url" class="source-url">{{ s.url }}</span>
@@ -222,25 +330,35 @@ function getSourceLabel(type: string): string { return { 'marketplace-json': 'Ma
           </div>
         </div>
         <div class="source-actions">
-          <button class="toggle-switch" :class="{ on: s.enabled }" @click="toggleEnabled(s)"><span class="toggle-thumb"></span></button>
+          <button class="toggle-switch" :class="{ on: s.enabled }" @click="toggleEnabled(s)">
+            <span class="toggle-thumb" />
+          </button>
           <button class="edit-btn" @click="startEdit(s)">编辑</button>
-          <button class="remove-btn" @click="confirmDeleteSourceId = s.id; confirmDeleteSourceName = s.name">删除</button>
+          <button class="remove-btn" @click="((confirmDeleteSourceId = s.id), (confirmDeleteSourceName = s.name))">删除</button>
         </div>
       </div>
     </div>
 
     <div v-else class="empty-state">
-      <div class="empty-icon" v-html="ICON_STORE"></div>
+      <div class="empty-icon" v-html="ICON_STORE" />
       <div class="empty-title">暂无自定义商店</div>
       <div class="empty-desc">使用上方表单添加商店。</div>
     </div>
 
-    <ConfirmModal v-if="confirmDeleteSourceId" title="删除商店" :message="`确定要删除商店 <strong>${confirmDeleteSourceName}</strong> 吗？`" @confirm="removeSource(confirmDeleteSourceId!)" @cancel="confirmDeleteSourceId = null" />
+    <ConfirmModal
+      v-if="confirmDeleteSourceId"
+      title="删除商店"
+      :message="`确定要删除商店 <strong>${confirmDeleteSourceName}</strong> 吗？`"
+      @confirm="removeSource(confirmDeleteSourceId!)"
+      @cancel="confirmDeleteSourceId = null"
+    />
   </div>
 </template>
 
 <style scoped>
-.sources { padding: 0; }
+.sources {
+  padding: 0;
+}
 
 .page-header {
   display: flex;
@@ -336,7 +454,9 @@ function getSourceLabel(type: string): string { return { 'marketplace-json': 'Ma
   box-shadow: 0 1px 3px hsl(0 0% 0% / 0.04);
 }
 
-.form-section { margin-bottom: 20px; }
+.form-section {
+  margin-bottom: 20px;
+}
 
 .section-label {
   font-size: 12px;
@@ -376,7 +496,10 @@ function getSourceLabel(type: string): string { return { 'marketplace-json': 'Ma
   box-shadow: 0 0 0 3px hsl(var(--primary) / 0.1);
 }
 
-.type-card:disabled { opacity: 0.5; cursor: not-allowed; }
+.type-card:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 
 .type-card-header {
   display: flex;
@@ -403,9 +526,21 @@ function getSourceLabel(type: string): string { return { 'marketplace-json': 'Ma
   color: hsl(var(--primary));
 }
 
-.type-icon :deep(svg) { width: 18px; height: 18px; }
-.type-label { font-size: 13px; font-weight: 600; color: hsl(var(--foreground)); }
-.type-hint { font-size: 12px; color: hsl(var(--muted-foreground)); line-height: 1.4; padding-left: 46px; }
+.type-icon :deep(svg) {
+  width: 18px;
+  height: 18px;
+}
+.type-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+.type-hint {
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+  line-height: 1.4;
+  padding-left: 46px;
+}
 
 .form-row {
   display: flex;
@@ -444,8 +579,12 @@ function getSourceLabel(type: string): string { return { 'marketplace-json': 'Ma
   background: hsl(var(--card));
 }
 
-.form-input::placeholder { color: hsl(var(--muted-foreground) / 0.7); }
-.url-input { flex: 1.4; }
+.form-input::placeholder {
+  color: hsl(var(--muted-foreground) / 0.7);
+}
+.url-input {
+  flex: 1.4;
+}
 
 .form-actions {
   display: flex;
@@ -455,7 +594,11 @@ function getSourceLabel(type: string): string { return { 'marketplace-json': 'Ma
   margin-top: 20px;
 }
 
-.form-btn-group { display: flex; gap: 10px; flex-shrink: 0; }
+.form-btn-group {
+  display: flex;
+  gap: 10px;
+  flex-shrink: 0;
+}
 
 .add-btn {
   padding: 10px 28px;
@@ -479,7 +622,10 @@ function getSourceLabel(type: string): string { return { 'marketplace-json': 'Ma
   transform: translateY(0);
 }
 
-.add-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.add-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 
 .cancel-btn {
   padding: 10px 20px;
@@ -535,7 +681,10 @@ function getSourceLabel(type: string): string { return { 'marketplace-json': 'Ma
   border-top: 1px solid hsl(var(--border) / 0.5);
 }
 
-.icon-preview-label { font-size: 11px; color: hsl(var(--muted-foreground)); }
+.icon-preview-label {
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+}
 .icon-preview-svg {
   width: 18px;
   height: 18px;
@@ -545,7 +694,10 @@ function getSourceLabel(type: string): string { return { 'marketplace-json': 'Ma
   color: hsl(var(--muted-foreground));
 }
 
-.icon-preview-svg :deep(svg) { width: 18px; height: 18px; }
+.icon-preview-svg :deep(svg) {
+  width: 18px;
+  height: 18px;
+}
 
 .source-list {
   display: flex;
@@ -570,7 +722,12 @@ function getSourceLabel(type: string): string { return { 'marketplace-json': 'Ma
   box-shadow: 0 2px 8px hsl(0 0% 0% / 0.06);
 }
 
-.source-info { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.source-info {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
 
 .source-icon {
   width: 36px;
@@ -584,8 +741,15 @@ function getSourceLabel(type: string): string { return { 'marketplace-json': 'Ma
   border-radius: 9px;
 }
 
-.source-icon :deep(svg) { width: 18px; height: 18px; }
-.source-icon :deep(img) { width: 20px; height: 20px; object-fit: contain; }
+.source-icon :deep(svg) {
+  width: 18px;
+  height: 18px;
+}
+.source-icon :deep(img) {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+}
 
 .source-name {
   font-weight: 600;
@@ -594,7 +758,11 @@ function getSourceLabel(type: string): string { return { 'marketplace-json': 'Ma
   margin-bottom: 3px;
 }
 
-.source-meta { display: flex; align-items: center; gap: 8px; }
+.source-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 
 .source-type-badge {
   font-size: 10px;
@@ -615,7 +783,12 @@ function getSourceLabel(type: string): string { return { 'marketplace-json': 'Ma
   max-width: 320px;
 }
 
-.source-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.source-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
 
 .toggle-switch {
   position: relative;
@@ -642,11 +815,13 @@ function getSourceLabel(type: string): string { return { 'marketplace-json': 'Ma
   height: 18px;
   border-radius: 50%;
   background: #fff;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
   transition: transform var(--duration-base) var(--ease-standard);
 }
 
-.toggle-switch.on .toggle-thumb { transform: translateX(18px); }
+.toggle-switch.on .toggle-thumb {
+  transform: translateX(18px);
+}
 
 .edit-btn {
   padding: 6px 14px;
@@ -699,7 +874,18 @@ function getSourceLabel(type: string): string { return { 'marketplace-json': 'Ma
   color: hsl(var(--muted-foreground));
 }
 
-.empty-icon :deep(svg) { width: 52px; height: 52px; }
-.empty-title { font-size: 16px; font-weight: 600; color: hsl(var(--foreground)); margin-bottom: 8px; }
-.empty-desc { font-size: 13px; color: hsl(var(--muted-foreground)); }
+.empty-icon :deep(svg) {
+  width: 52px;
+  height: 52px;
+}
+.empty-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  margin-bottom: 8px;
+}
+.empty-desc {
+  font-size: 13px;
+  color: hsl(var(--muted-foreground));
+}
 </style>

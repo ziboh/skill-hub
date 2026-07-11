@@ -1,7 +1,7 @@
 import { describe, test, expect, vi, afterEach } from 'vitest'
 import { mount, VueWrapper } from '@vue/test-utils'
 import ProjectDistPanel from '../ProjectDistPanel.vue'
-import { storage } from '../../utils/storage'
+import {} from '../../utils/storage'
 import { detectPlatforms } from '../../data/platforms'
 import { KeyShowToast, KeySelectedProject, KeyRegisteredProjects, KeySelectProject, KeyNavigateToProjectSkills } from '../../inject-keys'
 import { ref } from 'vue'
@@ -21,8 +21,13 @@ vi.mock('../../utils/storage', () => ({
 
 function createSkill(overrides = {}) {
   return {
-    id: 'test/skill', name: 'Test Skill', description: 'A test skill', author: 'Test',
-    tags: [], source: 'local', path: '/home/user/.config/skills/test-skill',
+    id: 'test/skill',
+    name: 'Test Skill',
+    description: 'A test skill',
+    author: 'Test',
+    tags: [],
+    source: 'local',
+    path: '/home/user/.config/skills/test-skill',
     ...overrides,
   }
 }

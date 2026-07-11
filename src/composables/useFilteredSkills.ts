@@ -19,9 +19,15 @@ export function useFilteredSkills(opts: {
   function applyBaseFilters(list: Skill[]) {
     if (opts.filterSource()) list = list.filter((s) => opts.getSourceLabel(s) === opts.filterSource())
     switch (opts.filterCategory()) {
-      case 'favorites': list = list.filter((s) => s.isFavorited); break
-      case 'distributed': list = list.filter((s) => opts.distributedSkillIds().has(s.id)); break
-      case 'pending': list = list.filter((s) => !opts.distributedSkillIds().has(s.id)); break
+      case 'favorites':
+        list = list.filter((s) => s.isFavorited)
+        break
+      case 'distributed':
+        list = list.filter((s) => opts.distributedSkillIds().has(s.id))
+        break
+      case 'pending':
+        list = list.filter((s) => !opts.distributedSkillIds().has(s.id))
+        break
     }
     return list
   }

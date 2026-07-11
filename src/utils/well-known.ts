@@ -104,10 +104,7 @@ export async function downloadSkillFromWebsite(skill: Skill): Promise<WellKnownS
   const skillName = getWellKnownSkillName(skill)
 
   // 1. 尝试获取 index.json (首选: /.well-known/agent-skills/index.json)
-  const indexPaths = [
-    '/.well-known/agent-skills/index.json',
-    '/.well-known/skills/index.json',
-  ]
+  const indexPaths = ['/.well-known/agent-skills/index.json', '/.well-known/skills/index.json']
 
   for (const indexPath of indexPaths) {
     const index = await fetchJson(`${origin}${indexPath}`)
@@ -115,9 +112,7 @@ export async function downloadSkillFromWebsite(skill: Skill): Promise<WellKnownS
 
     // v0.2.0 格式
     if (index.$schema && index.$schema.includes('0.2.0')) {
-      const entry = (index as WellKnownIndexV2).skills.find(
-        (s) => s.name === skillName
-      )
+      const entry = (index as WellKnownIndexV2).skills.find((s) => s.name === skillName)
       if (entry) {
         const skillUrl = new URL(entry.url, `${origin}${indexPath}`).href
         const content = await fetchText(skillUrl)
@@ -128,9 +123,7 @@ export async function downloadSkillFromWebsite(skill: Skill): Promise<WellKnownS
     }
 
     // v0.1.0 旧版格式 - 下载所有文件
-    const entry = (index as WellKnownIndexV1).skills.find(
-      (s) => s.name === skillName
-    )
+    const entry = (index as WellKnownIndexV1).skills.find((s) => s.name === skillName)
     if (entry) {
       const wellKnownPath = indexPath.replace('/index.json', '')
       const skillBaseUrl = `${origin}${wellKnownPath}/${entry.name}`
@@ -201,8 +194,7 @@ export async function downloadDirectFromStore(skill: Skill): Promise<WellKnownSk
 export async function fetchWellKnownIndex(url: string): Promise<Skill[]> {
   const urlsToTry: string[] = url.endsWith('.json')
     ? [url]
-    : [`${url.replace(/\/+$/, '')}/.well-known/agent-skills/index.json`,
-       `${url.replace(/\/+$/, '')}/.well-known/skills/index.json`]
+    : [`${url.replace(/\/+$/, '')}/.well-known/agent-skills/index.json`, `${url.replace(/\/+$/, '')}/.well-known/skills/index.json`]
 
   for (const fetchUrl of urlsToTry) {
     const data = await fetchJson(fetchUrl)
@@ -213,7 +205,7 @@ export async function fetchWellKnownIndex(url: string): Promise<Skill[]> {
 
     // v0.2.0 格式（带 $schema）
     if (typeof data.$schema === 'string' && data.$schema.includes('0.2.0')) {
-      return (data as WellKnownIndexV2).skills.map(e => ({
+      return (data as WellKnownIndexV2).skills.map((e) => ({
         id: `${repoPrefix}/${e.name}`,
         name: e.name,
         description: e.description || '',
@@ -227,7 +219,7 @@ export async function fetchWellKnownIndex(url: string): Promise<Skill[]> {
     }
 
     // v0.1.0 格式
-    return (data as WellKnownIndexV1).skills.map(e => ({
+    return (data as WellKnownIndexV1).skills.map((e) => ({
       id: `${repoPrefix}/${e.name}`,
       name: e.name,
       description: e.description || '',

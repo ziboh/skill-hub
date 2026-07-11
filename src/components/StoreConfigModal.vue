@@ -2,7 +2,7 @@
 import { ref, computed, watch, inject } from 'vue'
 import { storage } from '../utils/storage'
 import type { StoreSource, StoreSourceType } from '../types'
-import { getDefaultStoreIcon, getStoreIconFromSource, getIconRenderType, ICON_GITHUB, ICON_MARKETPLACE, ICON_WELL_KNOWN, ICON_FOLDER, ICON_STORE } from '../data/store-icons'
+import { getDefaultStoreIcon, ICON_GITHUB, ICON_MARKETPLACE, ICON_WELL_KNOWN, ICON_FOLDER } from '../data/store-icons'
 import StoreIconPicker from './StoreIconPicker.vue'
 import { KeyShowToast } from '../inject-keys'
 import { validateStoreUrl } from '../utils/validate-store'
@@ -12,7 +12,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits(['close', 'saved'])
-const showToast = inject(KeyShowToast, (msg: string, type?: 'success' | 'error' | 'info' | 'warning') => {})
+const showToast = inject(KeyShowToast, (_msg: string, _type?: 'success' | 'error' | 'info' | 'warning') => {})
 
 const editingId = ref<string | null>(props.editSource?.id || null)
 const sourceType = ref<StoreSourceType>((props.editSource?.type as StoreSourceType) || 'git-repo')
@@ -34,24 +34,32 @@ const typeOptions: { value: StoreSourceType; icon: string; label: string; hint: 
 
 const examples: Record<StoreSourceType, { label: string; lines: string[] }> = {
   'marketplace-json': { label: 'Example', lines: ['https://raw.githubusercontent.com/user/repo/main/marketplace.json'] },
-  'well-known-index': { label: 'Examples', lines: ['https://example.com/.well-known/skills/index.json', 'https://example.com (自动发现 index.json)'] },
+  'well-known-index': {
+    label: 'Examples',
+    lines: ['https://example.com/.well-known/skills/index.json', 'https://example.com (自动发现 index.json)'],
+  },
   'git-repo': { label: 'Examples', lines: ['https://github.com/anthropics/skills', 'Branch: main | Dir: skills/.curated'] },
   'local-dir': { label: 'Example', lines: ['~/Documents/my-skills'] },
 }
 
-watch(() => props.editSource, (src) => {
-  if (src) {
-    editingId.value = src.id
-    sourceType.value = src.type as StoreSourceType
-    sourceName.value = src.name
-    sourceUrl.value = src.url || ''
-    sourceBranch.value = src.branch || ''
-    sourceDirectory.value = src.directory || ''
-    sourceIcon.value = src.icon || ''
-  }
-})
+watch(
+  () => props.editSource,
+  (src) => {
+    if (src) {
+      editingId.value = src.id
+      sourceType.value = src.type as StoreSourceType
+      sourceName.value = src.name
+      sourceUrl.value = src.url || ''
+      sourceBranch.value = src.branch || ''
+      sourceDirectory.value = src.directory || ''
+      sourceIcon.value = src.icon || ''
+    }
+  },
+)
 
-function canAdd(): boolean { return !!(sourceName.value.trim() && sourceUrl.value.trim()) }
+function canAdd(): boolean {
+  return !!(sourceName.value.trim() && sourceUrl.value.trim())
+}
 
 async function handleSave() {
   if (!canAdd() || validating.value) return
@@ -92,12 +100,39 @@ async function handleSave() {
       <div class="modal-header">
         <div class="modal-header-left">
           <div class="modal-icon">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />
+              <line x1="3" y1="6" x2="21" y2="6" />
+              <path d="M16 10a4 4 0 0 1-8 0" />
+            </svg>
           </div>
-          <h3 class="modal-title">{{ isEditing ? '编辑商店' : '添加商店' }}</h3>
+          <h3 class="modal-title">
+            {{ isEditing ? '编辑商店' : '添加商店' }}
+          </h3>
         </div>
         <button class="modal-close" @click="emit('close')">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
         </button>
       </div>
 
@@ -105,18 +140,31 @@ async function handleSave() {
         <div class="form-section">
           <div class="section-label">商店类型</div>
           <div class="type-grid">
-            <button v-for="option in typeOptions" :key="option.value" :class="['type-card', { active: sourceType === option.value }]" :disabled="isEditing" @click="sourceType = option.value">
+            <button
+              v-for="option in typeOptions"
+              :key="option.value"
+              :class="['type-card', { active: sourceType === option.value }]"
+              :disabled="isEditing"
+              @click="sourceType = option.value"
+            >
               <div class="type-card-header">
-                <span class="type-icon" v-html="option.icon"></span>
+                <span class="type-icon" v-html="option.icon" />
                 <span class="type-label">{{ option.label }}</span>
               </div>
-              <div class="type-hint">{{ option.hint }}</div>
+              <div class="type-hint">
+                {{ option.hint }}
+              </div>
             </button>
           </div>
         </div>
         <div class="form-row">
           <input v-model="sourceName" type="text" placeholder="商店名称" class="form-input" />
-          <input v-model="sourceUrl" type="text" :placeholder="sourceType === 'local-dir' ? '本地路径' : 'URL / manifest'" class="form-input url-input" />
+          <input
+            v-model="sourceUrl"
+            type="text"
+            :placeholder="sourceType === 'local-dir' ? '本地路径' : 'URL / manifest'"
+            class="form-input url-input"
+          />
         </div>
         <div v-if="sourceType === 'git-repo'" class="form-row">
           <input v-model="sourceBranch" type="text" placeholder="分支（可选）" class="form-input" />
@@ -124,14 +172,20 @@ async function handleSave() {
         </div>
         <StoreIconPicker v-model="sourceIcon" :defaultIcon="getDefaultStoreIcon(sourceType)" />
         <div class="examples-box">
-          <div class="examples-label">{{ examples[sourceType]?.label || 'Example' }}</div>
-          <div v-for="(line, i) in examples[sourceType]?.lines || []" :key="i" class="examples-line">{{ line }}</div>
+          <div class="examples-label">
+            {{ examples[sourceType]?.label || 'Example' }}
+          </div>
+          <div v-for="(line, i) in examples[sourceType]?.lines || []" :key="i" class="examples-line">
+            {{ line }}
+          </div>
         </div>
       </div>
 
       <div class="modal-footer">
         <button class="modal-btn cancel" @click="emit('close')">取消</button>
-        <button class="modal-btn save" :disabled="!canAdd() || validating" @click="handleSave">{{ validating ? '验证中...' : (isEditing ? '保存' : '添加') }}</button>
+        <button class="modal-btn save" :disabled="!canAdd() || validating" @click="handleSave">
+          {{ validating ? '验证中...' : isEditing ? '保存' : '添加' }}
+        </button>
       </div>
     </div>
   </div>
@@ -220,7 +274,9 @@ async function handleSave() {
   flex: 1;
 }
 
-.form-section { margin-bottom: 18px; }
+.form-section {
+  margin-bottom: 18px;
+}
 
 .section-label {
   font-size: 12px;
@@ -260,7 +316,10 @@ async function handleSave() {
   box-shadow: 0 0 0 3px hsl(var(--primary) / 0.1);
 }
 
-.type-card:disabled { opacity: 0.5; cursor: not-allowed; }
+.type-card:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 
 .type-card-header {
   display: flex;
@@ -287,9 +346,21 @@ async function handleSave() {
   color: hsl(var(--primary));
 }
 
-.type-icon :deep(svg) { width: 16px; height: 16px; }
-.type-label { font-size: 13px; font-weight: 600; color: hsl(var(--foreground)); }
-.type-hint { font-size: 11px; color: hsl(var(--muted-foreground)); line-height: 1.4; padding-left: 40px; }
+.type-icon :deep(svg) {
+  width: 16px;
+  height: 16px;
+}
+.type-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+.type-hint {
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+  line-height: 1.4;
+  padding-left: 40px;
+}
 
 .form-row {
   display: flex;
@@ -315,8 +386,12 @@ async function handleSave() {
   background: hsl(var(--card));
 }
 
-.form-input::placeholder { color: hsl(var(--muted-foreground) / 0.7); }
-.url-input { flex: 1.4; }
+.form-input::placeholder {
+  color: hsl(var(--muted-foreground) / 0.7);
+}
+.url-input {
+  flex: 1.4;
+}
 
 .examples-box {
   padding: 12px 14px;
@@ -352,7 +427,10 @@ async function handleSave() {
   border-top: 1px solid hsl(var(--border) / 0.5);
 }
 
-.icon-preview-label { font-size: 11px; color: hsl(var(--muted-foreground)); }
+.icon-preview-label {
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+}
 .icon-preview-svg {
   width: 16px;
   height: 16px;
@@ -362,7 +440,10 @@ async function handleSave() {
   color: hsl(var(--muted-foreground));
 }
 
-.icon-preview-svg :deep(svg) { width: 16px; height: 16px; }
+.icon-preview-svg :deep(svg) {
+  width: 16px;
+  height: 16px;
+}
 
 .modal-footer {
   display: flex;

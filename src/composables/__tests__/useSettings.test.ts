@@ -5,7 +5,7 @@ beforeEach(() => {
   window.ztools.dbStorage.clear()
 })
 
-function resetToDefaults() {
+function _resetToDefaults() {
   const { updateSettings } = useSettings()
   updateSettings({
     themeMode: 'auto',

@@ -9,19 +9,22 @@ export interface QuickSwitcherItem {
   deletable?: boolean
 }
 
-const props = withDefaults(defineProps<{
-  items: QuickSwitcherItem[]
-  selectedId: string | null
-  placeholder?: string
-  addLabel?: string
-  showAdd?: boolean
-  emptyText?: string
-}>(), {
-  placeholder: '搜索...',
-  addLabel: '添加',
-  showAdd: false,
-  emptyText: '无项目',
-})
+const props = withDefaults(
+  defineProps<{
+    items: QuickSwitcherItem[]
+    selectedId: string | null
+    placeholder?: string
+    addLabel?: string
+    showAdd?: boolean
+    emptyText?: string
+  }>(),
+  {
+    placeholder: '搜索...',
+    addLabel: '添加',
+    showAdd: false,
+    emptyText: '无项目',
+  },
+)
 
 const emit = defineEmits<{
   select: [id: string]
@@ -45,11 +48,7 @@ const panelStyle = ref({
 const filteredItems = computed(() => {
   const q = search.value.toLowerCase().trim()
   if (!q) return props.items
-  return props.items.filter(
-    (item) =>
-      item.label.toLowerCase().includes(q) ||
-      (item.subtitle || '').toLowerCase().includes(q),
-  )
+  return props.items.filter((item) => item.label.toLowerCase().includes(q) || (item.subtitle || '').toLowerCase().includes(q))
 })
 
 watch(isOpen, (v) => {
@@ -155,21 +154,23 @@ function select(id: string) {
 
 <template>
   <div class="quick-switcher" :class="{ open: isOpen }">
-    <button
-      ref="triggerRef"
-      class="qs-trigger"
-      :class="{ disabled: !items.length }"
-      @click="toggle"
-    >
+    <button ref="triggerRef" class="qs-trigger" :class="{ disabled: !items.length }" @click="toggle">
       <slot name="trigger-prefix" :item="selectedItem">
         <span class="qs-trigger-avatar">{{ selectedItem ? selectedItem.label.charAt(0).toUpperCase() : '?' }}</span>
       </slot>
-      <span class="qs-trigger-label">{{ selectedItem ? selectedItem.label : (items.length ? '选择...' : emptyText) }}</span>
-      <span class="qs-trigger-subtitle" v-if="selectedItem?.subtitle">{{ selectedItem.subtitle }}</span>
+      <span class="qs-trigger-label">{{ selectedItem ? selectedItem.label : items.length ? '选择...' : emptyText }}</span>
+      <span v-if="selectedItem?.subtitle" class="qs-trigger-subtitle">{{ selectedItem.subtitle }}</span>
       <svg
         class="qs-chevron"
         :class="{ open: isOpen }"
-        width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2.5"
+        stroke-linecap="round"
+        stroke-linejoin="round"
       >
         <polyline points="6 9 12 15 18 9" />
       </svg>
@@ -177,22 +178,27 @@ function select(id: string) {
 
     <div v-show="isOpen" class="qs-panel" :style="panelStyle">
       <div class="qs-search-wrap">
-        <svg class="qs-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
+        <svg
+          class="qs-search-icon"
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <circle cx="11" cy="11" r="8" />
+          <path d="m21 21-4.35-4.35" />
         </svg>
-        <input
-          ref="inputRef"
-          v-model="search"
-          type="text"
-          class="qs-search"
-          :placeholder="placeholder"
-        />
+        <input ref="inputRef" v-model="search" type="text" class="qs-search" :placeholder="placeholder" />
         <kbd class="qs-kbd">⌘K</kbd>
       </div>
 
       <div ref="listRef" class="qs-list">
         <div v-if="!filteredItems.length && !showAdd" class="qs-empty">
-          {{ search ? '未找到匹配项' : (items.length ? '' : emptyText) }}
+          {{ search ? '未找到匹配项' : items.length ? '' : emptyText }}
         </div>
         <button
           v-for="(item, i) in filteredItems"
@@ -206,34 +212,65 @@ function select(id: string) {
             <span class="qs-item-avatar">{{ item.label.charAt(0).toUpperCase() }}</span>
           </slot>
           <div class="qs-item-body">
-            <div class="qs-item-label">{{ item.label }}</div>
-            <div v-if="item.subtitle" class="qs-item-subtitle">{{ item.subtitle }}</div>
-          </div>
-            <div class="qs-item-right">
-              <span v-if="item.count != null" class="qs-item-count">{{ item.count }}</span>
-              <svg v-if="item.id === selectedId" class="qs-item-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-              <button
-                v-if="item.deletable"
-                class="qs-item-delete"
-                @click.stop="isOpen = false; emit('delete', item.id)"
-                title="删除商店"
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
-                </svg>
-              </button>
+            <div class="qs-item-label">
+              {{ item.label }}
             </div>
-          </button>
-        <button v-if="showAdd" class="qs-item qs-add-item" @click="emit('add'); isOpen = false">
+            <div v-if="item.subtitle" class="qs-item-subtitle">
+              {{ item.subtitle }}
+            </div>
+          </div>
+          <div class="qs-item-right">
+            <span v-if="item.count != null" class="qs-item-count">{{ item.count }}</span>
+            <svg
+              v-if="item.id === selectedId"
+              class="qs-item-check"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="3"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+            <button v-if="item.deletable" class="qs-item-delete" title="删除商店" @click.stop="((isOpen = false), emit('delete', item.id))">
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <polyline points="3 6 5 6 21 6" />
+                <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+              </svg>
+            </button>
+          </div>
+        </button>
+        <button v-if="showAdd" class="qs-item qs-add-item" @click="(emit('add'), (isOpen = false))">
           <span class="qs-item-avatar qs-add-avatar">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
               <path d="M12 5v14M5 12h14" />
             </svg>
           </span>
           <div class="qs-item-body">
-            <div class="qs-item-label">{{ addLabel }}</div>
+            <div class="qs-item-label">
+              {{ addLabel }}
+            </div>
           </div>
         </button>
       </div>

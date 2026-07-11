@@ -25,7 +25,8 @@ export const KeyProjectScanning: InjectionKey<Ref<boolean>> = Symbol('projectSca
 export const KeyDetectedPlatforms: InjectionKey<Ref<PlatformInfo[]>> = Symbol('detectedPlatforms')
 export const KeyPlatformSkillCounts: InjectionKey<Ref<Record<string, number>>> = Symbol('platformSkillCounts')
 export const KeyAgentSkills: InjectionKey<Ref<Record<string, SkillScanResult[]>>> = Symbol('agentSkills')
-export const KeyUpdateAgentPlatformSkills: InjectionKey<(platformId: string, skills: SkillScanResult[]) => void> = Symbol('updateAgentPlatformSkills')
+export const KeyUpdateAgentPlatformSkills: InjectionKey<(platformId: string, skills: SkillScanResult[]) => void> =
+  Symbol('updateAgentPlatformSkills')
 export const KeySelectedAgentPlatformId: InjectionKey<Ref<string>> = Symbol('selectedAgentPlatformId')
 export const KeyMarkAgentSkillsDirty: InjectionKey<() => void> = Symbol('markAgentSkillsDirty')
 export const KeyIsAgentSkillsDirty: InjectionKey<Ref<boolean>> = Symbol('isAgentSkillsDirty')

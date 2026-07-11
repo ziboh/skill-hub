@@ -1,4 +1,5 @@
-import type { ModelConfig, Skill } from '../types'
+import type { ModelConfig } from '../types'
+
 import { chatCompletion } from './ai'
 import { storage } from './storage'
 
@@ -119,12 +120,7 @@ export function renderImmersiveSegments(content: string): ImmersiveSegment[] {
   return segments
 }
 
-export async function translateContent(
-  content: string,
-  model: ModelConfig,
-  mode: TranslationMode,
-  targetLang?: string,
-): Promise<string> {
+export async function translateContent(content: string, model: ModelConfig, mode: TranslationMode, targetLang?: string): Promise<string> {
   const lang = targetLang || getTargetLang()
 
   if (isChineseContent(content)) {
@@ -147,11 +143,7 @@ export async function translateContent(
   return result.content
 }
 
-export async function translateDescription(
-  description: string,
-  model: ModelConfig,
-  targetLang?: string,
-): Promise<string> {
+export async function translateDescription(description: string, model: ModelConfig, targetLang?: string): Promise<string> {
   const lang = targetLang || getTargetLang()
 
   if (isChineseContent(description)) {
@@ -172,40 +164,4 @@ export async function translateDescription(
   )
 
   return result.content
-}
-
-export function resolveTranslationKey(skill: Skill, skillDir?: string): string {
-  const cachedSkills = storage.getCachedSkills()
-  const downloadedIds = storage.getDownloadedIds()
-  const distributeRecords = storage.getDistributeRecords()
-
-  const isMySkill = cachedSkills.some(s => s.id === skill.id) && downloadedIds.includes(skill.id)
-  if (isMySkill) {
-    return skill.id
-  }
-
-  if (skillDir) {
-    const normalizedDir = skillDir.replace(/\\/g, '/').toLowerCase()
-    const record = distributeRecords.find(r => {
-      const normalizedTarget = r.targetPath.replace(/\\/g, '/').toLowerCase()
-      return normalizedTarget.startsWith(normalizedDir) || normalizedDir.startsWith(normalizedTarget)
-    })
-    if (record) {
-      return record.skillId
-    }
-  }
-
-  const skillName = (skill.name || '').toLowerCase()
-  const matchedRecord = distributeRecords.find(r => {
-    const recordSkill = cachedSkills.find(s => s.id === r.skillId)
-    if (recordSkill && recordSkill.name.toLowerCase() === skillName) {
-      return true
-    }
-    return false
-  })
-  if (matchedRecord) {
-    return matchedRecord.skillId
-  }
-
-  return skill.id
 }

@@ -15,7 +15,7 @@ vi.mock('../../utils/frontmatter', () => ({
   parseFrontmatter: vi.fn(),
 }))
 
-const flush = () => new Promise(resolve => setTimeout(resolve, 0))
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 describe('NewSkillModal', () => {
   let wrapper: VueWrapper
@@ -119,9 +119,7 @@ describe('NewSkillModal', () => {
     const mockInfo = { owner: 'user', repo: 'repo', defaultBranch: 'main' }
     vi.mocked(github.parseGitHubUrl).mockReturnValue(mockInfo)
     vi.mocked(github.fetchGitHubRepoTree).mockResolvedValue([])
-    vi.mocked(github.detectSkillDirectories).mockReturnValue([
-      { dir: 'skills/test', manifestFile: 'skills/test/SKILL.md' },
-    ])
+    vi.mocked(github.detectSkillDirectories).mockReturnValue([{ dir: 'skills/test', manifestFile: 'skills/test/SKILL.md' }])
     vi.mocked(github.fetchGitHubFile).mockResolvedValue('---\nname: Test Skill\ndescription: A test\n---')
     vi.mocked(parseFrontmatter).mockReturnValue({ name: 'Test Skill', description: 'A test', tags: '', author: '' })
     wrapper = mount(NewSkillModal)
@@ -182,9 +180,7 @@ describe('NewSkillModal', () => {
     const mockInfo = { owner: 'user', repo: 'repo', defaultBranch: 'main' }
     vi.mocked(github.parseGitHubUrl).mockReturnValue(mockInfo)
     vi.mocked(github.fetchGitHubRepoTree).mockResolvedValue([])
-    vi.mocked(github.detectSkillDirectories).mockReturnValue([
-      { dir: 'skills/test', manifestFile: 'skills/test/SKILL.md' },
-    ])
+    vi.mocked(github.detectSkillDirectories).mockReturnValue([{ dir: 'skills/test', manifestFile: 'skills/test/SKILL.md' }])
     vi.mocked(github.fetchGitHubFile).mockResolvedValue('---\nname: Test\n---')
     vi.mocked(parseFrontmatter).mockReturnValue({ name: 'Test', description: '', tags: '', author: '' })
     wrapper = mount(NewSkillModal)
@@ -240,9 +236,7 @@ describe('NewSkillModal', () => {
     const mockInfo = { owner: 'user', repo: 'repo', defaultBranch: 'main' }
     vi.mocked(github.parseGitHubUrl).mockReturnValue(mockInfo)
     vi.mocked(github.fetchGitHubRepoTree).mockResolvedValue([])
-    vi.mocked(github.detectSkillDirectories).mockReturnValue([
-      { dir: 'skills/test', manifestFile: 'skills/test/SKILL.md' },
-    ])
+    vi.mocked(github.detectSkillDirectories).mockReturnValue([{ dir: 'skills/test', manifestFile: 'skills/test/SKILL.md' }])
     vi.mocked(github.fetchGitHubFile).mockResolvedValue('---\nname: Test\n---')
     vi.mocked(parseFrontmatter).mockReturnValue({ name: 'Test', description: 'desc', tags: '', author: '' })
     wrapper = mount(NewSkillModal)

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import { getAvatarColor } from '../utils/color'
 
 export interface SkillPickItem {
@@ -9,7 +9,7 @@ export interface SkillPickItem {
   id?: string
 }
 
-const props = defineProps<{
+const _props = defineProps<{
   skills: SkillPickItem[]
 }>()
 
@@ -37,7 +37,19 @@ function handleSelect(dir: string) {
           <p class="pick-subtitle">在仓库中找到 {{ skills.length }} 个技能，请选择要导入的哪一个</p>
         </div>
         <button class="pick-close" @click="emit('close')" title="取消">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
         </button>
       </div>
 
@@ -56,12 +68,29 @@ function handleSelect(dir: string) {
             {{ s.name.charAt(0).toUpperCase() }}
           </div>
           <div class="pick-item-info">
-            <div class="pick-item-name">{{ s.name || '未命名' }}</div>
-            <div class="pick-item-desc">{{ s.description || '暂无描述' }}</div>
-            <div class="pick-item-dir">{{ s.dir }}</div>
+            <div class="pick-item-name">
+              {{ s.name || '未命名' }}
+            </div>
+            <div class="pick-item-desc">
+              {{ s.description || '暂无描述' }}
+            </div>
+            <div class="pick-item-dir">
+              {{ s.dir }}
+            </div>
           </div>
-          <div class="pick-item-check" v-if="selectedDir === s.dir">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          <div v-if="selectedDir === s.dir" class="pick-item-check">
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
           </div>
         </div>
       </div>
@@ -69,15 +98,11 @@ function handleSelect(dir: string) {
       <!-- Footer -->
       <div class="pick-footer">
         <button class="pick-btn cancel" @click="emit('close')">取消</button>
-        <button class="pick-btn confirm" :disabled="!selectedDir" @click="selectedDir && emit('select', selectedDir)">
-          导入此技能
-        </button>
+        <button class="pick-btn confirm" :disabled="!selectedDir" @click="selectedDir && emit('select', selectedDir)">导入此技能</button>
       </div>
     </div>
   </div>
 </template>
-
-
 
 <style scoped>
 .pick-overlay {
@@ -115,7 +140,9 @@ function handleSelect(dir: string) {
   flex-shrink: 0;
 }
 
-.pick-header-info { min-width: 0; }
+.pick-header-info {
+  min-width: 0;
+}
 
 .pick-title {
   font-size: 17px;

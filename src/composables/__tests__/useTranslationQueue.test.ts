@@ -1,11 +1,11 @@
 import { describe, test, expect, beforeEach } from 'vitest'
-import { useTranslationQueue } from '../useTranslationQueue'
+import { useTranslationQueue, processingHashes, MAX_CONCURRENT } from '../useTranslationQueue'
 
 beforeEach(() => {
-  const { queue, cacheVersion } = useTranslationQueue()
-  queue.value = []
-  cacheVersion.value = 0
+  processingHashes.clear()
   window.ztools.dbStorage.clear()
+  const { clearAll } = useTranslationQueue()
+  clearAll()
 })
 
 describe('useTranslationQueue', () => {
@@ -14,49 +14,60 @@ describe('useTranslationQueue', () => {
     expect(queue.value).toEqual([])
   })
 
-  test('addTranslation adds item to queue', () => {
+  test('addTranslation uses (hash, type, skillName?) signature', () => {
     const { addTranslation, queue } = useTranslationQueue()
-    addTranslation('skill-1', 'Test Skill', 'content')
+    addTranslation('abc123hash', 'content', 'Test Skill')
     expect(queue.value).toHaveLength(1)
     expect(queue.value[0]).toMatchObject({
-      skillId: 'skill-1',
+      hash: 'abc123hash',
       skillName: 'Test Skill',
       type: 'content',
       status: 'translating',
     })
+    expect(queue.value[0].skillId).toBeUndefined()
   })
 
   test('addTranslation persists to dbStorage', () => {
     const { addTranslation } = useTranslationQueue()
-    addTranslation('s1', 'S1', 'desc')
-    const saved = JSON.parse(window.ztools.dbStorage.getItem('sm_translation_queue')!)
+    addTranslation('hash-s1', 'desc', 'S1')
+    const raw = window.ztools.dbStorage.getItem('sm_translation_queue')
+    expect(raw).toBeTruthy()
+    const saved = JSON.parse(raw!)
     expect(saved).toHaveLength(1)
-    expect(saved[0].skillId).toBe('s1')
+    expect(saved[0].hash).toBe('hash-s1')
+    expect(saved[0].type).toBe('desc')
+  })
+
+  test('addTranslation dedupes same hash+type', () => {
+    const { addTranslation, queue } = useTranslationQueue()
+    addTranslation('h1', 'content', 'A')
+    addTranslation('h1', 'content', 'A')
+    expect(queue.value).toHaveLength(1)
   })
 
   test('removeTranslation removes item from queue', () => {
     const { addTranslation, removeTranslation, queue } = useTranslationQueue()
-    addTranslation('s1', 'S1', 'content')
-    addTranslation('s2', 'S2', 'desc')
-    removeTranslation('s1', 'content')
+    addTranslation('h1', 'content', 'S1')
+    addTranslation('h2', 'desc', 'S2')
+    removeTranslation('h1', 'content')
     expect(queue.value).toHaveLength(1)
-    expect(queue.value[0].skillId).toBe('s2')
+    expect(queue.value[0].hash).toBe('h2')
   })
 
   test('removeTranslation updates dbStorage', () => {
     const { addTranslation, removeTranslation } = useTranslationQueue()
-    addTranslation('s1', 'S1', 'content')
-    removeTranslation('s1', 'content')
+    addTranslation('h1', 'content', 'S1')
+    removeTranslation('h1', 'content')
     const saved = JSON.parse(window.ztools.dbStorage.getItem('sm_translation_queue')!)
     expect(saved).toHaveLength(0)
   })
 
   test('isTranslating returns correct status', () => {
     const { addTranslation, isTranslating } = useTranslationQueue()
-    expect(isTranslating('s1', 'content')).toBe(false)
-    addTranslation('s1', 'S1', 'content')
-    expect(isTranslating('s1', 'content')).toBe(true)
-    expect(isTranslating('s1', 'desc')).toBe(false)
+    expect(isTranslating('h1', 'content')).toBe(false)
+    addTranslation('h1', 'content', 'S1')
+    expect(isTranslating('h1', 'content')).toBe(true)
+    expect(isTranslating('h1', 'desc')).toBe(false)
   })
 
   test('notifyCacheChanged increments cacheVersion', () => {
@@ -66,5 +77,36 @@ describe('useTranslationQueue', () => {
     expect(cacheVersion.value).toBe(before + 1)
   })
 
+  test('respects MAX_CONCURRENT when enqueueing', () => {
+    const { addTranslation, queue } = useTranslationQueue()
+    for (let i = 0; i < MAX_CONCURRENT + 2; i++) {
+      addTranslation(`hash-${i}`, 'content', `S${i}`)
+    }
+    const translating = queue.value.filter((i) => i.status === 'translating')
+    const pending = queue.value.filter((i) => i.status === 'pending')
+    expect(translating.length).toBe(MAX_CONCURRENT)
+    expect(pending.length).toBe(2)
+  })
 
+  test('resumeAll is sync and re-promotes pending', () => {
+    const { addTranslation, queue, resumeAll } = useTranslationQueue()
+    addTranslation('h1', 'content', 'S1')
+    addTranslation('h2', 'content', 'S2')
+    addTranslation('h3', 'content', 'S3')
+    for (const item of queue.value) {
+      item.status = 'pending'
+      processingHashes.delete(`${item.hash}:${item.type}`)
+    }
+    resumeAll()
+    const translating = queue.value.filter((i) => i.status === 'translating')
+    expect(translating.length).toBeLessThanOrEqual(MAX_CONCURRENT)
+    expect(translating.length).toBeGreaterThan(0)
+  })
+
+  test('rejects invalid type at runtime', () => {
+    const { addTranslation, queue } = useTranslationQueue()
+    const result = addTranslation('h1', 'Test Skill' as 'content' | 'desc', 'content')
+    expect(result).toBeNull()
+    expect(queue.value).toHaveLength(0)
+  })
 })

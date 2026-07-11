@@ -1,4 +1,4 @@
-import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, test, expect, afterEach } from 'vitest'
 import { nextTick } from 'vue'
 import { mount } from '@vue/test-utils'
 import QuickSwitcher from '../QuickSwitcher.vue'
@@ -71,7 +71,7 @@ describe('QuickSwitcher', () => {
     const input = wrapper.find('.qs-search')
     await input.setValue('beta')
     await nextTick()
-    const visibleItems = wrapper.findAll('.qs-item').filter(el => el.isVisible())
+    const visibleItems = wrapper.findAll('.qs-item').filter((el) => el.isVisible())
     expect(visibleItems).toHaveLength(1)
     expect(visibleItems[0].text()).toContain('Beta')
   })

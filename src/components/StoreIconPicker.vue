@@ -2,16 +2,18 @@
 import { ref, computed } from 'vue'
 import ProviderIcon from './ProviderIcon.vue'
 import { AVAILABLE_ICONS } from '../data/ai-providers'
-import { STORE_ICONS, STORE_TYPE_DEFAULT_ICONS, getDefaultStoreIcon, isStoreIconKey, isProviderIcon, resolveStoreIcon } from '../data/store-icons'
-import type { StoreSourceType } from '../types'
+import { STORE_ICONS, STORE_TYPE_DEFAULT_ICONS, isStoreIconKey, isProviderIcon, resolveStoreIcon } from '../data/store-icons'
 
-const props = withDefaults(defineProps<{
-  modelValue?: string
-  defaultIcon?: string
-}>(), {
-  modelValue: '',
-  defaultIcon: '',
-})
+const props = withDefaults(
+  defineProps<{
+    modelValue?: string
+    defaultIcon?: string
+  }>(),
+  {
+    modelValue: '',
+    defaultIcon: '',
+  },
+)
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]
@@ -26,7 +28,7 @@ const localFileDataUri = ref('')
 const filteredIcons = computed(() => {
   const q = searchQuery.value.toLowerCase().trim()
   if (!q) return AVAILABLE_ICONS
-  return AVAILABLE_ICONS.filter(name => name.includes(q))
+  return AVAILABLE_ICONS.filter((name) => name.includes(q))
 })
 
 const currentIconType = computed(() => {
@@ -64,9 +66,7 @@ async function browseLocalFile() {
   const files = dialog({
     properties: ['openFile'],
     title: '选择图标文件',
-    filters: [
-      { name: '图片文件', extensions: ['svg', 'png', 'jpg', 'jpeg', 'gif', 'ico'] },
-    ],
+    filters: [{ name: '图片文件', extensions: ['svg', 'png', 'jpg', 'jpeg', 'gif', 'ico'] }],
   })
   if (!files?.length) return
   const filePath = files[0]
@@ -107,8 +107,20 @@ function clearIcon() {
   <div class="store-icon-picker">
     <div class="sip-header">
       <span class="sip-label">商店图标</span>
-      <button class="sip-clear" :class="{ hidden: !modelValue }" @click="clearIcon" title="清除图标">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      <button class="sip-clear" :class="{ hidden: !modelValue }" title="清除图标" @click="clearIcon">
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
         清除
       </button>
     </div>
@@ -116,11 +128,15 @@ function clearIcon() {
     <div class="sip-preview">
       <div class="sip-preview-icon">
         <ProviderIcon v-if="currentIconType === 'default' && defaultIcon && isProviderIcon(defaultIcon)" :icon="defaultIcon" :size="32" />
-        <span v-else-if="currentIconType === 'default'" v-html="defaultIcon || STORE_TYPE_DEFAULT_ICONS['git-repo']" class="sip-preview-svg"></span>
-        <span v-else-if="currentIconType === 'svg'" v-html="modelValue" class="sip-preview-svg"></span>
+        <span
+          v-else-if="currentIconType === 'default'"
+          class="sip-preview-svg"
+          v-html="defaultIcon || STORE_TYPE_DEFAULT_ICONS['git-repo']"
+        />
+        <span v-else-if="currentIconType === 'svg'" v-html="modelValue" class="sip-preview-svg" />
         <ProviderIcon v-else-if="currentIconType === 'provider-icon'" :icon="modelValue" :size="32" />
         <template v-else-if="currentIconType === 'store-icon' && resolvedStoreIcon">
-          <span v-if="resolvedStoreIcon.startsWith('<svg')" v-html="resolvedStoreIcon" class="sip-preview-svg"></span>
+          <span v-if="resolvedStoreIcon.startsWith('<svg')" v-html="resolvedStoreIcon" class="sip-preview-svg" />
           <img v-else :src="resolvedStoreIcon" class="sip-preview-img" />
         </template>
         <img v-else-if="localFileDataUri && currentIconType === 'url-or-path'" :src="localFileDataUri" class="sip-preview-img" />
@@ -131,15 +147,26 @@ function clearIcon() {
 
     <div class="sip-tabs">
       <button :class="['sip-tab', { active: activeTab === 'library' }]" @click="activeTab = 'library'">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path
+            d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"
+          />
+        </svg>
         图标库
       </button>
       <button :class="['sip-tab', { active: activeTab === 'upload' }]" @click="activeTab = 'upload'">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="17 8 12 3 7 8" />
+          <line x1="12" y1="3" x2="12" y2="15" />
+        </svg>
         本地导入
       </button>
       <button :class="['sip-tab', { active: activeTab === 'url' }]" @click="activeTab = 'url'">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+        </svg>
         URL
       </button>
     </div>
@@ -148,40 +175,73 @@ function clearIcon() {
       <!-- 图标库 -->
       <template v-if="activeTab === 'library'">
         <div class="sip-search">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8" />
+            <path d="M21 21l-4.35-4.35" />
+          </svg>
           <input v-model="searchQuery" type="text" class="sip-search-input" placeholder="搜索图标..." />
         </div>
         <div class="sip-grid">
-          <div class="sip-grid-item" :class="{ active: !modelValue }" @click="selectDefault" title="默认（根据类型自动选择）">
+          <div class="sip-grid-item" :class="{ active: !modelValue }" title="默认（根据类型自动选择）" @click="selectDefault">
             <ProviderIcon v-if="defaultIcon && isProviderIcon(defaultIcon)" :icon="defaultIcon" :size="24" />
-            <span v-else class="sip-grid-svg" v-html="defaultIcon || STORE_TYPE_DEFAULT_ICONS['git-repo']"></span>
+            <span v-else class="sip-grid-svg" v-html="defaultIcon || STORE_TYPE_DEFAULT_ICONS['git-repo']" />
             <span class="sip-grid-label">默认</span>
           </div>
-          <div class="sip-grid-item" :class="{ active: modelValue === 'store:git-repo' }" @click="selectIcon('store:git-repo')" title="Git 仓库">
-            <span class="sip-grid-svg" v-html="STORE_TYPE_DEFAULT_ICONS['git-repo']"></span>
+          <div
+            class="sip-grid-item"
+            :class="{ active: modelValue === 'store:git-repo' }"
+            title="Git 仓库"
+            @click="selectIcon('store:git-repo')"
+          >
+            <span class="sip-grid-svg" v-html="STORE_TYPE_DEFAULT_ICONS['git-repo']" />
             <span class="sip-grid-label">Git</span>
           </div>
-          <div class="sip-grid-item" :class="{ active: modelValue === 'store:marketplace-json' }" @click="selectIcon('store:marketplace-json')" title="Marketplace">
-            <span class="sip-grid-svg" v-html="STORE_TYPE_DEFAULT_ICONS['marketplace-json']"></span>
+          <div
+            class="sip-grid-item"
+            :class="{ active: modelValue === 'store:marketplace-json' }"
+            title="Marketplace"
+            @click="selectIcon('store:marketplace-json')"
+          >
+            <span class="sip-grid-svg" v-html="STORE_TYPE_DEFAULT_ICONS['marketplace-json']" />
             <span class="sip-grid-label">Market</span>
           </div>
-          <div class="sip-grid-item" :class="{ active: modelValue === 'store:well-known-index' }" @click="selectIcon('store:well-known-index')" title="Well-Known">
-            <span class="sip-grid-svg" v-html="STORE_TYPE_DEFAULT_ICONS['well-known-index']"></span>
+          <div
+            class="sip-grid-item"
+            :class="{ active: modelValue === 'store:well-known-index' }"
+            title="Well-Known"
+            @click="selectIcon('store:well-known-index')"
+          >
+            <span class="sip-grid-svg" v-html="STORE_TYPE_DEFAULT_ICONS['well-known-index']" />
             <span class="sip-grid-label">Well-Known</span>
           </div>
-          <div class="sip-grid-item" :class="{ active: modelValue === 'store:local-dir' }" @click="selectIcon('store:local-dir')" title="本地目录">
-            <span class="sip-grid-svg" v-html="STORE_TYPE_DEFAULT_ICONS['local-dir']"></span>
+          <div
+            class="sip-grid-item"
+            :class="{ active: modelValue === 'store:local-dir' }"
+            title="本地目录"
+            @click="selectIcon('store:local-dir')"
+          >
+            <span class="sip-grid-svg" v-html="STORE_TYPE_DEFAULT_ICONS['local-dir']" />
             <span class="sip-grid-label">Folder</span>
           </div>
-          <div class="sip-grid-item" :class="{ active: modelValue === 'store:claude' }" @click="selectIcon('store:claude')" title="Claude Code">
+          <div
+            class="sip-grid-item"
+            :class="{ active: modelValue === 'store:claude' }"
+            title="Claude Code"
+            @click="selectIcon('store:claude')"
+          >
             <img :src="STORE_ICONS.claude" class="sip-grid-img" />
             <span class="sip-grid-label">Claude</span>
           </div>
-          <div class="sip-grid-item" :class="{ active: modelValue === 'store:codex' }" @click="selectIcon('store:codex')" title="Codex">
+          <div class="sip-grid-item" :class="{ active: modelValue === 'store:codex' }" title="Codex" @click="selectIcon('store:codex')">
             <img :src="STORE_ICONS.codex" class="sip-grid-img" />
             <span class="sip-grid-label">Codex</span>
           </div>
-          <div class="sip-grid-item" :class="{ active: modelValue === 'store:skills-sh' }" @click="selectIcon('store:skills-sh')" title="skills.sh">
+          <div
+            class="sip-grid-item"
+            :class="{ active: modelValue === 'store:skills-sh' }"
+            title="skills.sh"
+            @click="selectIcon('store:skills-sh')"
+          >
             <img :src="STORE_ICONS['skills-sh']" class="sip-grid-img" />
             <span class="sip-grid-label">skills.sh</span>
           </div>
@@ -190,8 +250,8 @@ function clearIcon() {
             :key="name"
             class="sip-grid-item"
             :class="{ active: modelValue === name }"
-            @click="selectIcon(name)"
             :title="name"
+            @click="selectIcon(name)"
           >
             <ProviderIcon :icon="name" :size="24" />
             <span class="sip-grid-label">{{ name }}</span>
@@ -203,12 +263,18 @@ function clearIcon() {
       <template v-if="activeTab === 'upload'">
         <div class="sip-upload">
           <button class="sip-upload-btn" @click="browseLocalFile">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="17 8 12 3 7 8" />
+              <line x1="12" y1="3" x2="12" y2="15" />
+            </svg>
             <span>浏览文件</span>
           </button>
           <div class="sip-upload-hint">支持 SVG、PNG、JPG、GIF、ICO 格式</div>
           <div v-if="localFilePath" class="sip-upload-path">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+            </svg>
             {{ localFilePath }}
           </div>
         </div>
@@ -217,7 +283,13 @@ function clearIcon() {
       <!-- URL -->
       <template v-if="activeTab === 'url'">
         <div class="sip-url">
-          <input v-model="urlInput" type="text" class="sip-url-input" placeholder="https://example.com/icon.png" @keydown.enter="applyUrl" />
+          <input
+            v-model="urlInput"
+            type="text"
+            class="sip-url-input"
+            placeholder="https://example.com/icon.png"
+            @keydown.enter="applyUrl"
+          />
           <button class="sip-url-apply" :disabled="!urlInput.trim()" @click="applyUrl">应用</button>
         </div>
         <div class="sip-url-hint">粘贴图标的网络地址</div>

@@ -5,7 +5,9 @@ import { KeyShowToast } from '../../inject-keys'
 import type { Skill } from '../../types'
 
 const sampleSkill: Skill = {
-  id: 'skill-1', name: 'Test Skill', description: 'A test skill',
+  id: 'skill-1',
+  name: 'Test Skill',
+  description: 'A test skill',
   tags: [],
 }
 
@@ -14,6 +16,7 @@ vi.mock('../../data/platforms', () => ({
     { id: 'windsurf', name: 'Windsurf', detected: true, defaultPath: '/mock/windsurf' },
     { id: 'cursor', name: 'Cursor', detected: true, defaultPath: '/mock/cursor' },
   ],
+  getPlatformPath: (p: { defaultPath?: string }, _mode?: string) => p.defaultPath || '',
   defaultPlatforms: [],
 }))
 

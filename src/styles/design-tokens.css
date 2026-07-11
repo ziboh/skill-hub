@@ -1,9 +1,15 @@
 /* ===== RESET ===== */
-*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
 
 /* ===== DESIGN TOKENS: LIGHT ===== */
 :root,
-[data-theme="light"] {
+[data-theme='light'] {
   --theme-hue: 250;
   --theme-saturation: 48%;
   --base-font-size: 16px;
@@ -51,22 +57,22 @@
 
   --app-settings-card-bg: 0 0% 100%;
   --app-settings-card-border: 250 12% 87%;
-  --app-settings-card-shadow: 0 2px 8px rgba(80,40,120,0.06);
+  --app-settings-card-shadow: 0 2px 8px rgba(80, 40, 120, 0.06);
   --app-settings-subtle-bg: 250 12% 93%;
   --app-settings-subtle-border: 250 12% 87%;
   --app-settings-segment-active-bg: 0 0% 100%;
   --app-settings-segment-active-color: var(--theme-hue) var(--theme-saturation) 40%;
-  --app-settings-segment-active-shadow: 0 2px 8px rgba(80,40,120,0.1);
+  --app-settings-segment-active-shadow: 0 2px 8px rgba(80, 40, 120, 0.1);
 
-  --shadow-sm: 0 1px 3px rgba(80,40,120,0.06);
-  --shadow: 0 4px 14px rgba(80,40,120,0.08);
-  --shadow-lg: 0 12px 36px rgba(80,40,120,0.1);
+  --shadow-sm: 0 1px 3px rgba(80, 40, 120, 0.06);
+  --shadow: 0 4px 14px rgba(80, 40, 120, 0.08);
+  --shadow-lg: 0 12px 36px rgba(80, 40, 120, 0.1);
 
   color-scheme: light;
 }
 
 /* ===== DESIGN TOKENS: DARK ===== */
-[data-theme="dark"] {
+[data-theme='dark'] {
   --background: 250 20% 5%;
   --foreground: 250 15% 90%;
   --card: 250 18% 8%;
@@ -108,22 +114,23 @@
 
   --app-settings-card-bg: 250 18% 8%;
   --app-settings-card-border: 250 15% 14%;
-  --app-settings-card-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  --app-settings-card-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   --app-settings-subtle-bg: 250 16% 10%;
   --app-settings-subtle-border: 250 15% 14%;
   --app-settings-segment-active-bg: 250 16% 14%;
   --app-settings-segment-active-color: var(--theme-hue) var(--theme-saturation) 85%;
-  --app-settings-segment-active-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  --app-settings-segment-active-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
 
-  --shadow-sm: 0 2px 6px rgba(0,0,0,0.35);
-  --shadow: 0 8px 20px rgba(0,0,0,0.45);
-  --shadow-lg: 0 16px 48px rgba(0,0,0,0.55);
+  --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.35);
+  --shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.55);
 
   color-scheme: dark;
 }
 
 /* ===== MOTION TOKENS ===== */
-:root, [data-motion="standard"] {
+:root,
+[data-motion='standard'] {
   --duration-instant: 80ms;
   --duration-quick: 120ms;
   --duration-base: 180ms;
@@ -133,14 +140,14 @@
   --ease-enter: cubic-bezier(0, 0, 0.2, 1);
   --ease-exit: cubic-bezier(0.4, 0, 1, 1);
 }
-[data-motion="reduced"] {
+[data-motion='reduced'] {
   --duration-instant: 50ms;
   --duration-quick: 70ms;
   --duration-base: 110ms;
   --duration-smooth: 170ms;
   --duration-slow: 250ms;
 }
-[data-motion="off"] {
+[data-motion='off'] {
   --duration-instant: 0.01ms;
   --duration-quick: 0.01ms;
   --duration-base: 0.01ms;
@@ -148,7 +155,7 @@
   --duration-slow: 0.01ms;
 }
 @media (prefers-reduced-motion: reduce) {
-  :root:not([data-motion="standard"]) {
+  :root:not([data-motion='standard']) {
     --duration-instant: 0.01ms;
     --duration-quick: 0.01ms;
     --duration-base: 0.01ms;

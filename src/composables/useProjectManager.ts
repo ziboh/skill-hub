@@ -2,13 +2,12 @@ import { ref } from 'vue'
 import { useProjectState } from './useProjectState'
 import { storage } from '../utils/storage'
 import { defaultPlatforms } from '../data/platforms'
+import { syncAllowedWriteRoots } from '../utils/write-roots'
 import type { RegisteredProject, SkillScanResult } from '../types'
 
 const DEFAULT_PROJECT_SCAN_SUBDIRS = [
   '.agents/skills',
-  ...defaultPlatforms
-    .filter(p => p.projectPath)
-    .map(p => p.projectPath!.replace(/^\.\//, '')),
+  ...defaultPlatforms.filter((p) => p.projectPath).map((p) => p.projectPath!.replace(/^\.\//, '')),
 ]
 
 export function useProjectManager(opts: {
@@ -73,13 +72,9 @@ export function useProjectManager(opts: {
       const name = project.name.trim()
       if (!root || !name) return
 
-      const hasConflict = registeredProjects.value.some(
-        (p) => p.rootDir.toLowerCase() === root.toLowerCase(),
-      )
+      const hasConflict = registeredProjects.value.some((p) => p.rootDir.toLowerCase() === root.toLowerCase())
       if (hasConflict) {
-        const conflict = registeredProjects.value.find(
-          (p) => p.rootDir.toLowerCase() === root.toLowerCase(),
-        )
+        const conflict = registeredProjects.value.find((p) => p.rootDir.toLowerCase() === root.toLowerCase())
         addProjectError.value = conflict
           ? `根目录已存在，与项目「${conflict.name}」冲突（${conflict.rootDir}）`
           : '该项目根目录已存在，请选择其他目录或删除已有项目'
@@ -96,6 +91,7 @@ export function useProjectManager(opts: {
       }
       registeredProjects.value = [...registeredProjects.value, newProject]
       storage.saveRegisteredProjects(registeredProjects.value)
+      syncAllowedWriteRoots({ projects: registeredProjects.value })
       selectedProject.value = newProject
       showAddProjectModal.value = false
       addProjectError.value = ''
@@ -111,9 +107,7 @@ export function useProjectManager(opts: {
       const name = data.name.trim()
       if (!root || !name) return
 
-      const hasConflict = registeredProjects.value.some(
-        (p) => p.id !== id && p.rootDir.toLowerCase() === root.toLowerCase(),
-      )
+      const hasConflict = registeredProjects.value.some((p) => p.id !== id && p.rootDir.toLowerCase() === root.toLowerCase())
       if (hasConflict) {
         showEditProjectModal.value = false
         return
@@ -127,6 +121,7 @@ export function useProjectManager(opts: {
         newList[idx] = { ...newList[idx], ...patch }
         registeredProjects.value = newList
         selectedProject.value = newList[idx]
+        syncAllowedWriteRoots({ projects: newList })
       }
       showEditProjectModal.value = false
       editingProject.value = null
@@ -141,6 +136,7 @@ export function useProjectManager(opts: {
   function removeProject(id: string) {
     registeredProjects.value = registeredProjects.value.filter((p) => p.id !== id)
     storage.saveRegisteredProjects(registeredProjects.value)
+    syncAllowedWriteRoots({ projects: registeredProjects.value })
     if (selectedProject.value?.id === id) {
       if (registeredProjects.value.length > 0) {
         selectProject(registeredProjects.value[0])

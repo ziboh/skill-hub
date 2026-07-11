@@ -6,9 +6,7 @@ export interface GitHubRepoInfo {
 
 export function parseGitHubUrl(url: string): GitHubRepoInfo | null {
   const trimmed = url.trim()
-  const fullMatch = trimmed.match(
-    /^(?:https?:\/\/)?(?:www\.)?github\.com\/([^/]+)\/([^/]+?)(?:\/|$)/
-  )
+  const fullMatch = trimmed.match(/^(?:https?:\/\/)?(?:www\.)?github\.com\/([^/]+)\/([^/]+?)(?:\/|$)/)
   if (fullMatch) {
     return {
       owner: fullMatch[1],
@@ -36,10 +34,6 @@ interface RateLimitState {
 }
 
 const rateLimitState: RateLimitState = { remaining: 5000, reset: 0, limit: 5000 }
-
-export function getRateLimitState(): RateLimitState {
-  return { ...rateLimitState }
-}
 
 export function getRateLimitWaitMs(): number {
   if (rateLimitState.remaining > 10) return 0
@@ -76,7 +70,10 @@ function getCacheTtlMs(url: string): number {
 function getCached(url: string): any | undefined {
   const entry = responseCache.get(url)
   if (!entry) return undefined
-  if (Date.now() > entry.expiry) { responseCache.delete(url); return undefined }
+  if (Date.now() > entry.expiry) {
+    responseCache.delete(url)
+    return undefined
+  }
   return entry.data
 }
 
@@ -91,13 +88,16 @@ function setCache(url: string, data: any) {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-export async function githubFetch(url: string, options: {
-  headers?: Record<string, string>
-  cache?: boolean
-  timeout?: number
-  parseJson?: boolean
-  responseType?: 'text' | 'arraybuffer'
-}): Promise<any> {
+export async function githubFetch(
+  url: string,
+  options: {
+    headers?: Record<string, string>
+    cache?: boolean
+    timeout?: number
+    parseJson?: boolean
+    responseType?: 'text' | 'arraybuffer'
+  },
+): Promise<any> {
   const { headers = {}, cache = true, timeout = 15000, parseJson = false, responseType = 'text' } = options
   const method = options as any
   const isGet = !method.method || method.method === 'GET'
@@ -133,14 +133,20 @@ export async function githubFetch(url: string, options: {
       if (resp.status === 403 || resp.status === 429 || resp.status >= 500) {
         const retryAfter = resp.headers.get('retry-after')
         const waitSec = retryAfter ? Number(retryAfter) : Math.min(2 ** attempt * 1000, 8000)
-        if (attempt < 2) { await sleep(waitSec); continue }
+        if (attempt < 2) {
+          await sleep(waitSec)
+          continue
+        }
       }
 
       clearTimeout(timer)
       if (resp.status === 403) throw new Error('GitHub API 速率限制，请在设置中添加 Token 提升额度')
       throw new Error(`GitHub API 请求失败: ${resp.status}`)
     } catch (err: any) {
-      if (err.name === 'AbortError') { clearTimeout(timer); throw new Error('GitHub API 请求超时') }
+      if (err.name === 'AbortError') {
+        clearTimeout(timer)
+        throw new Error('GitHub API 请求超时')
+      }
       if (err.message?.includes(': 404')) throw err
       lastError = err
       if (attempt < 2) await sleep(Math.min(2 ** attempt * 1000, 4000))
@@ -152,13 +158,7 @@ export async function githubFetch(url: string, options: {
 
 // --- Public API ---
 
-export async function fetchGitHubFile(
-  owner: string,
-  repo: string,
-  path: string,
-  branch = 'main',
-  token?: string
-): Promise<string> {
+export async function fetchGitHubFile(owner: string, repo: string, path: string, branch = 'main', token?: string): Promise<string> {
   const branches = [branch, 'main', 'master']
   const tried = new Set<string>()
   for (const b of branches) {
@@ -178,7 +178,7 @@ export async function fetchGitHubRepoTree(
   owner: string,
   repo: string,
   branch = 'main',
-  token?: string
+  token?: string,
 ): Promise<{ path: string; type: 'blob' | 'tree' }[]> {
   const branches = [branch, 'main', 'master']
   const tried = new Set<string>()
@@ -205,13 +205,8 @@ export async function fetchGitHubRepoTree(
 
 export const SKILL_MANIFEST_FILES = ['SKILL.md', 'skill.json', 'skill.yaml', 'skill.yml']
 
-export function detectSkillDirectories(
-  tree: { path: string; type: 'blob' | 'tree' }[]
-): { dir: string; manifestFile: string }[] {
-  const manifestFiles = tree.filter(
-    (item) =>
-      item.type === 'blob' && SKILL_MANIFEST_FILES.includes(item.path.split('/').pop() || '')
-  )
+export function detectSkillDirectories(tree: { path: string; type: 'blob' | 'tree' }[]): { dir: string; manifestFile: string }[] {
+  const manifestFiles = tree.filter((item) => item.type === 'blob' && SKILL_MANIFEST_FILES.includes(item.path.split('/').pop() || ''))
 
   const dirSet = new Set<string>()
   for (const mf of manifestFiles) {
@@ -232,7 +227,7 @@ export function detectSkillDirectories(
     })
     return {
       dir,
-      manifestFile: dirManifest ? dirManifest.path : (rootManifests[0]?.path || ''),
+      manifestFile: dirManifest ? dirManifest.path : rootManifests[0]?.path || '',
     }
   })
 }

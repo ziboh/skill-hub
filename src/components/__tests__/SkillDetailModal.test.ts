@@ -1,7 +1,7 @@
 import { describe, test, expect, vi, afterEach } from 'vitest'
 import { mount, VueWrapper } from '@vue/test-utils'
 import SkillDetailModal from '../SkillDetailModal.vue'
-import { ref } from 'vue'
+import {} from 'vue'
 import { storage } from '../../utils/storage'
 import { KeyShowToast, KeyRefreshCounts } from '../../inject-keys'
 
@@ -10,9 +10,11 @@ vi.mock('../../utils/storage', () => ({
     getDownloadedIds: vi.fn(() => []),
     getFavoriteIds: vi.fn(() => []),
     toggleFavorite: vi.fn(),
-    getSettings: vi.fn(() => ({ githubToken: '', aiModels: [], translationModelId: '' })),
+    getSettings: vi.fn(() => ({ githubToken: '', aiModels: [], translationModelId: '', themeMode: 'light' })),
     getTranslation: vi.fn(() => null),
     getTranslationDesc: vi.fn(() => null),
+    getTranslationByHash: vi.fn(() => null),
+    getDescTranslationByHash: vi.fn(() => null),
     saveTranslation: vi.fn(),
     saveTranslationDesc: vi.fn(),
     saveCachedSkills: vi.fn(),
@@ -39,7 +41,6 @@ vi.mock('../../utils/translate', () => ({
   translateDescription: vi.fn(async () => 'Translated desc'),
   stripFrontmatter: vi.fn((s: string) => s),
   renderImmersiveSegments: vi.fn(() => []),
-  resolveTranslationKey: vi.fn(() => 'test-key'),
 }))
 
 vi.mock('../../composables/useTranslationQueue', () => ({
@@ -48,6 +49,8 @@ vi.mock('../../composables/useTranslationQueue', () => ({
     removeTranslation: vi.fn(),
     isTranslating: vi.fn(() => false),
     notifyCacheChanged: vi.fn(),
+    findInQueueByHash: vi.fn(() => []),
+    cacheVersion: { value: 0 },
   })),
 }))
 
@@ -59,13 +62,20 @@ vi.mock('../../data/skill-categories', () => ({
 
 vi.mock('../../utils/source-info', () => ({
   getSourceInfo: vi.fn(() => ({ icon: '📦', label: 'GitHub', bg: '#333', color: '#fff' })),
+  isSvgIcon: vi.fn(() => false),
+  isImageUrl: vi.fn(() => false),
 }))
 
 function createSkill(overrides = {}) {
   return {
-    id: 'test/skill', name: 'Test Skill', description: 'A test skill',
-    author: 'Test', tags: [], source: 'github',
-    repo: 'user/repo', path: 'skills/test',
+    id: 'test/skill',
+    name: 'Test Skill',
+    description: 'A test skill',
+    author: 'Test',
+    tags: [],
+    source: 'github',
+    repo: 'user/repo',
+    path: 'skills/test',
     ...overrides,
   }
 }
@@ -109,7 +119,7 @@ describe('SkillDetailModal', () => {
   test('shows content after loading', async () => {
     wrapper = mountModal()
     await vi.dynamicImportSettled?.()
-    await new Promise(resolve => setTimeout(resolve, 0))
+    await new Promise((resolve) => setTimeout(resolve, 0))
     expect(wrapper.find('.section-heading').text()).toContain('SKILL 描述')
   })
 
@@ -143,10 +153,8 @@ describe('SkillDetailModal', () => {
   test('copy button exists', async () => {
     wrapper = mountModal()
     await vi.dynamicImportSettled?.()
-    await new Promise(resolve => setTimeout(resolve, 0))
-    const copyBtns = wrapper.findAll('.heading-btn')
-    const copyBtn = copyBtns.find(b => b.text().includes('复制 MD'))
-    expect(copyBtn).toBeDefined()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(wrapper.find('.copy-md-btn').exists()).toBe(true)
   })
 
   test('toggle favorite button exists', () => {

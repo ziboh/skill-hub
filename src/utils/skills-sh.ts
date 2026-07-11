@@ -42,7 +42,10 @@ export interface SkillDetailRaw {
 // ── Error ──
 
 class SkillsShError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
     super(message)
     this.name = 'SkillsShError'
   }
@@ -73,7 +76,11 @@ function decodeHtmlEntities(input: string): string {
 }
 
 function normalizeWhitespace(input: string): string {
-  return input.replace(/\r/g, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
+  return input
+    .replace(/\r/g, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
 }
 
 function stripTags(input: string): string {
@@ -111,7 +118,9 @@ export async function fetchLeaderboard(filterKey?: string): Promise<LeaderboardR
     const repo = parts[1]
     const anchorText = m[2]
     const h3Match = anchorText.match(/<h3[^>]*>([\s\S]*?)<\/h3>/i)
-    const skillName = h3Match ? decodeHtmlEntities(stripTags(h3Match[1])).trim() : (stripTags(decodeHtmlEntities(anchorText)).trim() || parts[2])
+    const skillName = h3Match
+      ? decodeHtmlEntities(stripTags(h3Match[1])).trim()
+      : stripTags(decodeHtmlEntities(anchorText)).trim() || parts[2]
     const key = `${owner}/${repo}/${skillName}`
     if (seen.has(key)) continue
     seen.add(key)
@@ -145,7 +154,9 @@ function extractLdDescription(html: string): string | null {
       if (data?.description && data['@type'] === 'SoftwareApplication') {
         return data.description
       }
-    } catch { continue }
+    } catch {
+      continue
+    }
   }
   return null
 }
@@ -154,7 +165,10 @@ function extractMetaDescription(html: string): string | null {
   const metaRe = /<meta[^>]+(?:name|property)\s*=\s*"(?:description|og:description)"[^>]*content\s*=\s*"([^"]+)"/i
   const m = html.match(metaRe)
   if (m) {
-    const desc = m[1].replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/&amp;/g, '&')
+    const desc = m[1]
+      .replace(/&quot;/g, '"')
+      .replace(/&#x27;/g, "'")
+      .replace(/&amp;/g, '&')
     if (desc.length > 10) return desc
   }
   return null
@@ -191,9 +205,7 @@ export async function fetchSkillDetailFromSkill(skill: Skill, token?: string): P
 
   try {
     const tree = await fetchGitHubRepoTree(owner, repo, 'main', token)
-    const skillFiles = tree.filter(item =>
-      item.type === 'blob' && /SKILL\.md$/i.test(item.path)
-    )
+    const skillFiles = tree.filter((item) => item.type === 'blob' && /SKILL\.md$/i.test(item.path))
 
     const normalizedName = skillPath.toLowerCase().replace(/[^a-z0-9]/g, '')
     const ownerPrefix = owner.toLowerCase().replace(/[^a-z0-9]/g, '')
@@ -208,17 +220,27 @@ export async function fetchSkillDetailFromSkill(skill: Skill, token?: string): P
       const lastDirNormalized = lastDir.toLowerCase().replace(/[^a-z0-9]/g, '')
       const withoutOwnerPrefix = lastDirNormalized.startsWith(ownerPrefix) ? lastDirNormalized.slice(ownerPrefix.length) : lastDirNormalized
 
-      if (dir === normalizedName) { bestMatch = file.path; break }
+      if (dir === normalizedName) {
+        bestMatch = file.path
+        break
+      }
       if (dir.includes(normalizedName) || normalizedName.includes(dir)) {
         const score = Math.min(dir.length, normalizedName.length)
-        if (score > bestScore) { bestScore = score; bestMatch = file.path }
+        if (score > bestScore) {
+          bestScore = score
+          bestMatch = file.path
+        }
       }
       if (lastDirNormalized === normalizedName || withoutOwnerPrefix === normalizedName) {
-        bestMatch = file.path; break
+        bestMatch = file.path
+        break
       }
       if (lastDirNormalized.includes(normalizedName) || normalizedName.includes(lastDirNormalized)) {
         const score = Math.min(lastDirNormalized.length, normalizedName.length)
-        if (score > bestScore) { bestScore = score; bestMatch = file.path }
+        if (score > bestScore) {
+          bestScore = score
+          bestMatch = file.path
+        }
       }
     }
 
@@ -231,21 +253,25 @@ export async function fetchSkillDetailFromSkill(skill: Skill, token?: string): P
     }
   } catch {}
 
-  const fallbackPath = skillPath.startsWith(owner.toLowerCase().replace(/[^a-z]/g, ''))
-    ? skillPath.slice(owner.length)
-    : skillPath
+  const fallbackPath = skillPath.startsWith(owner.toLowerCase().replace(/[^a-z]/g, '')) ? skillPath.slice(owner.length) : skillPath
   const strippedNames = new Set<string>()
   strippedNames.add(skillPath)
   strippedNames.add(fallbackPath)
-  const ownerSegments = owner.toLowerCase().split(/[^a-z]+/).filter(Boolean)
-  const repoSegments = repo.toLowerCase().split(/[^a-z]+/).filter(Boolean)
+  const ownerSegments = owner
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter(Boolean)
+  const repoSegments = repo
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter(Boolean)
   for (const seg of [...ownerSegments, ...repoSegments]) {
     if (seg && skillPath.toLowerCase().startsWith(seg + '-')) {
       strippedNames.add(skillPath.slice(seg.length + 1))
     }
   }
   const pathCandidates = [
-    ...Array.from(strippedNames).flatMap(n => [`${n}/SKILL.md`, `skills/${n}/SKILL.md`, `agent-skills/${n}/SKILL.md`]),
+    ...Array.from(strippedNames).flatMap((n) => [`${n}/SKILL.md`, `skills/${n}/SKILL.md`, `agent-skills/${n}/SKILL.md`]),
     'SKILL.md',
   ]
   for (const p of pathCandidates) {
@@ -255,7 +281,9 @@ export async function fetchSkillDetailFromSkill(skill: Skill, token?: string): P
         const fm = parseFrontmatter(content)
         return { name: fm.name || skill.name, description: fm.description || '', content }
       }
-    } catch { continue }
+    } catch {
+      continue
+    }
   }
   return null
 }
@@ -345,14 +373,3 @@ export function getGitHubRepo(skill: Skill): { owner: string; repo: string } | n
   if (parts.length < 2) return null
   return { owner: parts[0], repo: parts[1] }
 }
-
-export function isGitHubSkill(skill: Skill): boolean {
-  const repo = getGitHubRepo(skill)
-  if (!repo) return false
-  // GitHub 用户名/组织名不含点号，owner 含点号说明是域名（well-known 网页类 skill）
-  // owner 为 'site' 表示 skills.sh 上的非 GitHub 技能
-  if (repo.owner === 'site') return false
-  return !repo.owner.includes('.')
-}
-
-

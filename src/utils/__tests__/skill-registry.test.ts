@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'vitest'
-import { isChineseContent, addChineseTag, getSourceLabel } from '../skill-registry'
+import { isChineseContent } from '../translate'
+import { addChineseTag, getSourceLabel } from '../skill-registry'
 import type { SkillSourceLocation } from '../../types'
 
 describe('isChineseContent', () => {

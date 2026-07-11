@@ -1,6 +1,6 @@
 import { describe, test, expect, vi, afterEach } from 'vitest'
 import { mount, VueWrapper } from '@vue/test-utils'
-import { h } from 'vue'
+import {} from 'vue'
 import SkillFileEditor from '../SkillFileEditor.vue'
 import { KeyShowToast } from '../../inject-keys'
 
@@ -8,7 +8,8 @@ vi.mock('../SkillCodeEditor.vue', () => ({
   default: {
     name: 'SkillCodeEditor',
     props: ['modelValue', 'language', 'readonly'],
-    template: '<div class="mock-editor"><textarea :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)"></textarea></div>',
+    template:
+      '<div class="mock-editor"><textarea :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)"></textarea></div>',
   },
 }))
 
@@ -54,21 +55,19 @@ describe('SkillFileEditor', () => {
     window.services.pathJoin = vi.fn((...p: string[]) => p.join('/'))
     wrapper = mountEditor('/some/dir')
     await wrapper.vm.$nextTick()
-    await new Promise(resolve => setTimeout(resolve, 0))
+    await new Promise((resolve) => setTimeout(resolve, 0))
     expect(wrapper.find('.tree-empty').exists()).toBe(true)
     expect(wrapper.find('.tree-empty').text()).toContain('暂无文件')
   })
 
   test('shows file tree with items', async () => {
-    window.services.readDir = vi.fn(() => [
-      { name: 'SKILL.md', path: '/some/dir/SKILL.md', isDirectory: false },
-    ])
+    window.services.readDir = vi.fn(() => [{ name: 'SKILL.md', path: '/some/dir/SKILL.md', isDirectory: false }])
     window.services.pathJoin = vi.fn((...p: string[]) => p.join('/'))
     window.services.stat = vi.fn(() => ({ isDirectory: () => false }))
     window.services.readFile = vi.fn(() => '# Test content')
     wrapper = mountEditor('/some/dir')
     await wrapper.vm.$nextTick()
-    await new Promise(resolve => setTimeout(resolve, 0))
+    await new Promise((resolve) => setTimeout(resolve, 0))
     expect(wrapper.find('.tree-item.file').exists()).toBe(true)
     expect(wrapper.find('.item-name').text()).toContain('SKILL.md')
   })
@@ -81,20 +80,18 @@ describe('SkillFileEditor', () => {
     window.services.pathJoin = vi.fn((...p: string[]) => p.join('/'))
     wrapper = mountEditor('/some/dir')
     await wrapper.vm.$nextTick()
-    await new Promise(resolve => setTimeout(resolve, 0))
+    await new Promise((resolve) => setTimeout(resolve, 0))
     expect(wrapper.find('.tree-item.directory').exists()).toBe(true)
   })
 
   test('selecting a file shows editor header with file name', async () => {
-    window.services.readDir = vi.fn(() => [
-      { name: 'SKILL.md', path: '/some/dir/SKILL.md', isDirectory: false },
-    ])
+    window.services.readDir = vi.fn(() => [{ name: 'SKILL.md', path: '/some/dir/SKILL.md', isDirectory: false }])
     window.services.pathJoin = vi.fn((...p: string[]) => p.join('/'))
     window.services.stat = vi.fn(() => ({ isDirectory: () => false }))
     window.services.readFile = vi.fn(() => '# Test content')
     wrapper = mountEditor('/some/dir')
     await wrapper.vm.$nextTick()
-    await new Promise(resolve => setTimeout(resolve, 0))
+    await new Promise((resolve) => setTimeout(resolve, 0))
     await wrapper.find('.tree-item.file').trigger('click')
     expect(wrapper.find('.editor-file-name').exists()).toBe(true)
     expect(wrapper.find('.editor-file-name').text()).toContain('SKILL.md')
@@ -108,15 +105,13 @@ describe('SkillFileEditor', () => {
   })
 
   test('status bar shown when file selected', async () => {
-    window.services.readDir = vi.fn(() => [
-      { name: 'SKILL.md', path: '/some/dir/SKILL.md', isDirectory: false },
-    ])
+    window.services.readDir = vi.fn(() => [{ name: 'SKILL.md', path: '/some/dir/SKILL.md', isDirectory: false }])
     window.services.pathJoin = vi.fn((...p: string[]) => p.join('/'))
     window.services.stat = vi.fn(() => ({ isDirectory: () => false }))
     window.services.readFile = vi.fn(() => '# Test content')
     wrapper = mountEditor('/some/dir')
     await wrapper.vm.$nextTick()
-    await new Promise(resolve => setTimeout(resolve, 0))
+    await new Promise((resolve) => setTimeout(resolve, 0))
     await wrapper.find('.tree-item.file').trigger('click')
     expect(wrapper.find('.status-bar').exists()).toBe(true)
     expect(wrapper.find('.status-path').text()).toContain('SKILL.md')
@@ -160,15 +155,13 @@ describe('SkillFileEditor', () => {
   })
 
   test('shows readonly message for binary files', async () => {
-    window.services.readDir = vi.fn(() => [
-      { name: 'image.png', path: '/some/dir/image.png', isDirectory: false },
-    ])
+    window.services.readDir = vi.fn(() => [{ name: 'image.png', path: '/some/dir/image.png', isDirectory: false }])
     window.services.pathJoin = vi.fn((...p: string[]) => p.join('/'))
     window.services.stat = vi.fn(() => ({ isDirectory: () => false }))
     window.services.readFile = vi.fn(() => '')
     wrapper = mountEditor('/some/dir')
     await wrapper.vm.$nextTick()
-    await new Promise(resolve => setTimeout(resolve, 0))
+    await new Promise((resolve) => setTimeout(resolve, 0))
     await wrapper.find('.tree-item.file').trigger('click')
     expect(wrapper.find('.editor-readonly').exists()).toBe(true)
     expect(wrapper.find('.editor-readonly').text()).toContain('此文件类型不支持编辑')

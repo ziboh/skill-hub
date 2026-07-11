@@ -4,48 +4,50 @@ import { getAvatarColor } from '../utils/color'
 import { isSvgIcon, isImageUrl } from '../utils/source-info'
 import ProviderIcon from './ProviderIcon.vue'
 
-const props = withDefaults(defineProps<{
-  name: string
-  description?: string
-  shortDescription?: string
-  loadingDescription?: boolean
-  selected?: boolean
-  showBatchCheckbox?: boolean
-  showActions?: boolean
-  actionsAlwaysVisible?: boolean
-  showPlatformIcons?: boolean
-  installedPlatforms?: string[]
-  avatarIcon?: string
-  sourceTag?: { label: string; icon: string; color: string; bg: string } | null
-  extraSourceTag?: { label: string; color: string; bg: string } | null
-  categoryTag?: { label: string; icon: string } | null
-  showChineseTag?: boolean
-  showTranslatedTag?: boolean
-  badges?: { text: string; type: string }[]
-  duplicateBadge?: { count: number } | null
-  showSymlinkBadge?: boolean
-  descriptionError?: boolean
-}>(),
-{
-  description: '暂无描述',
-  loadingDescription: false,
-  descriptionError: false,
-  selected: false,
-  showBatchCheckbox: false,
-  showActions: true,
-  actionsAlwaysVisible: false,
-  showPlatformIcons: false,
-  installedPlatforms: () => [],
-  avatarIcon: '',
-  sourceTag: null,
-  extraSourceTag: null,
-  categoryTag: null,
-  showChineseTag: false,
-  showTranslatedTag: false,
-  badges: () => [],
-  duplicateBadge: null,
-  showSymlinkBadge: false,
-})
+const props = withDefaults(
+  defineProps<{
+    name: string
+    description?: string
+    shortDescription?: string
+    loadingDescription?: boolean
+    selected?: boolean
+    showBatchCheckbox?: boolean
+    showActions?: boolean
+    actionsAlwaysVisible?: boolean
+    showPlatformIcons?: boolean
+    installedPlatforms?: string[]
+    avatarIcon?: string
+    sourceTag?: { label: string; icon: string; color: string; bg: string } | null
+    extraSourceTag?: { label: string; color: string; bg: string } | null
+    categoryTag?: { label: string; icon: string } | null
+    showChineseTag?: boolean
+    showTranslatedTag?: boolean
+    badges?: { text: string; type: string }[]
+    duplicateBadge?: { count: number } | null
+    showSymlinkBadge?: boolean
+    descriptionError?: boolean
+  }>(),
+  {
+    description: '暂无描述',
+    loadingDescription: false,
+    descriptionError: false,
+    selected: false,
+    showBatchCheckbox: false,
+    showActions: true,
+    actionsAlwaysVisible: false,
+    showPlatformIcons: false,
+    installedPlatforms: () => [],
+    avatarIcon: '',
+    sourceTag: null,
+    extraSourceTag: null,
+    categoryTag: null,
+    showChineseTag: false,
+    showTranslatedTag: false,
+    badges: () => [],
+    duplicateBadge: null,
+    showSymlinkBadge: false,
+  },
+)
 
 const emit = defineEmits<{
   (e: 'click', ev: MouseEvent): void
@@ -78,27 +80,48 @@ onMounted(() => {
     }
   })
 })
-onUnmounted(() => { ro?.disconnect() })
-
-watch(() => props.installedPlatforms, () => {
-  if (props.showPlatformIcons) nextTick(updateIconRowCount)
+onUnmounted(() => {
+  ro?.disconnect()
 })
+
+watch(
+  () => props.installedPlatforms,
+  () => {
+    if (props.showPlatformIcons) nextTick(updateIconRowCount)
+  },
+)
 </script>
 
 <template>
   <div class="skill-card" :class="{ selected }" @click="emit('click', $event)">
     <div v-if="showBatchCheckbox" class="card-checkbox" @click.stop="emit('select')">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" :fill="selected ? 'currentColor' : 'none'"/>
-        <polyline v-if="selected" points="9 11 12 14 22 4"/>
+      <svg
+        width="18"
+        height="18"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" :fill="selected ? 'currentColor' : 'none'" />
+        <polyline v-if="selected" points="9 11 12 14 22 4" />
       </svg>
     </div>
     <div class="card-top-row">
       <div v-if="avatarIcon && isImageUrl(avatarIcon)" class="card-avatar-icon">
         <img :src="avatarIcon" :alt="name" />
       </div>
-      <div v-else class="card-avatar" :style="{ background: avatarColor }">{{ avatarLetter }}</div>
-      <div v-if="showPlatformIcons && installedPlatforms.length" class="card-platform-icons" :class="{ 'two-rows': hasTwoRows }" ref="iconsContainerRef">
+      <div v-else class="card-avatar" :style="{ background: avatarColor }">
+        {{ avatarLetter }}
+      </div>
+      <div
+        v-if="showPlatformIcons && installedPlatforms.length"
+        ref="iconsContainerRef"
+        class="card-platform-icons"
+        :class="{ 'two-rows': hasTwoRows }"
+      >
         <div class="icons-row icons-row-first">
           <ProviderIcon v-for="p in installedPlatforms.slice(0, iconRowCount)" :key="'pi-' + p" :icon="p" :size="16" variant="mono" />
         </div>
@@ -111,21 +134,58 @@ watch(() => props.installedPlatforms, () => {
           <slot name="badges">
             <template v-if="sourceTag">
               <span class="card-tag source-tag" :style="{ background: sourceTag.bg, color: sourceTag.color }">
-                <svg v-if="sourceTag.icon === 'multi'" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <circle cx="12" cy="12" r="10"/>
-                  <line x1="2" y1="12" x2="22" y2="12"/>
-                  <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                <svg
+                  v-if="sourceTag.icon === 'multi'"
+                  width="10"
+                  height="10"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="2" y1="12" x2="22" y2="12" />
+                  <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
                 </svg>
-                <img v-else-if="isImageUrl(sourceTag.icon)" :src="sourceTag.icon" width="10" height="10" alt="" style="border-radius: 2px;" />
-                <span v-else-if="isSvgIcon(sourceTag.icon)" v-html="sourceTag.icon" class="tag-icon-svg"></span>
-                <svg v-else-if="sourceTag.icon === 'git'" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <circle cx="18" cy="18" r="3"/>
-                  <circle cx="6" cy="6" r="3"/>
-                  <path d="M13 6h3a2 2 0 0 1 2 2v7"/>
-                  <line x1="6" y1="9" x2="6" y2="21"/>
+                <img
+                  v-else-if="isImageUrl(sourceTag.icon)"
+                  :src="sourceTag.icon"
+                  width="10"
+                  height="10"
+                  alt=""
+                  style="border-radius: 2px"
+                />
+                <span v-else-if="isSvgIcon(sourceTag.icon)" v-html="sourceTag.icon" class="tag-icon-svg" />
+                <svg
+                  v-else-if="sourceTag.icon === 'git'"
+                  width="10"
+                  height="10"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <circle cx="18" cy="18" r="3" />
+                  <circle cx="6" cy="6" r="3" />
+                  <path d="M13 6h3a2 2 0 0 1 2 2v7" />
+                  <line x1="6" y1="9" x2="6" y2="21" />
                 </svg>
-                <svg v-else width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                <svg
+                  v-else
+                  width="10"
+                  height="10"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                 </svg>
                 {{ sourceTag.label }}
               </span>
@@ -142,7 +202,9 @@ watch(() => props.installedPlatforms, () => {
             <span v-if="showSymlinkBadge" class="card-tag badge-symlink">软链接</span>
           </slot>
           <template v-if="extraSourceTag">
-            <span class="card-tag source-tag" :style="{ background: extraSourceTag.bg, color: extraSourceTag.color }">{{ extraSourceTag.label }}</span>
+            <span class="card-tag source-tag" :style="{ background: extraSourceTag.bg, color: extraSourceTag.color }">{{
+              extraSourceTag.label
+            }}</span>
           </template>
           <slot name="extra-badges" />
         </div>
@@ -151,13 +213,32 @@ watch(() => props.installedPlatforms, () => {
         </div>
       </div>
     </div>
-    <h3 class="card-name">{{ name }}</h3>
-    <p v-if="loadingDescription && !shortDescription && !description" class="card-desc"><span class="desc-shimmer"></span></p>
+    <h3 class="card-name">
+      {{ name }}
+    </h3>
+    <p v-if="loadingDescription && !shortDescription && !description" class="card-desc">
+      <span class="desc-shimmer" />
+    </p>
     <p v-else-if="descriptionError && !shortDescription && !description" class="card-desc card-desc-error">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      <svg
+        width="12"
+        height="12"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <circle cx="12" cy="12" r="10" />
+        <line x1="12" y1="8" x2="12" y2="12" />
+        <line x1="12" y1="16" x2="12.01" y2="16" />
+      </svg>
       加载失败，点击重试
     </p>
-    <p v-else class="card-desc">{{ description || shortDescription || '暂无描述' }}</p>
+    <p v-else class="card-desc">
+      {{ description || shortDescription || '暂无描述' }}
+    </p>
     <slot name="after-desc" />
   </div>
 </template>
@@ -252,7 +333,7 @@ watch(() => props.installedPlatforms, () => {
   object-fit: contain;
 }
 
-[data-theme="dark"] .card-avatar-icon img {
+[data-theme='dark'] .card-avatar-icon img {
   filter: invert(1);
 }
 
@@ -536,8 +617,12 @@ watch(() => props.installedPlatforms, () => {
 }
 
 @keyframes shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
 }
 
 .desc-shimmer {

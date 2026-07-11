@@ -6,10 +6,11 @@ import { isChineseContent, stripFrontmatter } from '../utils/translate'
 import type { ModelConfig, Skill } from '../types'
 import QuickSwitcher, { type QuickSwitcherItem } from './QuickSwitcher.vue'
 import ProviderIcon from './ProviderIcon.vue'
+import { getSkillsRepoDir } from '../utils/skill-path'
 
 const emit = defineEmits<{
   close: []
-  'navigate': [route: string]
+  navigate: [route: string]
 }>()
 
 const props = defineProps<{
@@ -32,10 +33,14 @@ const isAgentPage = computed(() => props.currentRoute === 'agent-skills')
 
 const currentPageLabel = computed(() => {
   switch (props.currentRoute) {
-    case 'my': return '我的 Skill'
-    case 'project-skills': return '项目 Skill'
-    case 'agent-skills': return 'Agent Skill'
-    default: return '我的 Skill'
+    case 'my':
+      return '我的 Skill'
+    case 'project-skills':
+      return '项目 Skill'
+    case 'agent-skills':
+      return 'Agent Skill'
+    default:
+      return '我的 Skill'
   }
 })
 
@@ -44,13 +49,13 @@ const agentPlatformName = computed(() => props.selectedAgentPlatform?.name || '�
 
 const allEnabledProviders = computed(() => {
   const settings = storage.getSettings()
-  return settings.aiModels.filter(m => m.enabled && m.models?.length)
+  return settings.aiModels.filter((m) => m.enabled && m.models?.length)
 })
 
 const translationModelItems = computed<QuickSwitcherItem[]>(() => {
   const items: QuickSwitcherItem[] = []
   for (const provider of allEnabledProviders.value) {
-    for (const model of (provider.models || []).filter(m => m.enabled)) {
+    for (const model of (provider.models || []).filter((m) => m.enabled)) {
       items.push({
         id: `${provider.id}::${model.id}`,
         label: model.name || model.id,
@@ -73,7 +78,7 @@ const downloadedIdsCache = new Set<string>(storage.getDownloadedIds())
 
 function getSkillDir(skill: Skill): string {
   if (downloadedIdsCache.has(skill.id)) {
-    return window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', skill.id)
+    return getSkillsRepoDir(skill.id)
   }
   return skill.path || ''
 }
@@ -85,12 +90,8 @@ function getSkillFileData(skill: Skill): { fileHash: string | null; content: str
 
   try {
     const dir = getSkillDir(skill)
-    const skillFile = dir ? ['SKILL.md', 'skill.md'].find(f =>
-      window.services.pathExists(window.services.pathJoin(dir, f))
-    ) : null
-    const raw = skillFile
-      ? window.services.readFile(window.services.pathJoin(dir!, skillFile))
-      : (skill.readme || null)
+    const skillFile = dir ? ['SKILL.md', 'skill.md'].find((f) => window.services.pathExists(window.services.pathJoin(dir, f))) : null
+    const raw = skillFile ? window.services.readFile(window.services.pathJoin(dir!, skillFile)) : skill.readme || null
     if (!raw) {
       entry = { fileHash: null, content: null }
     } else {
@@ -120,13 +121,10 @@ function getSkillContent(skill: Skill): string | null {
 function getSkillKey(skill: Skill): string {
   const ch = getFileHash(skill)
   if (ch) return 'c:' + ch
-  return 'i:' + window.services.hashContent([
-    skill.name,
-    skill.description || '',
-  ].join('|'))
+  return 'i:' + window.services.hashContent([skill.name, skill.description || ''].join('|'))
 }
 
-function getDescHash(skill: Skill): string | null {
+function _getDescHash(skill: Skill): string | null {
   return getFileHash(skill)
 }
 
@@ -137,13 +135,13 @@ function getDescTranslation(skill: Skill, cache?: Record<string, any>): string |
   return storage.getDescTranslationByHash(fh)
 }
 
-function isSkillInQueue(skill: Skill): boolean {
+function _isSkillInQueue(skill: Skill): boolean {
   const fh = getFileHash(skill)
   return !!(fh && isInQueue(fh, 'content')) || !!(fh && isInQueue(fh, 'desc'))
 }
 
 function hasTranslatingItem(hash: string) {
-  return queue.value.some(i => i.hash === hash && i.status === 'translating')
+  return queue.value.some((i) => i.hash === hash && i.status === 'translating')
 }
 
 const translationModel = computed((): ModelConfig | null => {
@@ -153,14 +151,14 @@ const translationModel = computed((): ModelConfig | null => {
   if (sepIdx >= 0) {
     const providerId = localModelId.value.substring(0, sepIdx)
     const modelId = localModelId.value.substring(sepIdx + 2)
-    const provider = settings.aiModels.find(m => m.id === providerId)
-    if (provider && provider.enabled !== false && provider.models?.some(m => m.id === modelId && m.enabled)) {
+    const provider = settings.aiModels.find((m) => m.id === providerId)
+    if (provider && provider.enabled !== false && provider.models?.some((m) => m.id === modelId && m.enabled)) {
       return { ...provider, model: modelId } as ModelConfig
     }
   } else {
     for (const provider of settings.aiModels) {
       if (provider.models) {
-        const model = provider.models.find(m => m.id === localModelId.value && m.enabled)
+        const model = provider.models.find((m) => m.id === localModelId.value && m.enabled)
         if (model && provider.enabled !== false) return { ...provider, model: model.id } as ModelConfig
       }
     }
@@ -171,7 +169,7 @@ const translationModel = computed((): ModelConfig | null => {
 const filteredSkills = computed(() => {
   let source: Skill[]
   if (translateScope.value === 'all') {
-    source = props.allSkills || storage.getCachedSkills().filter(s => storage.isDownloaded(s.id))
+    source = props.allSkills || storage.getCachedSkills().filter((s) => storage.isDownloaded(s.id))
   } else if (translateScope.value === 'project' && isProjectPage.value) {
     source = props.allProjectSkills || []
   } else if (translateScope.value === 'current' && isProjectPage.value) {
@@ -181,10 +179,10 @@ const filteredSkills = computed(() => {
   } else if (translateScope.value === 'agent' && isAgentPage.value) {
     source = props.agentPlatformSkills || []
   } else {
-    source = props.currentSkills || storage.getCachedSkills().filter(s => storage.isDownloaded(s.id))
+    source = props.currentSkills || storage.getCachedSkills().filter((s) => storage.isDownloaded(s.id))
   }
   const seen = new Set<string>()
-  return source.filter(skill => {
+  return source.filter((skill) => {
     const key = getSkillKey(skill)
     if (seen.has(key)) return false
     seen.add(key)
@@ -192,18 +190,20 @@ const filteredSkills = computed(() => {
   })
 })
 
-
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 const statusCountsReady = ref(true)
 
-watch(() => props.currentRoute, () => {
-  if (translateScope.value === 'project' && !isProjectPage.value) {
-    translateScope.value = 'all'
-  }
-  if (translateScope.value === 'agent' && !isAgentPage.value) {
-    translateScope.value = 'all'
-  }
-})
+watch(
+  () => props.currentRoute,
+  () => {
+    if (translateScope.value === 'project' && !isProjectPage.value) {
+      translateScope.value = 'all'
+    }
+    if (translateScope.value === 'agent' && !isAgentPage.value) {
+      translateScope.value = 'all'
+    }
+  },
+)
 
 watch([translateScope, translateType], () => {
   statusCountsReady.value = false
@@ -287,7 +287,7 @@ async function translateAll() {
       }
 
       if (i % batchSize === batchSize - 1) {
-        await new Promise<void>(r => requestAnimationFrame(() => r()))
+        await new Promise<void>((r) => requestAnimationFrame(() => r()))
       }
     }
   } finally {
@@ -313,9 +313,9 @@ function isSkillChinese(skill: Skill): boolean {
     }
   }
 
-  const results = [descResult, contentResult].filter(r => r !== null)
+  const results = [descResult, contentResult].filter((r) => r !== null)
   if (results.length === 0) return false
-  return results.every(r => r === true)
+  return results.every((r) => r === true)
 }
 
 let _cachedTranslationCache: Record<string, any> | null = null
@@ -350,7 +350,7 @@ function getTranslationStatus(skill: Skill): 'pending' | 'translating' | 'queued
 
 function getTranslationStatusWithCache(
   skill: Skill,
-  translationCache: Record<string, any>
+  translationCache: Record<string, any>,
 ): 'pending' | 'translating' | 'queued' | 'done' | 'chinese' {
   const fh = getFileHash(skill)
 
@@ -374,12 +374,18 @@ function getTranslationStatusWithCache(
 
 function getStatusLabel(status: string) {
   switch (status) {
-    case 'pending': return '待翻译'
-    case 'translating': return '翻译中'
-    case 'queued': return '排队中'
-    case 'done': return '已翻译'
-    case 'chinese': return '中文'
-    default: return ''
+    case 'pending':
+      return '待翻译'
+    case 'translating':
+      return '翻译中'
+    case 'queued':
+      return '排队中'
+    case 'done':
+      return '已翻译'
+    case 'chinese':
+      return '中文'
+    default:
+      return ''
   }
 }
 </script>
@@ -390,13 +396,22 @@ function getStatusLabel(status: string) {
       <div class="panel-header">
         <div class="panel-title-group">
           <div class="panel-icon">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="m5 8 6 6"/>
-              <path d="m4 14 6-6 2-3"/>
-              <path d="M2 5h12"/>
-              <path d="M7 2h1"/>
-              <path d="m22 22-5-10-5 10"/>
-              <path d="M14 18h6"/>
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="m5 8 6 6" />
+              <path d="m4 14 6-6 2-3" />
+              <path d="M2 5h12" />
+              <path d="M7 2h1" />
+              <path d="m22 22-5-10-5 10" />
+              <path d="M14 18h6" />
             </svg>
           </div>
           <h3 class="panel-title">批量翻译</h3>
@@ -404,34 +419,46 @@ function getStatusLabel(status: string) {
         <div class="header-model-select">
           <QuickSwitcher
             :items="translationModelItems"
-            :selectedId="localModelId"
+            :selected-id="localModelId"
             placeholder="选择翻译模型"
-            emptyText="暂无可用模型"
+            empty-text="暂无可用模型"
             @select="onModelChange($event)"
           />
         </div>
-        <div class="status-summary" v-if="filteredSkills.length > 0">
+        <div v-if="filteredSkills.length > 0" class="status-summary">
           <span class="status-summary-total">{{ filteredSkills.length }} 个技能</span>
-          <span class="status-summary-divider"></span>
-          <span class="status-summary-item pending" v-if="statusCounts.pending">
-            <span class="status-dot"></span>
+          <span class="status-summary-divider" />
+          <span v-if="statusCounts.pending" class="status-summary-item pending">
+            <span class="status-dot" />
             {{ statusCounts.pending }} 待翻译
           </span>
-          <span class="status-summary-item translating" v-if="statusCounts.translating">
-            <span class="status-dot"></span>
+          <span v-if="statusCounts.translating" class="status-summary-item translating">
+            <span class="status-dot" />
             {{ statusCounts.translating }} 翻译中
           </span>
-          <span class="status-summary-item queued" v-if="statusCounts.queued">
-            <span class="status-dot"></span>
+          <span v-if="statusCounts.queued" class="status-summary-item queued">
+            <span class="status-dot" />
             {{ statusCounts.queued }} 排队中
           </span>
-          <span class="status-summary-item done" v-if="statusCounts.done">
-            <span class="status-dot"></span>
+          <span v-if="statusCounts.done" class="status-summary-item done">
+            <span class="status-dot" />
             {{ statusCounts.done }} 已完成
           </span>
         </div>
         <button class="panel-close" @click="emit('close')">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
         </button>
       </div>
 
@@ -439,12 +466,22 @@ function getStatusLabel(status: string) {
         <div class="option-group">
           <label class="option-label">翻译范围</label>
           <div class="segmented-control">
-            <button
-              class="segment-btn"
-              :class="{ active: translateScope === 'all' }"
-              @click="translateScope = 'all'"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            <button class="segment-btn" :class="{ active: translateScope === 'all' }" @click="translateScope = 'all'">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+              </svg>
               <span>所有 Skill</span>
             </button>
             <button
@@ -453,7 +490,18 @@ function getStatusLabel(status: string) {
               :class="{ active: translateScope === 'project' }"
               @click="translateScope = 'project'"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+              </svg>
               <span>项目 Skill</span>
             </button>
             <button
@@ -462,7 +510,18 @@ function getStatusLabel(status: string) {
               :class="{ active: translateScope === 'current' }"
               @click="translateScope = 'current'"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+              </svg>
               <span>Agent Skill</span>
             </button>
             <button
@@ -471,7 +530,20 @@ function getStatusLabel(status: string) {
               :class="{ active: translateScope === 'current' }"
               @click="translateScope = 'current'"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <rect width="18" height="18" x="3" y="3" rx="2" />
+                <path d="M3 9h18" />
+                <path d="M9 21V9" />
+              </svg>
               <span>{{ currentPageLabel }}</span>
             </button>
             <button
@@ -480,7 +552,18 @@ function getStatusLabel(status: string) {
               :class="{ active: translateScope === 'current' }"
               @click="translateScope = 'current'"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+              </svg>
               <span>{{ projectName }}</span>
             </button>
             <button
@@ -498,54 +581,76 @@ function getStatusLabel(status: string) {
         <div class="option-group">
           <label class="option-label">翻译内容</label>
           <div class="segmented-control">
-            <button
-              class="segment-btn"
-              :class="{ active: translateType === 'desc' }"
-              @click="translateType = 'desc'"
-            >
+            <button class="segment-btn" :class="{ active: translateType === 'desc' }" @click="translateType = 'desc'">
               <span>描述</span>
             </button>
-            <button
-              class="segment-btn"
-              :class="{ active: translateType === 'content' }"
-              @click="translateType = 'content'"
-            >
+            <button class="segment-btn" :class="{ active: translateType === 'content' }" @click="translateType = 'content'">
               <span>内容</span>
             </button>
-            <button
-              class="segment-btn"
-              :class="{ active: translateType === 'both' }"
-              @click="translateType = 'both'"
-            >
+            <button class="segment-btn" :class="{ active: translateType === 'both' }" @click="translateType = 'both'">
               <span>描述和内容</span>
             </button>
           </div>
         </div>
 
         <div class="panel-actions">
-          <button
-            class="translate-all-btn"
-            @click="translateAll"
-            :disabled="!translationModel || translatingAll"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>
+          <button class="translate-all-btn" @click="translateAll" :disabled="!translationModel || translatingAll">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="m5 8 6 6" />
+              <path d="m4 14 6-6 2-3" />
+              <path d="M2 5h12" />
+              <path d="M7 2h1" />
+              <path d="m22 22-5-10-5 10" />
+              <path d="M14 18h6" />
+            </svg>
             <span>{{ pendingCount ? `翻译所有 (${pendingCount})` : '翻译所有' }}</span>
           </button>
           <div v-if="!translationModel" class="no-model-hint">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
             <span>请先在设置中配置翻译模型</span>
           </div>
         </div>
 
         <div v-if="filteredSkills.length === 0" class="empty-state">
           <div class="empty-icon">
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="m5 8 6 6"/>
-              <path d="m4 14 6-6 2-3"/>
-              <path d="M2 5h12"/>
-              <path d="M7 2h1"/>
-              <path d="m22 22-5-10-5 10"/>
-              <path d="M14 18h6"/>
+            <svg
+              width="40"
+              height="40"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="m5 8 6 6" />
+              <path d="m4 14 6-6 2-3" />
+              <path d="M2 5h12" />
+              <path d="M7 2h1" />
+              <path d="m22 22-5-10-5 10" />
+              <path d="M14 18h6" />
             </svg>
           </div>
           <p class="empty-title">暂无已下载的技能</p>
@@ -560,10 +665,12 @@ function getStatusLabel(status: string) {
             :class="[`status-${getTranslationStatus(skill)}`]"
             :style="{ animationDelay: `${index * 30}ms` }"
           >
-            <div class="skill-status-bar"></div>
+            <div class="skill-status-bar" />
             <div class="skill-body">
               <div class="skill-info">
-                <div class="skill-name">{{ skill.name }}</div>
+                <div class="skill-name">
+                  {{ skill.name }}
+                </div>
                 <div class="skill-meta">
                   <span class="skill-status-badge" :class="getTranslationStatus(skill)">
                     {{ getStatusLabel(getTranslationStatus(skill)) }}
@@ -573,22 +680,72 @@ function getStatusLabel(status: string) {
               <button
                 v-if="getTranslationStatus(skill) === 'done'"
                 class="translate-btn retranslate-btn"
-                @click="translateSkill(skill)"
                 :disabled="!translationModel"
                 title="重新翻译"
+                @click="translateSkill(skill)"
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6"/><path d="M21.34 15.57a10 10 0 1 1-.57-8.38"/></svg>
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M21.5 2v6h-6" />
+                  <path d="M21.34 15.57a10 10 0 1 1-.57-8.38" />
+                </svg>
               </button>
               <button
                 v-else
                 class="translate-btn"
                 :class="{ active: getTranslationStatus(skill) === 'translating' }"
-                @click="translateSkill(skill)"
                 :disabled="getTranslationStatus(skill) !== 'pending' || !translationModel"
-                :title="getTranslationStatus(skill) === 'translating' ? '翻译中...' : getTranslationStatus(skill) === 'queued' ? '排队中' : getTranslationStatus(skill) === 'chinese' ? '已是中文，无需翻译' : '翻译此技能'"
+                :title="
+                  getTranslationStatus(skill) === 'translating'
+                    ? '翻译中...'
+                    : getTranslationStatus(skill) === 'queued'
+                      ? '排队中'
+                      : getTranslationStatus(skill) === 'chinese'
+                        ? '已是中文，无需翻译'
+                        : '翻译此技能'
+                "
+                @click="translateSkill(skill)"
               >
-                <svg v-if="getTranslationStatus(skill) === 'translating'" class="spin-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-                <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>
+                <svg
+                  v-if="getTranslationStatus(skill) === 'translating'"
+                  class="spin-icon"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                </svg>
+                <svg
+                  v-else
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="m5 8 6 6" />
+                  <path d="m4 14 6-6 2-3" />
+                  <path d="M2 5h12" />
+                  <path d="M7 2h1" />
+                  <path d="m22 22-5-10-5 10" />
+                  <path d="M14 18h6" />
+                </svg>
               </button>
             </div>
           </div>
@@ -613,8 +770,12 @@ function getStatusLabel(status: string) {
 }
 
 @keyframes overlay-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .translate-panel {
@@ -632,8 +793,14 @@ function getStatusLabel(status: string) {
 }
 
 @keyframes panel-in {
-  from { opacity: 0; transform: scale(0.95) translateY(8px); }
-  to { opacity: 1; transform: scale(1) translateY(0); }
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
 
 .panel-header {
@@ -839,10 +1006,18 @@ function getStatusLabel(status: string) {
   background: hsl(var(--muted-foreground) / 0.5);
 }
 
-.status-summary-item.pending .status-dot { background: hsl(var(--warning)); }
-.status-summary-item.translating .status-dot { background: hsl(217 91% 60%); }
-.status-summary-item.queued .status-dot { background: hsl(var(--muted-foreground) / 0.5); }
-.status-summary-item.done .status-dot { background: hsl(var(--success)); }
+.status-summary-item.pending .status-dot {
+  background: hsl(var(--warning));
+}
+.status-summary-item.translating .status-dot {
+  background: hsl(217 91% 60%);
+}
+.status-summary-item.queued .status-dot {
+  background: hsl(var(--muted-foreground) / 0.5);
+}
+.status-summary-item.done .status-dot {
+  background: hsl(var(--success));
+}
 
 .empty-state {
   flex: 1;
@@ -895,8 +1070,14 @@ function getStatusLabel(status: string) {
 }
 
 @keyframes skill-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .skill-status-bar {
@@ -906,11 +1087,21 @@ function getStatusLabel(status: string) {
   transition: background var(--duration-base) var(--ease-standard);
 }
 
-.skill-item.status-pending .skill-status-bar { background: hsl(var(--warning)); }
-.skill-item.status-translating .skill-status-bar { background: hsl(217 91% 60%); }
-.skill-item.status-queued .skill-status-bar { background: hsl(var(--muted-foreground) / 0.5); }
-.skill-item.status-done .skill-status-bar { background: hsl(var(--success)); }
-.skill-item.status-chinese .skill-status-bar { background: hsl(var(--muted-foreground) / 0.3); }
+.skill-item.status-pending .skill-status-bar {
+  background: hsl(var(--warning));
+}
+.skill-item.status-translating .skill-status-bar {
+  background: hsl(217 91% 60%);
+}
+.skill-item.status-queued .skill-status-bar {
+  background: hsl(var(--muted-foreground) / 0.5);
+}
+.skill-item.status-done .skill-status-bar {
+  background: hsl(var(--success));
+}
+.skill-item.status-chinese .skill-status-bar {
+  background: hsl(var(--muted-foreground) / 0.3);
+}
 
 .skill-body {
   flex: 1;
@@ -1031,8 +1222,12 @@ function getStatusLabel(status: string) {
 }
 
 @keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @media (max-width: 480px) {

@@ -50,12 +50,8 @@ export class AIError extends Error {
   }
 }
 
-export async function chatCompletion(
-  model: ModelConfig,
-  messages: ChatMessage[],
-  options?: ChatOptions,
-): Promise<ChatResult> {
-  const activeKey = model.apiKeys?.find(k => k.enabled)?.key
+export async function chatCompletion(model: ModelConfig, messages: ChatMessage[], options?: ChatOptions): Promise<ChatResult> {
+  const activeKey = model.apiKeys?.find((k) => k.enabled)?.key
   if (!activeKey || !model.baseUrl || !model.apiPath || !model.model) {
     throw new AIError({
       message: 'AI 未配置：缺少 API Key、Base URL 或模型配置',
@@ -186,10 +182,7 @@ export async function chatCompletion(
   return { content }
 }
 
-export async function fetchAvailableModels(
-  baseUrl: string,
-  apiKey: string,
-): Promise<FetchModelsResult> {
+export async function fetchAvailableModels(baseUrl: string, apiKey: string): Promise<FetchModelsResult> {
   if (!apiKey || !baseUrl) {
     return { success: false, models: [], error: '请先填写 API Key 和 API 地址' }
   }
@@ -206,12 +199,7 @@ export async function fetchAvailableModels(
 
     if (!res.ok) {
       const text = await res.text().catch(() => '')
-      const reason =
-        res.status === 401 || res.status === 403
-          ? 'auth'
-          : res.status === 404 || res.status === 405
-            ? 'unsupported'
-            : 'http'
+      const reason = res.status === 401 || res.status === 403 ? 'auth' : res.status === 404 || res.status === 405 ? 'unsupported' : 'http'
       return {
         success: false,
         models: [],

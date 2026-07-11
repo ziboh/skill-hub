@@ -1,11 +1,20 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onActivated, watch, inject, unref, onDeactivated } from 'vue'
-import { KeyShowToast, KeyDetectedPlatforms, KeyPlatformSkillCounts, KeyRefreshCounts, KeyAgentSkills, KeyUpdateAgentPlatformSkills, KeySelectedAgentPlatformId, KeyIsAgentSkillsDirty } from '../../inject-keys'
+import {
+  KeyShowToast,
+  KeyDetectedPlatforms,
+  KeyPlatformSkillCounts,
+  KeyRefreshCounts,
+  KeyAgentSkills,
+  KeyUpdateAgentPlatformSkills,
+  KeySelectedAgentPlatformId,
+  KeyIsAgentSkillsDirty,
+} from '../../inject-keys'
 import { detectPlatforms, getPlatformPath, defaultPlatforms } from '../../data/platforms'
 import { storage } from '../../utils/storage'
 import { isChineseContent } from '../../utils/translate'
 import { useSettings } from '../../composables/useSettings'
-import { getSourceInfo } from '../../utils/source-info'
+import {} from '../../utils/source-info'
 import { normalizePath } from '../../utils/path'
 import type { PlatformInfo, Skill, SkillScanResult } from '../../types'
 import ProviderIcon from '../../components/ProviderIcon.vue'
@@ -14,6 +23,8 @@ import QuickSwitcher from '../../components/QuickSwitcher.vue'
 import ConfirmModal from '../../components/ConfirmModal.vue'
 import DeployModal from '../../components/DeployModal.vue'
 import { cacheVersion as translationCacheVersion } from '../../composables/useTranslationQueue'
+import { getSkillsRepoDir } from '../../utils/skill-path'
+import { safeRemovePath } from '../../utils/fs-ops'
 
 const props = defineProps<{ initialPlatformId?: string }>()
 const emit = defineEmits(['navigate'])
@@ -36,7 +47,9 @@ const skillFilter = ref<string>('')
 const viewMode = ref<'grid' | 'list'>('grid')
 const downloadedIds = ref<string[]>(storage.getDownloadedIds())
 const importing = ref<Record<string, boolean>>({})
-function refreshDownloaded() { downloadedIds.value = storage.getDownloadedIds() }
+function refreshDownloaded() {
+  downloadedIds.value = storage.getDownloadedIds()
+}
 
 function getSkillId(skill: SkillScanResult): string {
   return skill.manifest?.name || skill.name
@@ -50,13 +63,15 @@ function findCachedSkill(skill: any): Skill | null {
   if (found) return found
   const dirName = (skill.dir || '').split(/[\\/]/).pop() || ''
   if (!dirName) return null
-  return cached.find((s) => {
-    if (!downloadedSet.has(s.id)) return false
-    const cachedPathLast = (s.path || '').split('/').pop() || ''
-    if (cachedPathLast && cachedPathLast === dirName) return true
-    if (s.name && s.name.toLowerCase() === (skill.manifest?.name || skill.name || '').toLowerCase()) return true
-    return false
-  }) || null
+  return (
+    cached.find((s) => {
+      if (!downloadedSet.has(s.id)) return false
+      const cachedPathLast = (s.path || '').split('/').pop() || ''
+      if (cachedPathLast && cachedPathLast === dirName) return true
+      if (s.name && s.name.toLowerCase() === (skill.manifest?.name || skill.name || '').toLowerCase()) return true
+      return false
+    }) || null
+  )
 }
 
 function isInMySkills(skill: any): boolean {
@@ -103,7 +118,27 @@ function toggleTheme() {
   updateSettings({ themeMode: next })
 }
 
-const agentColors: Record<string, string> = { 'claude': '#f97316', 'codex': '#3b82f6', 'gemini': '#8b5cf6', 'opencode': '#1a1a2e', 'cherry-studio': '#ec4899', 'cursor': '#64748b', 'windsurf': '#06b6d4', 'trae': '#3b82f6', 'trae-cn': '#3b82f6', 'copilot': '#238636', 'kiro': '#f59e0b', 'cline': '#10b981', 'openclaw': '#8b5cf6', 'kilo': '#6366f1', 'hermes': '#ec4899', 'codebuddy': '#14b8a6', 'qoder': '#ef4444', 'antigravity': '#8b5cf6', 'mimo': '#ff6d00' }
+const _agentColors: Record<string, string> = {
+  claude: '#f97316',
+  codex: '#3b82f6',
+  gemini: '#8b5cf6',
+  opencode: '#1a1a2e',
+  'cherry-studio': '#ec4899',
+  cursor: '#64748b',
+  windsurf: '#06b6d4',
+  trae: '#3b82f6',
+  'trae-cn': '#3b82f6',
+  copilot: '#238636',
+  kiro: '#f59e0b',
+  cline: '#10b981',
+  openclaw: '#8b5cf6',
+  kilo: '#6366f1',
+  hermes: '#ec4899',
+  codebuddy: '#14b8a6',
+  qoder: '#ef4444',
+  antigravity: '#8b5cf6',
+  mimo: '#ff6d00',
+}
 
 const platformItems = computed(() =>
   unref(allPlatforms).map((p: any) => ({
@@ -123,13 +158,15 @@ onMounted(() => {
     return savedConfig ? savedConfig.enabled : p.enabled
   })
   const platformOrder = storage.getPlatformOrder()
-  const orderToUse = platformOrder.length ? platformOrder : defaultPlatforms.map(p => p.id)
+  const orderToUse = platformOrder.length ? platformOrder : defaultPlatforms.map((p) => p.id)
   const orderMap = new Map(orderToUse.map((id, idx) => [id, idx]))
   installedPlatforms.sort((a, b) => (orderMap.get(a.id) ?? Infinity) - (orderMap.get(b.id) ?? Infinity))
   detectedPlatforms.value = installedPlatforms
   const savedState = storage.getPageState('agent-skills')
-  if (savedState?.platformId && detectedPlatforms.value.some((p) => p.id === savedState.platformId)) selectedId.value = savedState.platformId
-  else if (props.initialPlatformId && detectedPlatforms.value.some((p) => p.id === props.initialPlatformId)) selectedId.value = props.initialPlatformId
+  if (savedState?.platformId && detectedPlatforms.value.some((p) => p.id === savedState.platformId))
+    selectedId.value = savedState.platformId
+  else if (props.initialPlatformId && detectedPlatforms.value.some((p) => p.id === props.initialPlatformId))
+    selectedId.value = props.initialPlatformId
   else if (detectedPlatforms.value.length) selectedId.value = detectedPlatforms.value[0].id
 })
 
@@ -142,7 +179,7 @@ onActivated(() => {
     return savedConfig ? savedConfig.enabled : p.enabled
   })
   const platformOrder = storage.getPlatformOrder()
-  const orderToUse = platformOrder.length ? platformOrder : defaultPlatforms.map(p => p.id)
+  const orderToUse = platformOrder.length ? platformOrder : defaultPlatforms.map((p) => p.id)
   const orderMap = new Map(orderToUse.map((id, idx) => [id, idx]))
   installedPlatforms.sort((a, b) => (orderMap.get(a.id) ?? Infinity) - (orderMap.get(b.id) ?? Infinity))
   detectedPlatforms.value = installedPlatforms
@@ -164,7 +201,12 @@ onActivated(() => {
   }
 })
 
-watch(() => props.initialPlatformId, (id) => { if (id && detectedPlatforms.value.some((p) => p.id === id)) selectedId.value = id })
+watch(
+  () => props.initialPlatformId,
+  (id) => {
+    if (id && detectedPlatforms.value.some((p) => p.id === id)) selectedId.value = id
+  },
+)
 
 function refreshCurrent() {
   loading.value = true
@@ -185,7 +227,11 @@ function refreshCurrent() {
   }, 300)
 }
 
-function selectPlatform(p: PlatformInfo) { selectedId.value = p.id; skillFilter.value = ''; storage.savePageState('agent-skills', { platformId: p.id }) }
+function selectPlatform(p: PlatformInfo) {
+  selectedId.value = p.id
+  skillFilter.value = ''
+  storage.savePageState('agent-skills', { platformId: p.id })
+}
 
 watch(selectedId, (id) => {
   if (injectSelectedAgentPlatformId) injectSelectedAgentPlatformId.value = id
@@ -197,9 +243,15 @@ onDeactivated(() => {
 })
 
 const selectedPlatform = computed(() => detectedPlatforms.value.find((p) => p.id === selectedId.value))
-const selectedSkills = computed(() => selectedId.value ? (platformSkills.value[selectedId.value] || []) : [])
+const selectedSkills = computed(() => (selectedId.value ? platformSkills.value[selectedId.value] || [] : []))
 
-watch(selectedPlatform, () => { _platformInstallDirs.value = getPlatFormInstallDirSet() }, { immediate: true })
+watch(
+  selectedPlatform,
+  () => {
+    _platformInstallDirs.value = getPlatFormInstallDirSet()
+  },
+  { immediate: true },
+)
 
 const filteredSkills = computed(() => {
   const skills = selectedSkills.value
@@ -213,7 +265,8 @@ const filteredSkills = computed(() => {
 })
 
 const localAndManagedCount = computed(() => {
-  let local = 0, managed = 0
+  let local = 0,
+    managed = 0
   for (const s of selectedSkills.value) {
     if (getBadgeType(s) === 'local') local++
     else managed++
@@ -232,7 +285,7 @@ function getBadge(skill: any): { text: string; type: string } {
 function getAvatarColor(name: string): string {
   if (!name) return 'hsl(0 0% 60%)'
   let hash = 0
-  for (let i = 0; i < name.length; i++) hash = ((hash << 5) - hash) + name.charCodeAt(i)
+  for (let i = 0; i < name.length; i++) hash = (hash << 5) - hash + name.charCodeAt(i)
   const h = Math.abs(hash) % 360
   return `hsl(${h} 45% 50%)`
 }
@@ -262,11 +315,18 @@ function findDuplicateSkills(skill: any): any[] {
 
 function openSkillDetail(skill: any) {
   const duplicates = findDuplicateSkills(skill)
-  emit('navigate', 'agent-skill-detail', { skill, platformId: selectedId.value, duplicateSkills: duplicates.length > 1 ? duplicates : null, context: 'agent' })
+  emit('navigate', 'agent-skill-detail', {
+    skill,
+    platformId: selectedId.value,
+    duplicateSkills: duplicates.length > 1 ? duplicates : null,
+    context: 'agent',
+  })
 }
 
 function openFolder(skill: any) {
-  try { window.services.openFolder(skill.dir) } catch {}
+  try {
+    window.services.openFolder(skill.dir)
+  } catch {}
 }
 
 function skillToSkill(skill: any): Skill {
@@ -304,7 +364,7 @@ async function importSkillToMy(skill: any) {
   const id = getSkillId(skill)
   importing.value[id] = true
   try {
-    const targetDir = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', id)
+    const targetDir = getSkillsRepoDir(id)
     window.services.mkdir(targetDir)
     window.services.copyFile(skill.dir, targetDir)
     const cached = storage.getCachedSkills()
@@ -336,25 +396,25 @@ function executeUninstallByScope() {
   const dir = uninstallScopeDir.value
   if (!dir) return
   const selected = uninstallScopeOptions.value.filter((o) => o.checked).map((o) => o.scope)
-  if (!selected.length) { showToast('请选择至少一个范围', 'warning'); return }
+  if (!selected.length) {
+    showToast('请选择至少一个范围', 'warning')
+    return
+  }
 
-  const records = storage.getDistributeRecords().filter(
-    (r) => r.targetPath.replace(/\\/g, '/') === dir.replace(/\\/g, '/')
-  )
+  const rm = safeRemovePath(dir)
+  if (!rm.ok) {
+    showToast(`删除失败: ${rm.error || '请检查文件权限'}`, 'error')
+    return
+  }
+
+  const records = storage.getDistributeRecords().filter((r) => r.targetPath.replace(/\\/g, '/') === dir.replace(/\\/g, '/'))
   for (const r of records) {
     const scope = r.scope || 'global'
     if (!selected.includes(scope)) continue
     storage.removeDistributeRecord(r.skillId, r.platformId, r.scope)
   }
 
-  if (selected.includes('global')) {
-    try { window.services.removeFile(dir) } catch { showToast('删除失败，请检查文件权限', 'error') }
-    refreshCurrent()
-  }
-  if (selected.includes('project')) {
-    try { window.services.removeFile(dir) } catch { showToast('删除失败，请检查文件权限', 'error') }
-    refreshCurrent()
-  }
+  refreshCurrent()
   refreshCounts()
   showToast('已卸载', 'success')
   uninstallScopeDir.value = null
@@ -363,9 +423,7 @@ function executeUninstallByScope() {
 
 function uninstallSkill(skill: any) {
   const dir = skill.dir
-  const allRecords = storage.getDistributeRecords().filter(
-    (r) => r.targetPath.replace(/\\/g, '/') === dir.replace(/\\/g, '/')
-  )
+  const allRecords = storage.getDistributeRecords().filter((r) => r.targetPath.replace(/\\/g, '/') === dir.replace(/\\/g, '/'))
   const hasGlobal = allRecords.some((r) => r.scope !== 'project')
   const hasProject = allRecords.some((r) => r.scope === 'project')
 
@@ -375,7 +433,11 @@ function uninstallSkill(skill: any) {
     return
   }
 
-  try { window.services.removeFile(dir) } catch { showToast('删除失败，请检查文件权限', 'error') }
+  const rm = safeRemovePath(dir)
+  if (!rm.ok) {
+    showToast(`删除失败: ${rm.error || '请检查文件权限'}`, 'error')
+    return
+  }
   refreshCurrent()
   for (const r of allRecords) storage.removeDistributeRecord(r.skillId, r.platformId, r.scope)
   refreshCounts()
@@ -392,9 +454,7 @@ const uninstallScopeDir = ref<string | null>(null)
 const uninstallScopeSkillName = ref('')
 const uninstallScopeOptions = ref<{ scope: string; label: string; checked: boolean }[]>([])
 function showUninstallScopePicker(dir: string, name: string) {
-  const records = storage.getDistributeRecords().filter(
-    (r) => r.targetPath.replace(/\\/g, '/') === dir.replace(/\\/g, '/')
-  )
+  const records = storage.getDistributeRecords().filter((r) => r.targetPath.replace(/\\/g, '/') === dir.replace(/\\/g, '/'))
   const hasGlobal = records.some((r) => r.scope !== 'project')
   const hasProject = records.some((r) => r.scope === 'project')
   uninstallScopeOptions.value = []
@@ -432,14 +492,22 @@ function batchDelete() {
 
 function executeBatchDelete() {
   let failCount = 0
+  let okCount = 0
   for (const dir of selectedIds.value) {
-    try { window.services.removeFile(dir) } catch { failCount++; continue }
-    const records = storage.getDistributeRecords().filter(
-      (r) => r.targetPath.replace(/\\/g, '/') === dir.replace(/\\/g, '/')
-    )
+    const rm = safeRemovePath(dir)
+    if (!rm.ok) {
+      failCount++
+      continue
+    }
+    okCount++
+    const records = storage.getDistributeRecords().filter((r) => r.targetPath.replace(/\\/g, '/') === dir.replace(/\\/g, '/'))
     for (const r of records) storage.removeDistributeRecord(r.skillId, r.platformId, r.scope)
   }
-  if (failCount > 0) showToast(`${failCount} 个技能删除失败，请检查文件权限`, 'warning')
+  if (failCount > 0 && okCount > 0) {
+    showToast(`${okCount} 个已删除，${failCount} 个失败`, 'warning')
+  } else if (failCount > 0) {
+    showToast(`${failCount} 个技能删除失败，请检查文件权限`, 'error')
+  }
   refreshCurrent()
   refreshCounts()
   selectedIds.value.clear()
@@ -486,7 +554,10 @@ function isAlreadyInAgent(skill: Skill): boolean {
   if (!platformPath) return false
   const existingSkills = platformSkills.value[selectedPlatform.value.id] || []
   return existingSkills.some((s: any) => {
-    const skillName = skill.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+    const skillName = skill.name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
     return s.dir.includes(skillName) || (s.manifest?.name || s.name).toLowerCase() === skill.name.toLowerCase()
   })
 }
@@ -512,18 +583,34 @@ function confirmImportFromMy() {
   importingFromMy.value = true
   try {
     const targetPlatform = selectedPlatform.value
-    if (!targetPlatform) { showToast('请先选择 Agent', 'error'); importingFromMy.value = false; return }
+    if (!targetPlatform) {
+      showToast('请先选择 Agent', 'error')
+      importingFromMy.value = false
+      return
+    }
     const targetDir = getPlatformPath(targetPlatform, 'global') || getPlatformPath(targetPlatform, 'project')
-    if (!targetDir) { showToast('未找到 Agent 路径', 'error'); importingFromMy.value = false; return }
+    if (!targetDir) {
+      showToast('未找到 Agent 路径', 'error')
+      importingFromMy.value = false
+      return
+    }
     let importedCount = 0
     let failCount = 0
     for (const skillId of selectedImportIds.value) {
       const skill = allCachedSkills.value.find((s) => s.id === skillId)
       if (!skill) continue
-      const skillDirName = skill.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || skill.id
+      const skillDirName =
+        skill.name
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-|-$/g, '') || skill.id
       const dest = window.services.pathJoin(targetDir, skillDirName)
-      const repoDir = window.services.pathJoin(window.ztools.getPath('userData'), 'skills-repo', skillId)
-      const sourceDir = window.services.pathExists(repoDir) ? repoDir : ((skill as any).path && window.services.pathExists((skill as any).path) ? (skill as any).path : null)
+      const repoDir = getSkillsRepoDir(skillId)
+      const sourceDir = window.services.pathExists(repoDir)
+        ? repoDir
+        : (skill as any).path && window.services.pathExists((skill as any).path)
+          ? (skill as any).path
+          : null
       try {
         if (!sourceDir) {
           showToast(`「${skill.name}」的源文件不存在，已跳过`, 'warning')
@@ -542,7 +629,9 @@ function confirmImportFromMy() {
           distributedAt: new Date().toISOString(),
         })
         importedCount++
-      } catch { failCount++ }
+      } catch {
+        failCount++
+      }
     }
     if (importedCount > 0 && failCount > 0) {
       showToast(`导入完成：${importedCount} 成功，${failCount} 失败`, 'warning')
@@ -555,7 +644,9 @@ function confirmImportFromMy() {
     } else if (failCount > 0) {
       showToast(`所有技能导入失败`, 'error')
     }
-  } catch (err: any) { showToast(err.message, 'error') }
+  } catch (err: any) {
+    showToast(err.message, 'error')
+  }
   importingFromMy.value = false
   selectedImportIds.value = new Set()
   showImportModal.value = false
@@ -574,44 +665,135 @@ function confirmImportFromMy() {
       </div>
       <div class="header-toolbar">
         <button class="toolbar-btn import-btn" :disabled="!selectedPlatform" @click="openImportModal">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
           </svg>
           导入
         </button>
         <button class="toolbar-btn" :class="{ 'batch-active': batchMode }" :disabled="!filteredSkills.length" @click="toggleBatchMode">
-          <svg v-if="!batchMode" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+          <svg
+            v-if="!batchMode"
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <rect x="3" y="3" width="7" height="7" />
+            <rect x="14" y="3" width="7" height="7" />
+            <rect x="3" y="14" width="7" height="7" />
+            <rect x="14" y="14" width="7" height="7" />
           </svg>
-          <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          <svg
+            v-else
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
           </svg>
           批量管理
         </button>
         <div class="view-toggle">
           <button :class="{ active: viewMode === 'grid' }" @click="viewMode = 'grid'" title="网格视图">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <rect x="3" y="3" width="7" height="7" />
+              <rect x="14" y="3" width="7" height="7" />
+              <rect x="3" y="14" width="7" height="7" />
+              <rect x="14" y="14" width="7" height="7" />
             </svg>
           </button>
           <button :class="{ active: viewMode === 'list' }" @click="viewMode = 'list'" title="列表视图">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
-              <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <line x1="8" y1="6" x2="21" y2="6" />
+              <line x1="8" y1="12" x2="21" y2="12" />
+              <line x1="8" y1="18" x2="21" y2="18" />
+              <line x1="3" y1="6" x2="3.01" y2="6" />
+              <line x1="3" y1="12" x2="3.01" y2="12" />
+              <line x1="3" y1="18" x2="3.01" y2="18" />
             </svg>
           </button>
         </div>
         <button class="toolbar-icon-btn" title="刷新" :disabled="loading" @click="refreshCurrent">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <polyline points="23 4 23 10 17 10" />
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
           </svg>
         </button>
         <button class="toolbar-icon-btn" @click="toggleTheme" :title="isDarkMode ? '切换亮色模式' : '切换暗色模式'">
-          <svg v-if="isDarkMode" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+          <svg
+            v-if="isDarkMode"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <circle cx="12" cy="12" r="5" />
+            <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
           </svg>
-          <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+          <svg
+            v-else
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
           </svg>
         </button>
       </div>
@@ -622,7 +804,7 @@ function confirmImportFromMy() {
         :items="platformItems"
         :selected-id="selectedId"
         placeholder="搜索 Agent..."
-        @select="selectPlatform(detectedPlatforms.find(p => p.id === $event)!)"
+        @select="selectPlatform(detectedPlatforms.find((p) => p.id === $event)!)"
       >
         <template #trigger-prefix="{ item }">
           <ProviderIcon v-if="item" :icon="item.id" :size="22" variant="mono" />
@@ -635,27 +817,59 @@ function confirmImportFromMy() {
 
     <div class="filter-tabs">
       <button class="tab-btn" :class="{ active: skillFilter === '' }" @click="skillFilter = ''">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
         </svg>
         全部
         <span class="tab-count">{{ selectedSkills.length }}</span>
       </button>
       <button class="tab-btn" :class="{ active: skillFilter === 'local' }" @click="skillFilter = skillFilter === 'local' ? '' : 'local'">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <circle cx="12" cy="12" r="10" />
+          <line x1="2" y1="12" x2="22" y2="12" />
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
         </svg>
         本地
         <span class="tab-count">{{ localCount }}</span>
       </button>
-      <button class="tab-btn" :class="{ active: skillFilter === 'managed' }" @click="skillFilter = skillFilter === 'managed' ? '' : 'managed'">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="20 6 9 17 4 12"/>
+      <button
+        class="tab-btn"
+        :class="{ active: skillFilter === 'managed' }"
+        @click="skillFilter = skillFilter === 'managed' ? '' : 'managed'"
+      >
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <polyline points="20 6 9 17 4 12" />
         </svg>
         已管理
         <span class="tab-count">{{ managedCount }}</span>
       </button>
-
     </div>
 
     <div v-if="batchMode" class="batch-bar">
@@ -665,15 +879,35 @@ function confirmImportFromMy() {
       </div>
       <div class="batch-actions">
         <button class="batch-action-btn" @click="toggleSelectAll">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="3" width="18" height="18" rx="2" ry="2" :fill="isAllSelected ? 'currentColor' : 'none'"/>
-            <polyline v-if="isAllSelected" points="9 11 12 14 22 4"/>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2" :fill="isAllSelected ? 'currentColor' : 'none'" />
+            <polyline v-if="isAllSelected" points="9 11 12 14 22 4" />
           </svg>
           全选
         </button>
         <button class="batch-action-btn danger" :disabled="selectedIds.size === 0" @click="batchDelete">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M3 6h18" />
+            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
           </svg>
           删除
         </button>
@@ -702,17 +936,90 @@ function confirmImportFromMy() {
           >
             <template #actions>
               <button class="card-action-btn" title="打开文件夹" @click.stop="openFolder(s)">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                </svg>
               </button>
               <button v-if="isInMySkills(s)" class="card-action-btn primary" title="分发到平台" @click.stop="openDeploy(s)">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <line x1="22" y1="2" x2="11" y2="13" />
+                  <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                </svg>
               </button>
-              <button v-else class="card-action-btn primary" :disabled="importing[getSkillId(s)]" title="导入到我的 Skill" @click.stop="importSkillToMy(s)">
-                <svg v-if="importing[getSkillId(s)]" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-                <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              <button
+                v-else
+                class="card-action-btn primary"
+                :disabled="importing[getSkillId(s)]"
+                title="导入到我的 Skill"
+                @click.stop="importSkillToMy(s)"
+              >
+                <svg
+                  v-if="importing[getSkillId(s)]"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  class="spin"
+                >
+                  <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                </svg>
+                <svg
+                  v-else
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
               </button>
-              <button class="card-action-btn danger" title="删除" @click.stop="confirmDeleteDir = s.dir; confirmDeleteSkillName = s.manifest?.name || s.name">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+              <button
+                class="card-action-btn danger"
+                title="删除"
+                @click.stop="((confirmDeleteDir = s.dir), (confirmDeleteSkillName = s.manifest?.name || s.name))"
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M3 6h18" />
+                  <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                  <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                </svg>
               </button>
             </template>
           </SkillCard>
@@ -727,15 +1034,29 @@ function confirmImportFromMy() {
         <div class="modal-header">
           <h3 class="modal-title">从我的 Skill 导入</h3>
           <button class="modal-close" @click="showImportModal = false">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
           </button>
         </div>
-        <p class="modal-desc">选择要导入到 <strong>{{ selectedPlatform?.name }}</strong> 的技能</p>
+        <p class="modal-desc">
+          选择要导入到 <strong>{{ selectedPlatform?.name }}</strong> 的技能
+        </p>
 
         <div class="modal-toolbar">
           <input v-model="importSearch" type="text" placeholder="搜索技能..." class="modal-search" />
           <button class="modal-select-all" @click="selectAllMySkills">
-            {{ selectedImportIds.size === filteredMySkills.filter(s => !isAlreadyInAgent(s)).length ? '取消全选' : '全选' }}
+            {{ selectedImportIds.size === filteredMySkills.filter((s) => !isAlreadyInAgent(s)).length ? '取消全选' : '全选' }}
           </button>
         </div>
 
@@ -752,14 +1073,32 @@ function confirmImportFromMy() {
               @click="!isAlreadyInAgent(skill) && toggleImportSelect(skill)"
             >
               <div class="modal-skill-top">
-                <div class="modal-skill-avatar" :style="{ background: getAvatarColor(skill.name) }">{{ skill.name.charAt(0).toUpperCase() }}</div>
+                <div class="modal-skill-avatar" :style="{ background: getAvatarColor(skill.name) }">
+                  {{ skill.name.charAt(0).toUpperCase() }}
+                </div>
                 <div class="modal-skill-check" :class="{ checked: selectedImportIds.has(skill.id) }">
-                  <svg v-if="selectedImportIds.has(skill.id)" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  <svg
+                    v-if="selectedImportIds.has(skill.id)"
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="3"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
                 </div>
               </div>
               <div class="modal-skill-info">
-                <div class="modal-skill-name">{{ skill.name }}</div>
-                <div class="modal-skill-desc">{{ skill.description || '暂无描述' }}</div>
+                <div class="modal-skill-name">
+                  {{ skill.name }}
+                </div>
+                <div class="modal-skill-desc">
+                  {{ skill.description || '暂无描述' }}
+                </div>
                 <span v-if="isAlreadyInAgent(skill)" class="badge-already">已在 Agent 中</span>
               </div>
             </div>
@@ -769,40 +1108,94 @@ function confirmImportFromMy() {
         <div class="modal-footer">
           <button class="modal-btn cancel" @click="showImportModal = false">取消</button>
           <button class="modal-btn confirm" :disabled="!selectedImportIds.size || importingFromMy" @click="confirmImportFromMy">
-            <svg v-if="importingFromMy" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+            <svg
+              v-if="importingFromMy"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="spin"
+            >
+              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+            </svg>
             {{ importingFromMy ? '导入中...' : `导入 ${selectedImportIds.size} 个技能` }}
           </button>
         </div>
       </div>
     </div>
 
-    <DeployModal
-      v-if="showDeployModal && deploySkill"
-      :skill="deploySkill"
-      @close="showDeployModal = false"
-      @deployed="onDeployed"
-    />
+    <DeployModal v-if="showDeployModal && deploySkill" :skill="deploySkill" @close="showDeployModal = false" @deployed="onDeployed" />
 
-    <ConfirmModal v-if="confirmDeleteDir" title="删除 Skill" :message="`确定要删除 <strong>${confirmDeleteSkillName}</strong> 吗？此操作不可撤销。`" @confirm="uninstallSkill({ dir: confirmDeleteDir, manifest: { name: confirmDeleteSkillName } })" @cancel="confirmDeleteDir = null" />
+    <ConfirmModal
+      v-if="confirmDeleteDir"
+      title="删除 Skill"
+      :message="`确定要删除 <strong>${confirmDeleteSkillName}</strong> 吗？此操作不可撤销。`"
+      @confirm="uninstallSkill({ dir: confirmDeleteDir, manifest: { name: confirmDeleteSkillName } })"
+      @cancel="confirmDeleteDir = null"
+    />
 
     <div v-if="showBatchDeleteConfirm" class="confirm-overlay" @click.self="showBatchDeleteConfirm = false">
       <div class="confirm-modal">
         <div class="confirm-header">
           <div class="confirm-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M3 6h18" />
+              <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+              <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+            </svg>
           </div>
           <h3 class="confirm-title">批量删除 Skill</h3>
           <button class="confirm-close" @click="showBatchDeleteConfirm = false">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
           </button>
         </div>
         <div class="confirm-body">
-          <p class="confirm-desc">确定要删除选中的 <strong>{{ selectedIds.size }}</strong> 个 Skill 吗？此操作不可撤销。</p>
+          <p class="confirm-desc">
+            确定要删除选中的 <strong>{{ selectedIds.size }}</strong> 个 Skill 吗？此操作不可撤销。
+          </p>
         </div>
         <div class="confirm-footer">
           <button class="confirm-btn cancel" @click="showBatchDeleteConfirm = false">取消</button>
           <button class="confirm-btn delete" @click="executeBatchDelete">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M3 6h18" />
+              <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+              <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+            </svg>
             删除 {{ selectedIds.size }} 个 Skill
           </button>
         </div>
@@ -813,18 +1206,45 @@ function confirmImportFromMy() {
       <div class="confirm-modal">
         <div class="confirm-header">
           <div class="confirm-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M3 6h18" />
+              <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+              <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+            </svg>
           </div>
           <h3 class="confirm-title">卸载 Skill</h3>
           <button class="confirm-close" @click="uninstallScopeDir = null">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
           </button>
         </div>
         <div class="confirm-body">
-          <p class="confirm-desc"><strong>{{ uninstallScopeSkillName }}</strong> 同时存在于以下位置，请选择要卸载的范围：</p>
+          <p class="confirm-desc">
+            <strong>{{ uninstallScopeSkillName }}</strong> 同时存在于以下位置，请选择要卸载的范围：
+          </p>
           <div class="scope-list">
             <label v-for="opt in uninstallScopeOptions" :key="opt.scope" class="scope-item" :class="{ checked: opt.checked }">
-              <input type="checkbox" v-model="opt.checked" class="scope-checkbox" />
+              <input v-model="opt.checked" type="checkbox" class="scope-checkbox" />
               <span class="scope-label">{{ opt.label }}</span>
             </label>
           </div>
@@ -832,7 +1252,20 @@ function confirmImportFromMy() {
         <div class="confirm-footer">
           <button class="confirm-btn cancel" @click="uninstallScopeDir = null">取消</button>
           <button class="confirm-btn delete" @click="executeUninstallByScope">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M3 6h18" />
+              <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+              <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+            </svg>
             确认卸载
           </button>
         </div>
@@ -842,7 +1275,13 @@ function confirmImportFromMy() {
 </template>
 
 <style scoped>
-.agent-skills { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 0; }
+.agent-skills {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
 
 .as-filter-row {
   display: flex;
@@ -1081,10 +1520,27 @@ function confirmImportFromMy() {
   border-radius: 12px;
 }
 
-.batch-left { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
-.batch-label { font-size: 13px; font-weight: 600; color: hsl(var(--foreground)); }
-.batch-count { font-size: 12px; color: hsl(var(--muted-foreground)); }
-.batch-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.batch-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.batch-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+.batch-count {
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+}
+.batch-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
 
 .batch-action-btn {
   display: inline-flex;
@@ -1102,7 +1558,10 @@ function confirmImportFromMy() {
   white-space: nowrap;
 }
 
-.batch-action-btn svg { color: hsl(var(--muted-foreground)); flex-shrink: 0; }
+.batch-action-btn svg {
+  color: hsl(var(--muted-foreground));
+  flex-shrink: 0;
+}
 
 .batch-action-btn:hover:not(:disabled) {
   background: hsl(var(--accent));
@@ -1110,9 +1569,14 @@ function confirmImportFromMy() {
   color: hsl(var(--foreground));
 }
 
-.batch-action-btn:hover:not(:disabled) svg { color: hsl(var(--primary)); }
+.batch-action-btn:hover:not(:disabled) svg {
+  color: hsl(var(--primary));
+}
 
-.batch-action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.batch-action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 
 .batch-action-btn.danger {
   color: hsl(var(--destructive));
@@ -1120,20 +1584,39 @@ function confirmImportFromMy() {
   background: hsl(var(--destructive) / 0.04);
 }
 
-.batch-action-btn.danger svg { color: hsl(var(--destructive)); }
+.batch-action-btn.danger svg {
+  color: hsl(var(--destructive));
+}
 
 .batch-action-btn.danger:hover:not(:disabled) {
   background: hsl(var(--destructive) / 0.1);
   border-color: hsl(var(--destructive) / 0.4);
 }
 
-.as-scroll { flex: 1; overflow-y: auto; overscroll-behavior: contain; min-height: 0; padding: 20px 28px 28px; scrollbar-gutter: stable; }
+.as-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  min-height: 0;
+  padding: 20px 28px 28px;
+  scrollbar-gutter: stable;
+}
 
-.skill-grid { display: grid; }
-.skill-grid.grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
-.skill-grid.list { grid-template-columns: 1fr; gap: 10px; }
+.skill-grid {
+  display: grid;
+}
+.skill-grid.grid {
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
+}
+.skill-grid.list {
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
 
-.loading, .empty-state, .empty-right {
+.loading,
+.empty-state,
+.empty-right {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1143,65 +1626,387 @@ function confirmImportFromMy() {
 }
 
 /* Modal */
-.modal-overlay { position: fixed; inset: 0; background: hsl(0 0% 0% / 0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; backdrop-filter: blur(4px); }
-.modal { width: 560px; max-width: 90vw; max-height: 80vh; background: hsl(var(--card)); border: 1px solid hsl(var(--border)); border-radius: 20px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 24px 64px hsl(0 0% 0% / 0.2); }
-.modal-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px 0; }
-.modal-title { font-size: 18px; font-weight: 700; color: hsl(var(--foreground)); margin: 0; }
-.modal-close { width: 32px; height: 32px; border-radius: 8px; border: none; background: transparent; color: hsl(var(--muted-foreground)); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all var(--duration-base) var(--ease-standard); }
-.modal-close:hover { background: hsl(var(--muted)); color: hsl(var(--foreground)); }
-.modal-desc { font-size: 13px; color: hsl(var(--muted-foreground)); padding: 8px 24px 0; margin: 0; }
-.modal-desc strong { color: hsl(var(--foreground)); }
-.modal-toolbar { display: flex; align-items: center; gap: 8px; padding: 16px 24px 0; }
-.modal-search { flex: 1; padding: 9px 14px; font-size: 13px; border: 1px solid hsl(var(--border)); border-radius: 10px; background: hsl(var(--card)); color: hsl(var(--foreground)); outline: none; transition: all var(--duration-base) var(--ease-standard); }
-.modal-search:focus { border-color: hsl(var(--ring)); box-shadow: 0 0 0 3px hsl(var(--ring) / 0.12); }
-.modal-search::placeholder { color: hsl(var(--muted-foreground)); }
-.modal-select-all { padding: 8px 14px; font-size: 12px; font-weight: 600; border-radius: 8px; border: 1px solid hsl(var(--border)); background: hsl(var(--card)); color: hsl(var(--foreground)); cursor: pointer; white-space: nowrap; transition: all var(--duration-base) var(--ease-standard); }
-.modal-select-all:hover { background: hsl(var(--muted)); }
-.modal-skill-list { flex: 1; overflow-y: auto; padding: 12px 24px; min-height: 200px; }
-.modal-empty { display: flex; align-items: center; justify-content: center; height: 120px; color: hsl(var(--muted-foreground)); font-size: 13px; }
-.modal-skill-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; }
-.modal-skill-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 12px; border: 1px solid hsl(var(--border)); background: hsl(var(--card)); cursor: pointer; transition: all var(--duration-base) var(--ease-standard); }
-.modal-skill-card:hover:not(.disabled) { border-color: hsl(var(--primary) / 0.4); background: hsl(var(--primary) / 0.03); }
-.modal-skill-card.selected { border-color: hsl(var(--primary)); background: hsl(var(--primary) / 0.06); }
-.modal-skill-card.disabled { opacity: 0.5; cursor: default; }
-.modal-skill-top { display: flex; align-items: center; justify-content: space-between; }
-.modal-skill-avatar { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; color: #fff; flex-shrink: 0; }
-.modal-skill-check { width: 20px; height: 20px; border-radius: 6px; border: 2px solid hsl(var(--border)); display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all var(--duration-base) var(--ease-standard); }
-.modal-skill-check.checked { background: hsl(var(--primary)); border-color: hsl(var(--primary)); color: #fff; }
-.modal-skill-info { min-width: 0; }
-.modal-skill-name { font-size: 13px; font-weight: 600; color: hsl(var(--foreground)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.modal-skill-desc { font-size: 11px; color: hsl(var(--muted-foreground)); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.badge-already { display: inline-block; margin-top: 4px; font-size: 10px; font-weight: 500; padding: 2px 8px; border-radius: 6px; background: hsl(var(--muted)); color: hsl(var(--muted-foreground)); }
-.modal-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 16px 24px; border-top: 1px solid hsl(var(--border)); }
-.modal-btn { padding: 9px 20px; font-size: 13px; font-weight: 600; border-radius: 10px; border: none; cursor: pointer; transition: all var(--duration-base) var(--ease-standard); display: flex; align-items: center; gap: 6px; }
-.modal-btn.cancel { background: hsl(var(--muted)); color: hsl(var(--muted-foreground)); }
-.modal-btn.cancel:hover { background: hsl(var(--muted) / 0.8); }
-.modal-btn.confirm { background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); }
-.modal-btn.confirm:hover { opacity: 0.9; }
-.modal-btn.confirm:disabled { opacity: 0.5; cursor: default; }
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: hsl(0 0% 0% / 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+.modal {
+  width: 560px;
+  max-width: 90vw;
+  max-height: 80vh;
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: 20px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 24px 64px hsl(0 0% 0% / 0.2);
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px 0;
+}
+.modal-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: hsl(var(--foreground));
+  margin: 0;
+}
+.modal-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--duration-base) var(--ease-standard);
+}
+.modal-close:hover {
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+}
+.modal-desc {
+  font-size: 13px;
+  color: hsl(var(--muted-foreground));
+  padding: 8px 24px 0;
+  margin: 0;
+}
+.modal-desc strong {
+  color: hsl(var(--foreground));
+}
+.modal-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 24px 0;
+}
+.modal-search {
+  flex: 1;
+  padding: 9px 14px;
+  font-size: 13px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  outline: none;
+  transition: all var(--duration-base) var(--ease-standard);
+}
+.modal-search:focus {
+  border-color: hsl(var(--ring));
+  box-shadow: 0 0 0 3px hsl(var(--ring) / 0.12);
+}
+.modal-search::placeholder {
+  color: hsl(var(--muted-foreground));
+}
+.modal-select-all {
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--duration-base) var(--ease-standard);
+}
+.modal-select-all:hover {
+  background: hsl(var(--muted));
+}
+.modal-skill-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 24px;
+  min-height: 200px;
+}
+.modal-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 120px;
+  color: hsl(var(--muted-foreground));
+  font-size: 13px;
+}
+.modal-skill-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 8px;
+}
+.modal-skill-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+  cursor: pointer;
+  transition: all var(--duration-base) var(--ease-standard);
+}
+.modal-skill-card:hover:not(.disabled) {
+  border-color: hsl(var(--primary) / 0.4);
+  background: hsl(var(--primary) / 0.03);
+}
+.modal-skill-card.selected {
+  border-color: hsl(var(--primary));
+  background: hsl(var(--primary) / 0.06);
+}
+.modal-skill-card.disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.modal-skill-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.modal-skill-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+}
+.modal-skill-check {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  border: 2px solid hsl(var(--border));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all var(--duration-base) var(--ease-standard);
+}
+.modal-skill-check.checked {
+  background: hsl(var(--primary));
+  border-color: hsl(var(--primary));
+  color: #fff;
+}
+.modal-skill-info {
+  min-width: 0;
+}
+.modal-skill-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.modal-skill-desc {
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.badge-already {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 10px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+}
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 16px 24px;
+  border-top: 1px solid hsl(var(--border));
+}
+.modal-btn {
+  padding: 9px 20px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 10px;
+  border: none;
+  cursor: pointer;
+  transition: all var(--duration-base) var(--ease-standard);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.modal-btn.cancel {
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+}
+.modal-btn.cancel:hover {
+  background: hsl(var(--muted) / 0.8);
+}
+.modal-btn.confirm {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+.modal-btn.confirm:hover {
+  opacity: 0.9;
+}
+.modal-btn.confirm:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 
-@keyframes spin { to { transform: rotate(360deg); } }
-.spin { animation: spin 0.7s linear infinite; }
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.spin {
+  animation: spin 0.7s linear infinite;
+}
 
-.confirm-overlay { position: fixed; inset: 0; background: hsl(0 0% 0% / 0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; backdrop-filter: blur(4px); }
-.confirm-modal { width: 420px; max-width: 90vw; background: hsl(var(--card)); border: 1px solid hsl(var(--border)); border-radius: 16px; overflow: hidden; box-shadow: 0 24px 64px hsl(0 0% 0% / 0.2); }
-.confirm-header { display: flex; align-items: center; gap: 10px; padding: 18px 20px; border-bottom: 1px solid hsl(var(--border)); }
-.confirm-icon { width: 32px; height: 32px; border-radius: 8px; background: hsl(var(--destructive) / 0.1); color: hsl(var(--destructive)); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-.confirm-title { font-size: 15px; font-weight: 600; color: hsl(var(--foreground)); margin: 0; flex: 1; }
-.confirm-close { width: 28px; height: 28px; border-radius: 6px; border: none; background: transparent; color: hsl(var(--muted-foreground)); cursor: pointer; display: flex; align-items: center; justify-content: center; }
-.confirm-close:hover { background: hsl(var(--muted)); color: hsl(var(--foreground)); }
-.confirm-body { padding: 18px 20px; }
-.confirm-desc { font-size: 13px; line-height: 1.6; color: hsl(var(--muted-foreground)); margin: 0 0 14px; }
-.confirm-desc strong { color: hsl(var(--foreground)); font-weight: 600; }
-.scope-list { display: flex; flex-direction: column; gap: 6px; }
-.scope-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid hsl(var(--border)); background: hsl(var(--accent) / 0.15); cursor: pointer; }
-.scope-item.checked { border-color: hsl(var(--primary) / 0.45); background: hsl(var(--primary) / 0.06); }
-.scope-checkbox { accent-color: hsl(var(--primary)); }
-.scope-label { font-size: 13px; font-weight: 500; color: hsl(var(--foreground)); }
-.confirm-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 20px; border-top: 1px solid hsl(var(--border)); }
-.confirm-btn { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 16px; font-size: 13px; font-weight: 600; border-radius: 8px; border: none; cursor: pointer; }
-.confirm-btn.cancel { background: hsl(var(--muted)); color: hsl(var(--muted-foreground)); }
-.confirm-btn.cancel:hover { background: hsl(var(--muted) / 0.8); }
-.confirm-btn.delete { background: hsl(var(--destructive)); color: #fff; }
-.confirm-btn.delete:hover { opacity: 0.9; }
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: hsl(0 0% 0% / 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+.confirm-modal {
+  width: 420px;
+  max-width: 90vw;
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 24px 64px hsl(0 0% 0% / 0.2);
+}
+.confirm-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 20px;
+  border-bottom: 1px solid hsl(var(--border));
+}
+.confirm-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: hsl(var(--destructive) / 0.1);
+  color: hsl(var(--destructive));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.confirm-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  margin: 0;
+  flex: 1;
+}
+.confirm-close {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.confirm-close:hover {
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+}
+.confirm-body {
+  padding: 18px 20px;
+}
+.confirm-desc {
+  font-size: 13px;
+  line-height: 1.6;
+  color: hsl(var(--muted-foreground));
+  margin: 0 0 14px;
+}
+.confirm-desc strong {
+  color: hsl(var(--foreground));
+  font-weight: 600;
+}
+.scope-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.scope-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--accent) / 0.15);
+  cursor: pointer;
+}
+.scope-item.checked {
+  border-color: hsl(var(--primary) / 0.45);
+  background: hsl(var(--primary) / 0.06);
+}
+.scope-checkbox {
+  accent-color: hsl(var(--primary));
+}
+.scope-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: hsl(var(--foreground));
+}
+.confirm-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 14px 20px;
+  border-top: 1px solid hsl(var(--border));
+}
+.confirm-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+}
+.confirm-btn.cancel {
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+}
+.confirm-btn.cancel:hover {
+  background: hsl(var(--muted) / 0.8);
+}
+.confirm-btn.delete {
+  background: hsl(var(--destructive));
+  color: #fff;
+}
+.confirm-btn.delete:hover {
+  opacity: 0.9;
+}
 </style>

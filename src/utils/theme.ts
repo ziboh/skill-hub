@@ -1,5 +1,5 @@
 import { MORANDI_THEMES, FONT_SIZES } from '../types'
-import type { AppSettings, MorandiTheme, ThemeMode, FontSize, MotionPreference } from '../types'
+import type { AppSettings, MorandiTheme, MotionPreference } from '../types'
 
 function hexToHsl(hex: string): { h: number; s: number; l: number } | null {
   const m = hex.replace('#', '').match(/^([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i)
@@ -7,7 +7,8 @@ function hexToHsl(hex: string): { h: number; s: number; l: number } | null {
   const r = parseInt(m[1], 16) / 255
   const g = parseInt(m[2], 16) / 255
   const b = parseInt(m[3], 16) / 255
-  const max = Math.max(r, g, b), min = Math.min(r, g, b)
+  const max = Math.max(r, g, b),
+    min = Math.min(r, g, b)
   const l = (max + min) / 2
   if (max === min) return { h: 0, s: 0, l: Math.round(l * 100) }
   const d = max - min
@@ -72,7 +73,7 @@ export function applyTheme(settings: AppSettings): void {
   applyMotion(settings.motionPreference)
 }
 
-export function applyMotion(pref: MotionPreference): void {
+function applyMotion(pref: MotionPreference): void {
   const root = document.documentElement
   root.setAttribute('data-motion', pref)
 }

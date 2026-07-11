@@ -35,7 +35,9 @@ describe('CleanupSelectModal', () => {
   })
 
   test('falls back to folder name when readFileText throws', () => {
-    vi.mocked(window.services.readFileText).mockImplementation(() => { throw new Error('not found') })
+    vi.mocked(window.services.readFileText).mockImplementation(() => {
+      throw new Error('not found')
+    })
     const wrapper = createWrapper(['/skills/fallback-dir'])
     expect(wrapper.text()).toContain('fallback-dir')
   })
@@ -75,6 +77,11 @@ describe('CleanupSelectModal', () => {
   })
 
   test('delete calls removeFile for each selected', async () => {
+    const gone = new Set<string>()
+    vi.mocked(window.services.pathExists).mockImplementation((p: string) => !gone.has(p))
+    vi.mocked(window.services.removeFile).mockImplementation((p: string) => {
+      gone.add(p)
+    })
     const wrapper = createWrapper(['/skills/a', '/skills/b', '/skills/c'])
     await wrapper.findAll('.cleanup-checkbox')[0].trigger('change')
     await wrapper.findAll('.cleanup-checkbox')[2].trigger('change')

@@ -6,6 +6,7 @@ import { detectPlatforms } from '../../data/platforms'
 
 vi.mock('../../data/platforms', () => ({
   detectPlatforms: vi.fn(() => []),
+  getPlatformPath: vi.fn((p: { defaultPath?: string }) => p.defaultPath || ''),
 }))
 
 vi.mock('../../utils/storage', () => ({
@@ -15,7 +16,9 @@ vi.mock('../../utils/storage', () => ({
     saveDistributeRecord: vi.fn(),
     removeDistributeRecord: vi.fn(),
     getDistributeRecords: vi.fn(() => []),
+    addFailureRecord: vi.fn(),
   },
+  resetStorageCaches: vi.fn(),
 }))
 
 function createSkill(overrides = {}) {
@@ -185,7 +188,7 @@ describe('GlobalDistPanel', () => {
     wrapper = mountPanel()
     await wrapper.find('.platform-card').trigger('click')
     const counts = wrapper.findAll('.selected-count')
-    expect(counts.map(c => c.text()).some(t => t.includes('已选 1'))).toBe(true)
+    expect(counts.map((c) => c.text()).some((t) => t.includes('已选 1'))).toBe(true)
   })
 
   test('install emits install-started and install-finished', async () => {
@@ -199,7 +202,7 @@ describe('GlobalDistPanel', () => {
     window.services.mkdir = vi.fn()
     window.services.copyFile = vi.fn()
     window.services.readDir = vi.fn(() => [{ name: 'SKILL.md', isDirectory: false, path: '/path/SKILL.md' }])
-    vi.mocked(storage.getInstalledForSkill).mockReturnValue([])
+    vi.mocked(storage.getDistributedForSkill).mockReturnValue([])
     wrapper = mountPanel()
     await wrapper.find('.platform-card').trigger('click')
     await wrapper.find('.install-all-btn').trigger('click')

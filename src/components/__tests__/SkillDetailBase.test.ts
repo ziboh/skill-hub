@@ -13,6 +13,11 @@ vi.mock('../../utils/storage', () => ({
     saveTranslationDesc: vi.fn(),
     getSkillUserTags: vi.fn(() => []),
     saveSkillUserTags: vi.fn(),
+    getDownloadedIds: vi.fn(() => []),
+    getDistributeRecords: vi.fn(() => []),
+    getCachedSkills: vi.fn(() => []),
+    getTranslationByHash: vi.fn(() => null),
+    getDescTranslationByHash: vi.fn(() => null),
   },
 }))
 
@@ -29,6 +34,8 @@ vi.mock('../../composables/useTranslationQueue', () => ({
     removeTranslation: vi.fn(),
     isTranslating: vi.fn(() => false),
     notifyCacheChanged: vi.fn(),
+    findInQueueByHash: vi.fn(() => []),
+    cacheVersion: { value: 0 },
   })),
 }))
 
@@ -38,7 +45,6 @@ vi.mock('../../utils/translate', () => ({
   translateDescription: vi.fn(async () => 'Translated desc'),
   stripFrontmatter: vi.fn((s: string) => s),
   renderImmersiveSegments: vi.fn(() => []),
-  resolveTranslationKey: vi.fn(() => 'test-key'),
 }))
 
 vi.mock('../../utils/frontmatter', () => ({
@@ -58,6 +64,8 @@ vi.mock('../../data/skill-categories', () => ({
 
 vi.mock('../../utils/source-info', () => ({
   getSourceInfo: vi.fn(() => ({ icon: 'git', label: 'GitHub', bg: '#333', color: '#fff' })),
+  isSvgIcon: vi.fn(() => false),
+  isImageUrl: vi.fn(() => false),
 }))
 
 vi.mock('../SkillFileEditor.vue', () => ({
@@ -70,9 +78,14 @@ vi.mock('../SkillFileEditor.vue', () => ({
 
 function createSkill(overrides = {}) {
   return {
-    id: 'test/skill', name: 'Test Skill', description: 'A test skill',
-    author: 'Test', tags: [], source: 'github',
-    repo: 'user/repo', path: 'skills/test',
+    id: 'test/skill',
+    name: 'Test Skill',
+    description: 'A test skill',
+    author: 'Test',
+    tags: [],
+    source: 'github',
+    repo: 'user/repo',
+    path: 'skills/test',
     ...overrides,
   }
 }
@@ -197,7 +210,7 @@ describe('SkillDetailBase', () => {
 
   test('copy content button emits copy-content', async () => {
     wrapper = mountBase()
-    const copyBtn = wrapper.findAll('.heading-btn').find(b => b.text().includes('复制 MD'))
+    const copyBtn = wrapper.findAll('.heading-btn').find((b) => b.text().includes('复制 MD'))
     if (copyBtn) {
       await copyBtn.trigger('click')
       expect(wrapper.emitted('copy-content')).toBeTruthy()
@@ -206,7 +219,7 @@ describe('SkillDetailBase', () => {
 
   test('translate button exists', () => {
     wrapper = mountBase()
-    const translateBtns = wrapper.findAll('.heading-btn').filter(b => b.text().includes('翻译'))
+    const translateBtns = wrapper.findAll('.heading-btn').filter((b) => b.text().includes('翻译'))
     expect(translateBtns.length).toBeGreaterThanOrEqual(1)
   })
 
@@ -221,30 +234,31 @@ describe('SkillDetailBase', () => {
     expect(wrapper.find('.empty-content').text()).toContain('暂无内容')
   })
 
-  test('source tab shows debug fields for my context', async () => {
+  test('source tab shows metadata cards', async () => {
     wrapper = mountBase(createSkill(), { context: 'my' })
     const tabs = wrapper.findAll('.detail-tabs-row button')
     await tabs[1].trigger('click')
-    expect(wrapper.find('.debug-fields-grid').exists()).toBe(true)
+    expect(wrapper.find('.metadata-cards').exists()).toBe(true)
+    expect(wrapper.find('.metadata-value.mono').text()).toBe('test/skill')
   })
 
   test('source tab shows source link card', async () => {
     wrapper = mountBase()
     const tabs = wrapper.findAll('.detail-tabs-row button')
     await tabs[1].trigger('click')
-    expect(wrapper.find('.source-link-card').exists()).toBe(true)
+    expect(wrapper.find('.source-card').exists()).toBe(true)
   })
 
   test('source tab shows raw skill content', async () => {
     wrapper = mountBase()
     const tabs = wrapper.findAll('.detail-tabs-row button')
     await tabs[1].trigger('click')
-    expect(wrapper.find('.source-code-block').text()).toContain('# Hello')
+    expect(wrapper.find('.code-block').text()).toContain('# Hello')
   })
 
   test('theme toggle button exists', () => {
     wrapper = mountBase()
-    const themeBtn = wrapper.findAll('.toolbar-icon-btn').find(b => {
+    const themeBtn = wrapper.findAll('.toolbar-icon-btn').find((b) => {
       return b.attributes('title')?.includes('暗色') || b.attributes('title')?.includes('亮色')
     })
     expect(themeBtn).toBeDefined()
@@ -264,7 +278,7 @@ describe('SkillDetailBase', () => {
 
   test('category editing shows category grid', async () => {
     wrapper = mountBase(createSkill(), { context: 'my' })
-    const editTagBtns = wrapper.findAll('.heading-btn').filter(b => b.text() === '修改')
+    const editTagBtns = wrapper.findAll('.heading-btn').filter((b) => b.text() === '修改')
     await editTagBtns[0].trigger('click')
     expect(wrapper.find('.category-grid').exists()).toBe(true)
     expect(wrapper.findAll('.category-option').length).toBe(2)
@@ -272,27 +286,28 @@ describe('SkillDetailBase', () => {
 
   test('save category button works', async () => {
     wrapper = mountBase(createSkill(), { context: 'my' })
-    const editTagBtns = wrapper.findAll('.heading-btn').filter(b => b.text() === '修改')
+    const editTagBtns = wrapper.findAll('.heading-btn').filter((b) => b.text() === '修改')
     await editTagBtns[0].trigger('click')
     await wrapper.find('.category-option').trigger('click')
-    const saveBtn = wrapper.findAll('.heading-btn').filter(b => b.text() === '保存')
+    const saveBtn = wrapper.findAll('.heading-btn').filter((b) => b.text() === '保存')
     await saveBtn[0].trigger('click')
     expect(storage.saveSkillUserTags).toHaveBeenCalled()
   })
 
   test('cancel tag editing', async () => {
     wrapper = mountBase(createSkill(), { context: 'my' })
-    const editTagBtns = wrapper.findAll('.heading-btn').filter(b => b.text() === '修改')
+    const editTagBtns = wrapper.findAll('.heading-btn').filter((b) => b.text() === '修改')
     await editTagBtns[0].trigger('click')
-    const cancelBtns = wrapper.findAll('.heading-btn').filter(b => b.text() === '取消')
+    const cancelBtns = wrapper.findAll('.heading-btn').filter((b) => b.text() === '取消')
     await cancelBtns[0].trigger('click')
     expect(wrapper.find('.category-grid').exists()).toBe(false)
   })
 
-  test('protocol label shows in source tab', async () => {
+  test('source tab shows author metadata', async () => {
     wrapper = mountBase()
     const tabs = wrapper.findAll('.detail-tabs-row button')
     await tabs[1].trigger('click')
-    expect(wrapper.find('.meta-value.protocol').text()).toContain('OpenCode')
+    const values = wrapper.findAll('.metadata-value')
+    expect(values.some((v) => v.text().includes('Test'))).toBe(true)
   })
 })

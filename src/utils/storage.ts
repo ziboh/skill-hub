@@ -1,10 +1,25 @@
-import type { DistributeRecord, StoreSource, AppSettings, PlatformInfo, Skill, SkillSource, RegisteredProject, ModelConfig, FailureRecord, FailureType } from '../types'
+import type {
+  DistributeRecord,
+  StoreSource,
+  AppSettings,
+  PlatformInfo,
+  Skill,
+  SkillSource,
+  RegisteredProject,
+  ModelConfig,
+  FailureRecord,
+  FailureType,
+} from '../types'
 import { BUILTIN_PROVIDERS } from '../data/ai-providers'
+import { getSkillsRepoDir, getSkillsRepoDirUnder } from './skill-path'
 
 const PREFIX = 'sm_'
 
 function cleanDescription(desc: string): string {
   if (!desc) return desc
+  if ((desc.startsWith('"') && desc.endsWith('"')) || (desc.startsWith("'") && desc.endsWith("'"))) {
+    desc = desc.slice(1, -1)
+  }
   if (desc.startsWith('[') && desc.endsWith(']')) {
     desc = desc.slice(1, -1).trim()
   }
@@ -26,7 +41,11 @@ function dbGet<T = any>(key: string): T | null {
     const raw = window.ztools.dbStorage.getItem(PREFIX + key)
     if (raw === null || raw === undefined) return null
     if (typeof raw === 'string') {
-      try { return JSON.parse(raw) as T } catch { return null }
+      try {
+        return JSON.parse(raw) as T
+      } catch {
+        return null
+      }
     }
     return raw as T
   } catch (e) {
@@ -35,7 +54,15 @@ function dbGet<T = any>(key: string): T | null {
   }
 }
 
-const STRIPPED_FIELDS: (keyof Skill)[] = ['shortDescription', 'homepage', 'readmeCachedAt', 'installCount', 'iconUrl', 'canonicalId', 'installUrl']
+const STRIPPED_FIELDS: (keyof Skill)[] = [
+  'shortDescription',
+  'homepage',
+  'readmeCachedAt',
+  'installCount',
+  'iconUrl',
+  'canonicalId',
+  'installUrl',
+]
 
 function stripSkillFields(skill: Skill): Skill {
   const copy = { ...skill }
@@ -48,7 +75,7 @@ function migrateOldCachedSkills(): void {
     const raw = window.ztools.dbStorage.getItem(PREFIX + KEYS.OLD_CACHED_SKILLS)
     if (!raw) return
     const old: Skill[] = JSON.parse(raw)
-    const downloaded = old.filter(s => s.downloaded).map(s => stripSkillFields(s))
+    const downloaded = old.filter((s) => s.downloaded).map((s) => stripSkillFields(s))
     if (downloaded.length > 0) {
       window.ztools.dbStorage.setItem(PREFIX + KEYS.DOWNLOADED_SKILLS, JSON.stringify(downloaded))
     }
@@ -90,11 +117,22 @@ let _distributeRecordsCache: DistributeRecord[] | null = null
 let _distributedSkillSetCache: Set<string> | null = null
 let _cachedSkillsCache: Skill[] | null = null
 
-function invalidateDistributeCache() { _distributeRecordsCache = null; _distributedSkillSetCache = null }
-function invalidateCachedSkills() { _cachedSkillsCache = null }
+function invalidateDistributeCache() {
+  _distributeRecordsCache = null
+  _distributedSkillSetCache = null
+}
+function invalidateCachedSkills() {
+  _cachedSkillsCache = null
+}
+
+/** Clear module caches (tests / after bulk dbStorage.clear). */
+export function resetStorageCaches() {
+  invalidateDistributeCache()
+  invalidateCachedSkills()
+}
 
 function initBuiltinProviders(): ModelConfig[] {
-  return BUILTIN_PROVIDERS.map(p => ({
+  return BUILTIN_PROVIDERS.map((p) => ({
     id: `builtin-${p.id}`,
     name: p.name,
     provider: p.id,
@@ -131,14 +169,12 @@ export const storage = {
     return _distributeRecordsCache
   },
   getDistributedSkillSet(): Set<string> {
-    if (!_distributedSkillSetCache) _distributedSkillSetCache = new Set(this.getDistributeRecords().map(r => r.skillId))
+    if (!_distributedSkillSetCache) _distributedSkillSetCache = new Set(this.getDistributeRecords().map((r) => r.skillId))
     return _distributedSkillSetCache
   },
   saveDistributeRecord(record: DistributeRecord): void {
     const records = this.getDistributeRecords()
-    const idx = records.findIndex(
-      (r) => r.skillId === record.skillId && r.platformId === record.platformId && r.scope === record.scope
-    )
+    const idx = records.findIndex((r) => r.skillId === record.skillId && r.platformId === record.platformId && r.scope === record.scope)
     if (idx >= 0) records[idx] = record
     else records.push(record)
     invalidateDistributeCache()
@@ -146,7 +182,7 @@ export const storage = {
   },
   removeDistributeRecord(skillId: string, platformId: string, scope?: string): void {
     const records = this.getDistributeRecords().filter(
-      (r) => !(r.skillId === skillId && r.platformId === platformId && (scope === undefined || r.scope === scope))
+      (r) => !(r.skillId === skillId && r.platformId === platformId && (scope === undefined || r.scope === scope)),
     )
     invalidateDistributeCache()
     dbSet(KEYS.DISTRIBUTED_SKILLS, records)
@@ -180,9 +216,7 @@ export const storage = {
     dbSet(KEYS.STORE_SOURCES, sources)
     // 剥离引用该源的缓存技能的 storeSourceId，保留技能条目
     const cached = this.getCachedSkills()
-    const updated = cached.map(s =>
-      s.storeSourceId === id ? { ...s, storeSourceId: undefined } : s
-    )
+    const updated = cached.map((s) => (s.storeSourceId === id ? { ...s, storeSourceId: undefined } : s))
     if (updated.length !== cached.length || updated.some((s, i) => s.storeSourceId !== cached[i].storeSourceId)) {
       dbSet(KEYS.DOWNLOADED_SKILLS, updated)
       _cachedSkillsCache = updated
@@ -233,8 +267,8 @@ export const storage = {
     }
     // Clean up removed built-in providers from saved data
     if (saved?.aiModels) {
-      const activeIds = new Set(BUILTIN_PROVIDERS.map(p => p.id))
-      saved.aiModels = saved.aiModels.filter(m => !m.isBuiltin || activeIds.has(m.provider))
+      const activeIds = new Set(BUILTIN_PROVIDERS.map((p) => p.id))
+      saved.aiModels = saved.aiModels.filter((m) => !m.isBuiltin || activeIds.has(m.provider))
     }
     const merged = { ...defaults, ...(saved || {}) }
     // Initialize built-in providers if not present
@@ -242,7 +276,7 @@ export const storage = {
       merged.aiModels = initBuiltinProviders()
     } else {
       // Ensure built-in providers exist and have correct structure
-      const existingIds = new Set(merged.aiModels.map(m => m.id))
+      const existingIds = new Set(merged.aiModels.map((m) => m.id))
       const builtinProviders = initBuiltinProviders()
       for (const bp of builtinProviders) {
         if (!existingIds.has(bp.id)) {
@@ -263,7 +297,11 @@ export const storage = {
     if (!_cachedSkillsCache) {
       migrateOldCachedSkills()
       // 清理旧的描述翻译数据库（哈希算法已变，旧数据无法匹配）
-      try { window.ztools.dbStorage.removeItem(PREFIX + KEYS.TRANSLATIONS + '_desc') } catch { /* ignore */ }
+      try {
+        window.ztools.dbStorage.removeItem(PREFIX + KEYS.TRANSLATIONS + '_desc')
+      } catch {
+        /* ignore */
+      }
       _cachedSkillsCache = dbGet<Skill[]>(KEYS.DOWNLOADED_SKILLS) || []
     }
     return _cachedSkillsCache
@@ -287,11 +325,14 @@ export const storage = {
   },
   replaceCachedSkills(skills: Skill[]): void {
     invalidateCachedSkills()
-    dbSet(KEYS.DOWNLOADED_SKILLS, skills.map(s => {
-      const copy = stripSkillFields(JSON.parse(JSON.stringify(s)) as Skill)
-      copy.description = cleanDescription(copy.description)
-      return copy
-    }))
+    dbSet(
+      KEYS.DOWNLOADED_SKILLS,
+      skills.map((s) => {
+        const copy = stripSkillFields(JSON.parse(JSON.stringify(s)) as Skill)
+        copy.description = cleanDescription(copy.description)
+        return copy
+      }),
+    )
   },
 
   // === GitHub Cache (扁平化描述池，所有 git 类源共用) ===
@@ -369,7 +410,7 @@ export const storage = {
     if (!all[sourceId]) {
       all[sourceId] = { skills: [], fetchedAt: Date.now() }
     }
-    const existing = all[sourceId].skills.find(s => s.id === skill.id)
+    const existing = all[sourceId].skills.find((s) => s.id === skill.id)
     if (existing) {
       existing.readme = readme
       existing.readmeCachedAt = Date.now()
@@ -381,7 +422,7 @@ export const storage = {
   getCachedWebSkillReadme(skillId: string): string | null {
     const all = dbGet<Record<string, { skills: Skill[]; fetchedAt: number }>>(KEYS.WEB_CACHE) || {}
     for (const [, entry] of Object.entries(all)) {
-      const skill = entry.skills.find(s => s.id === skillId)
+      const skill = entry.skills.find((s) => s.id === skillId)
       if (skill?.readme) {
         if (!skill.readmeCachedAt || Date.now() - skill.readmeCachedAt > README_TTL) {
           delete skill.readme
@@ -405,20 +446,30 @@ export const storage = {
 
   // === Favorites (stored as isFavorited on each Skill) ===
   getFavoriteIds(): string[] {
-    return this.getCachedSkills().filter(s => s.isFavorited).map(s => s.id)
+    return this.getCachedSkills()
+      .filter((s) => s.isFavorited)
+      .map((s) => s.id)
   },
   toggleFavorite(id: string, meta?: { name?: string; description?: string; author?: string; tags?: string[]; source?: SkillSource }): void {
     const skills = this.getCachedSkills()
-    let idx = skills.findIndex(s => s.id === id)
+    let idx = skills.findIndex((s) => s.id === id)
 
     // 如果找不到当前ID，尝试通过name匹配已管理的技能（同步分发后的收藏状态）
     if (idx < 0 && meta?.name) {
       const normalizedName = meta.name.toLowerCase()
-      idx = skills.findIndex(s => s.name && s.name.toLowerCase() === normalizedName)
+      idx = skills.findIndex((s) => s.name && s.name.toLowerCase() === normalizedName)
     }
 
     if (idx < 0) {
-      const entry: Skill = { id, name: meta?.name || id, description: meta?.description || '', author: meta?.author || '', tags: meta?.tags || [], source: meta?.source || 'local', isFavorited: true }
+      const entry: Skill = {
+        id,
+        name: meta?.name || id,
+        description: meta?.description || '',
+        author: meta?.author || '',
+        tags: meta?.tags || [],
+        source: meta?.source || 'local',
+        isFavorited: true,
+      }
       skills.push(entry)
       invalidateCachedSkills()
       dbSet(KEYS.DOWNLOADED_SKILLS, skills)
@@ -472,35 +523,35 @@ export const storage = {
 
   // === Downloaded Skills (all skills in this store are downloaded) ===
   getDownloadedIds(): string[] {
-    return this.getCachedSkills().map(s => s.id)
+    return this.getCachedSkills().map((s) => s.id)
   },
   getDownloadedSet(): Set<string> {
     return new Set(this.getDownloadedIds())
   },
   addDownloadedId(id: string): void {
     const skills = this.getCachedSkills()
-    if (skills.some(s => s.id === id)) return
+    if (skills.some((s) => s.id === id)) return
     skills.push({ id, name: id, description: '', author: '', tags: [], source: 'local' })
     invalidateCachedSkills()
     dbSet(KEYS.DOWNLOADED_SKILLS, skills)
   },
   removeDownloadedId(id: string): void {
     const skills = this.getCachedSkills()
-    const filtered = skills.filter(s => s.id !== id)
+    const filtered = skills.filter((s) => s.id !== id)
     if (filtered.length === skills.length) return
     invalidateCachedSkills()
     dbSet(KEYS.DOWNLOADED_SKILLS, filtered)
   },
   isDownloaded(id: string): boolean {
-    return this.getCachedSkills().some(s => s.id === id)
+    return this.getCachedSkills().some((s) => s.id === id)
   },
   enrichDownloadedDescriptions(): boolean {
     let changed = false
-    const userData = window.ztools.getPath('userData')
+    const _userData = window.ztools.getPath('userData')
     const cached = this.getCachedSkills()
     for (const skill of cached) {
       try {
-        const skillDir = window.services.pathJoin(userData, 'skills-repo', skill.id)
+        const skillDir = getSkillsRepoDir(skill.id)
         const files = window.services.readDir(skillDir)
         const skillMd = files.find((f: any) => f.name === 'SKILL.md' || f.name === 'skill.md')
         if (skillMd) {
@@ -513,7 +564,7 @@ export const storage = {
             continue
           }
         }
-      } catch { }
+      } catch {}
       const cleaned = cleanDescription(skill.description)
       if (cleaned !== skill.description) {
         skill.description = cleaned || ''
@@ -530,13 +581,20 @@ export const storage = {
     const cached = this.getCachedSkills()
 
     // 已下载的技能：目录必须存在，否则移除
-    const alive = cached.filter(skill => {
-      const dir = window.services.pathJoin(repoRoot, skill.id)
-      return window.services.pathExists(dir)
+    const alive = cached.filter((skill) => {
+      try {
+        const dir = getSkillsRepoDirUnder(repoRoot, skill.id)
+        return window.services.pathExists(dir)
+      } catch {
+        return false
+      }
     })
-    if (alive.length !== cached.length) { dbSet(KEYS.DOWNLOADED_SKILLS, alive); invalidateCachedSkills() }
+    if (alive.length !== cached.length) {
+      dbSet(KEYS.DOWNLOADED_SKILLS, alive)
+      invalidateCachedSkills()
+    }
 
-    const aliveIds = new Set(alive.map(s => s.id))
+    const aliveIds = new Set(alive.map((s) => s.id))
     const aliveDistributeRecords = this.getDistributeRecords().filter((r) => aliveIds.has(r.skillId))
     if (aliveDistributeRecords.length !== this.getDistributeRecords().length) dbSet(KEYS.DISTRIBUTED_SKILLS, aliveDistributeRecords)
   },
@@ -553,7 +611,10 @@ export const storage = {
         changed = true
       }
     }
-    if (changed) { dbSet(KEYS.DOWNLOADED_SKILLS, skills); invalidateCachedSkills() }
+    if (changed) {
+      dbSet(KEYS.DOWNLOADED_SKILLS, skills)
+      invalidateCachedSkills()
+    }
   },
 
   // === Registered Projects ===
@@ -587,9 +648,14 @@ export const storage = {
   },
 
   // === Translation Cache (keyed by file hash) ===
-  _readTranslationCache(): Record<string, { sourceContent?: string; translatedContent?: string; translatedDesc?: string; mode?: string; updatedAt: number; skillName?: string }> {
+  _readTranslationCache(): Record<
+    string,
+    { sourceContent?: string; translatedContent?: string; translatedDesc?: string; mode?: string; updatedAt: number; skillName?: string }
+  > {
     let cache: Record<string, any> = {}
-    try { cache = dbGet<Record<string, any>>(KEYS.TRANSLATIONS) || {} } catch {
+    try {
+      cache = dbGet<Record<string, any>>(KEYS.TRANSLATIONS) || {}
+    } catch {
       console.warn('[storage] failed to read translation cache')
     }
     return cache
@@ -597,11 +663,21 @@ export const storage = {
   _writeTranslationCache(cache: Record<string, any>): void {
     dbSet(KEYS.TRANSLATIONS, cache)
   },
-  getTranslationByHash(hash: string): { sourceContent?: string; translatedContent?: string; translatedDesc?: string; mode?: string; updatedAt: number; skillName?: string } | null {
+  getTranslationByHash(hash: string): {
+    sourceContent?: string
+    translatedContent?: string
+    translatedDesc?: string
+    mode?: string
+    updatedAt: number
+    skillName?: string
+  } | null {
     const cache = this._readTranslationCache()
     return cache[hash] || null
   },
-  saveTranslationByHash(hash: string, data: { sourceContent?: string; translatedContent?: string; translatedDesc?: string; mode?: string; skillName?: string }): void {
+  saveTranslationByHash(
+    hash: string,
+    data: { sourceContent?: string; translatedContent?: string; translatedDesc?: string; mode?: string; skillName?: string },
+  ): void {
     const cache = this._readTranslationCache()
     const existing = cache[hash] || {}
     cache[hash] = { ...existing, ...data, updatedAt: Date.now() }
@@ -627,7 +703,10 @@ export const storage = {
     }
     this._writeTranslationCache(cache)
   },
-  getTranslationCaches(): Record<string, { sourceContent?: string; translatedContent?: string; translatedDesc?: string; mode?: string; updatedAt: number; skillName?: string }> {
+  getTranslationCaches(): Record<
+    string,
+    { sourceContent?: string; translatedContent?: string; translatedDesc?: string; mode?: string; updatedAt: number; skillName?: string }
+  > {
     return this._readTranslationCache()
   },
   // 描述翻译写入同一缓存（与内容翻译共用 hash key）
