@@ -1,6 +1,13 @@
 import type { Skill } from '../types'
-import type { SkillIdentity, SkillSourceLocation } from '../types'
-import { STORE_ICONS, getStoreIconFromSource, isProviderIcon, isStoreIconKey } from '../data/store-icons'
+import {
+  STORE_ICONS,
+  ICON_FOLDER,
+  ICON_GITHUB,
+  ICON_MARKETPLACE,
+  ICON_WELL_KNOWN,
+  getStoreIconFromSource,
+} from '../data/store-icons'
+import { parseIcon } from '../icons'
 import { storage } from './storage'
 
 export interface SourceInfo {
@@ -11,29 +18,17 @@ export interface SourceInfo {
 }
 
 export function isSvgIcon(val: string | undefined | null): boolean {
-  return !!val && val.startsWith('<svg')
+  return parseIcon(val).kind === 'inline-svg'
 }
 
 export function isImageUrl(val: string | undefined | null): boolean {
-  return (
-    !!val &&
-    !val.startsWith('<svg') &&
-    !val.startsWith('data:') &&
-    !isProviderIcon(val) &&
-    !isStoreIconKey(val) &&
-    (val.startsWith('http') || val.includes('/'))
-  )
+  if (!val) return false
+  const p = parseIcon(val)
+  if (p.kind !== 'src') return false
+  return !val.startsWith('data:')
 }
 
-export function getSourceInfo(skill: Skill, registry?: Map<string, SkillIdentity>): SourceInfo {
-  if (registry) {
-    const identity = registry.get(skill.canonicalId || skill.id)
-    if (identity && identity.sources.length > 1) {
-      const labels = identity.sources.map((s) => getSourceLabelFromLocation(s))
-      const uniqueLabels = [...new Set(labels)]
-      return { label: uniqueLabels.join(' · '), icon: 'multi', color: '#8b5cf6', bg: '#ede9fe' }
-    }
-  }
+export function getSourceInfo(skill: Skill): SourceInfo {
   if (skill.storeSourceId) {
     if (skill.storeSourceId === 'skills-sh') {
       return { label: 'skills.sh', icon: STORE_ICONS['skills-sh'], color: '#16a34a', bg: '#dcfce7' }
@@ -45,7 +40,7 @@ export function getSourceInfo(skill: Skill, registry?: Map<string, SkillIdentity
       return { label: 'Codex', icon: STORE_ICONS.codex, color: '#2563eb', bg: '#dbeafe' }
     }
     if (skill.storeSourceId.startsWith('agent:')) {
-      return { label: '本地', icon: 'folder', color: '#8b5cf6', bg: '#ede9fe' }
+      return { label: '本地', icon: ICON_FOLDER, color: '#8b5cf6', bg: '#ede9fe' }
     }
     const customStore = storage.getStoreSources().find((s) => s.id === skill.storeSourceId)
     if (customStore) {
@@ -57,10 +52,10 @@ export function getSourceInfo(skill: Skill, registry?: Map<string, SkillIdentity
     return { label: 'skills.sh', icon: STORE_ICONS['skills-sh'], color: '#16a34a', bg: '#dcfce7' }
   }
   if (skill.source === 'marketplace-json') {
-    return { label: 'Marketplace', icon: 'package', color: '#8b5cf6', bg: '#ede9fe' }
+    return { label: 'Marketplace', icon: ICON_MARKETPLACE, color: '#8b5cf6', bg: '#ede9fe' }
   }
   if (skill.source === 'well-known-index') {
-    return { label: 'Well-Known', icon: 'globe', color: '#0ea5e9', bg: '#e0f2fe' }
+    return { label: 'Well-Known', icon: ICON_WELL_KNOWN, color: '#0ea5e9', bg: '#e0f2fe' }
   }
   if (skill.repo) {
     if (skill.repo === 'anthropics/skills') {
@@ -69,33 +64,10 @@ export function getSourceInfo(skill: Skill, registry?: Map<string, SkillIdentity
     if (skill.repo === 'openai/skills') {
       return { label: 'Codex', icon: STORE_ICONS.codex, color: '#2563eb', bg: '#dbeafe' }
     }
-    return { label: 'GitHub', icon: 'git', color: '#6b7280', bg: '#f3f4f6' }
+    return { label: 'GitHub', icon: ICON_GITHUB, color: '#6b7280', bg: '#f3f4f6' }
   }
   if (skill.source === 'local') {
-    return { label: '本地', icon: 'folder', color: '#8b5cf6', bg: '#ede9fe' }
+    return { label: '本地', icon: ICON_FOLDER, color: '#8b5cf6', bg: '#ede9fe' }
   }
-  return { label: '本地', icon: 'folder', color: '#8b5cf6', bg: '#ede9fe' }
-}
-
-function getSourceLabelFromLocation(source: SkillSourceLocation): string {
-  switch (source.type) {
-    case 'github':
-      return 'GitHub'
-    case 'skills-sh':
-      return 'skills.sh'
-    case 'local':
-      return source.platformId ? `Agent (${source.platformId})` : 'Agent'
-    case 'local-dir':
-      return source.projectId ? `Project` : 'Local'
-    case 'marketplace-json':
-      return 'Marketplace'
-    case 'well-known-index':
-      return 'Well-Known'
-    case 'git-repo':
-      return 'Git Repo'
-    case 'builtin':
-      return 'Built-in'
-    default:
-      return source.type
-  }
+  return { label: '本地', icon: ICON_FOLDER, color: '#8b5cf6', bg: '#ede9fe' }
 }

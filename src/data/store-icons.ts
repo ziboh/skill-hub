@@ -1,14 +1,7 @@
 import skillsShIcon from '../assets/platforms/skills-sh-favicon.ico'
 import claudeIcon from '../assets/platforms/claude.png'
 import codexIcon from '../assets/platforms/codex.png'
-import { AVAILABLE_ICONS } from './ai-providers'
-export {
-  ICON_GITHUB,
-  ICON_MARKETPLACE,
-  ICON_WELL_KNOWN,
-  ICON_FOLDER,
-  ICON_STORE,
-} from '../icons/store-default-svgs'
+import { parseIcon, getIconAsset, resolveIconKey } from '../icons'
 import {
   ICON_GITHUB,
   ICON_MARKETPLACE,
@@ -17,6 +10,9 @@ import {
   ICON_STORE,
 } from '../icons/store-default-svgs'
 
+export { ICON_GITHUB, ICON_MARKETPLACE, ICON_WELL_KNOWN, ICON_FOLDER, ICON_STORE }
+
+/** 供 source-info 等直接当 img src 使用 */
 export const STORE_ICONS: Record<string, string> = {
   'skills-sh': skillsShIcon,
   claude: claudeIcon,
@@ -34,19 +30,7 @@ export const STORE_TYPE_DEFAULT_ICONS: Record<string, string> = {
 }
 
 export function getDefaultStoreIcon(type: string): string {
-  switch (type) {
-    case 'git-repo':
-    case 'github':
-      return ICON_GITHUB
-    case 'marketplace-json':
-      return ICON_MARKETPLACE
-    case 'well-known-index':
-      return ICON_WELL_KNOWN
-    case 'local-dir':
-      return ICON_FOLDER
-    default:
-      return ICON_STORE
-  }
+  return STORE_TYPE_DEFAULT_ICONS[type] || ICON_STORE
 }
 
 export function getStoreIconFromSource(source: { type: string; icon?: string }): string {
@@ -56,28 +40,42 @@ export function getStoreIconFromSource(source: { type: string; icon?: string }):
 
 export type IconRenderType = 'svg' | 'url' | 'data-uri' | 'local-path' | 'provider-icon' | 'store-icon'
 
+export function getIconRenderType(icon?: string): IconRenderType {
+  const k = parseIcon(icon).kind
+  if (k === 'inline-svg' || k === 'empty') return 'svg'
+  if (k === 'src') {
+    if (icon!.startsWith('data:')) return 'data-uri'
+    return 'url'
+  }
+  if (k === 'local') return 'local-path'
+  if (icon?.startsWith('store:') || resolveIconKey(icon!)?.startsWith('store:')) return 'store-icon'
+  if (getIconAsset(icon!) || resolveIconKey(icon!)) return 'provider-icon'
+  return 'local-path'
+}
+
 export function isProviderIcon(name: string): boolean {
-  return AVAILABLE_ICONS.includes(name)
+  if (!name) return false
+  const p = parseIcon(name)
+  if (p.kind !== 'key') return false
+  const full = resolveIconKey(p.value)
+  return !!full && (full.startsWith('providers:') || full.startsWith('platforms:'))
 }
 
 export function isStoreIconKey(name: string): boolean {
-  if (!name.startsWith('store:')) return false
+  if (!name?.startsWith('store:')) return false
+  if (getIconAsset(name)) return true
   const key = name.slice(6)
   return key in STORE_ICONS || key in STORE_TYPE_DEFAULT_ICONS
 }
 
 export function resolveStoreIcon(name: string): string | undefined {
-  if (!name.startsWith('store:')) return undefined
+  if (!name?.startsWith('store:')) return undefined
+  const asset = getIconAsset(name)
+  if (asset) {
+    if (asset.type === 'inline-svg') return asset.svg
+    if (asset.type === 'src') return asset.src
+    return undefined
+  }
   const key = name.slice(6)
   return STORE_ICONS[key] || STORE_TYPE_DEFAULT_ICONS[key]
-}
-
-export function getIconRenderType(icon?: string): IconRenderType {
-  if (!icon) return 'svg'
-  if (icon.startsWith('<svg')) return 'svg'
-  if (icon.startsWith('data:')) return 'data-uri'
-  if (icon.startsWith('http://') || icon.startsWith('https://') || icon.startsWith('/')) return 'url'
-  if (isStoreIconKey(icon)) return 'store-icon'
-  if (isProviderIcon(icon)) return 'provider-icon'
-  return 'local-path'
 }
