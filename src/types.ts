@@ -26,26 +26,7 @@ export interface Skill {
   installUrl?: string
   downloaded?: boolean
   isFavorited?: boolean
-}
-
-export interface SkillSourceLocation {
-  type: SkillSource
-  location: string
-  platformId?: string
-  projectId?: string
-  installedAt: string
-}
-
-export interface SkillIdentity {
-  canonicalId: string
-  name: string
-  description: string
-  author: string
-  tags: string[]
-  sources: SkillSourceLocation[]
-  primarySource?: SkillSourceLocation
-  createdAt: string
-  updatedAt: string
+  downloadedAt?: string
 }
 
 export interface PlatformInfo {
@@ -88,12 +69,20 @@ export interface StoreSource {
 export type ThemeMode = 'light' | 'dark' | 'auto'
 export type FontSize = 'small' | 'medium' | 'large'
 export type MotionPreference = 'off' | 'reduced' | 'standard'
+export type MySkillsSortMode = 'default' | 'name-asc' | 'name-desc' | 'recent-desc' | 'recent-asc'
 
 export interface MorandiTheme {
   id: string
   name: string
   hue: number
   saturation: number
+}
+
+export interface UserIconEntry {
+  id: string
+  path: string
+  name: string
+  createdAt: string
 }
 
 export const MORANDI_THEMES: MorandiTheme[] = [
@@ -127,6 +116,7 @@ export interface AppSettings {
   resumeTranslation: boolean
   showDataManagement: boolean
   translationExtraBody?: Record<string, any>
+  mySkillsSort?: MySkillsSortMode
 }
 
 export interface ApiKeyEntry {

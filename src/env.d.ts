@@ -70,7 +70,8 @@ interface Services {
 
   createSymlink: (target: string, linkPath: string) => string
 
-  downloadFile: (url: string, token?: string) => Promise<any>
+  /** HTTP(S) download; returns ArrayBuffer (zip/binary) or parsed JSON for GitHub API. */
+  downloadFile: (url: string, token?: string) => Promise<ArrayBuffer | Record<string, unknown>>
   extractBufferZip: (buffer: ArrayBuffer, dest: string) => string
 
   scanForSkills: (rootDir: string) => SkillScanResult[]
@@ -81,8 +82,8 @@ interface Services {
 
   getLatestCommitSha: (repo: string, branch?: string, token?: string) => Promise<string | null>
   getRemoteSkillTree: (repo: string, skillPath: string, branch?: string, token?: string) => Promise<{ path: string; size: number }[] | null>
-  saveSkillMeta: (skillDir: string, meta: { commitSha: string | null; checkedAt: string; files: { path: string; size: number }[] }) => void
-  loadSkillMeta: (skillDir: string) => { commitSha: string | null; checkedAt: string; files: { path: string; size: number }[] } | null
+  saveSkillMeta: (skillDir: string, meta: SkillMeta) => void
+  loadSkillMeta: (skillDir: string) => SkillMeta | null
   buildLocalFileManifest: (skillDir: string) => { path: string; size: number }[]
   checkSkillUpdateFull: (
     repo: string,
@@ -96,7 +97,15 @@ interface Services {
   getStateDir: () => string
 
   saveIconFile: (sourceFilePath: string) => string
+  writeSvgFile: (svgContent: string, fileName?: string) => string
+  listIconFiles: () => string[]
   readFileAsDataUri: (filePath: string) => string | null
+}
+
+interface SkillMeta {
+  commitSha: string | null
+  checkedAt: string
+  files: { path: string; size: number }[]
 }
 
 declare global {

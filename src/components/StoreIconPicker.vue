@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import ProviderIcon from './ProviderIcon.vue'
 import { AVAILABLE_ICONS } from '../data/ai-providers'
 import { STORE_TYPE_DEFAULT_ICONS } from '../data/store-icons'
+import { storage } from '../utils/storage'
+import type { UserIconEntry } from '../types'
 
 const props = withDefaults(
   defineProps<{
@@ -19,10 +21,11 @@ const emit = defineEmits<{
   'update:modelValue': [value: string]
 }>()
 
-const activeTab = ref<'library' | 'upload' | 'url'>('library')
+type Tab = 'library' | 'my-icons' | 'url'
+const activeTab = ref<Tab>('library')
 const searchQuery = ref('')
 const urlInput = ref('')
-const localFilePath = ref('')
+const userIcons = ref<UserIconEntry[]>([])
 
 const filteredIcons = computed(() => {
   const q = searchQuery.value.toLowerCase().trim()
@@ -31,6 +34,18 @@ const filteredIcons = computed(() => {
 })
 
 const previewIcon = computed(() => props.modelValue || props.defaultIcon || STORE_TYPE_DEFAULT_ICONS['git-repo'])
+
+function loadUserIcons() {
+  userIcons.value = storage.getUserIcons()
+}
+
+onMounted(() => {
+  loadUserIcons()
+})
+
+watch(activeTab, (tab) => {
+  if (tab === 'my-icons') loadUserIcons()
+})
 
 function selectIcon(name: string) {
   emit('update:modelValue', name)
@@ -47,7 +62,7 @@ function applyUrl() {
   }
 }
 
-async function browseLocalFile() {
+async function importIcon() {
   const dialog = window.ztools?.showOpenDialog
   if (!dialog) return
   const files = dialog({
@@ -58,38 +73,45 @@ async function browseLocalFile() {
   if (!files?.length) return
   const filePath = files[0]
   const ext = filePath.split('.').pop()?.toLowerCase()
+  const name = filePath.split(/[\\/]/).pop() || filePath
 
+  let savedPath: string
   if (ext === 'svg') {
     const content = window.services.readFile(filePath)
-    if (content) {
-      emit('update:modelValue', content)
-      localFilePath.value = filePath
-    }
+    if (!content) return
+    savedPath = window.services.writeSvgFile(content)
   } else {
-    const savedPath = window.services.saveIconFile(filePath)
-    emit('update:modelValue', savedPath)
-    localFilePath.value = savedPath
+    savedPath = window.services.saveIconFile(filePath)
   }
+
+  storage.addUserIcon(savedPath, name)
+  loadUserIcons()
+  emit('update:modelValue', savedPath)
+}
+
+function deleteUserIcon(id: string) {
+  const icon = storage.findUserIconById(id)
+  if (!icon) return
+  storage.removeUserIcon(id)
+  if (props.modelValue === icon.path) {
+    emit('update:modelValue', '')
+  }
+  if (window.services?.removeFile) {
+    window.services.removeFile(icon.path)
+  }
+  loadUserIcons()
 }
 
 function clearIcon() {
-  const oldValue = props.modelValue
   emit('update:modelValue', '')
   urlInput.value = ''
-  localFilePath.value = ''
-  if (oldValue && window.services?.removeFile) {
-    const iconsDir = window.ztools?.getPath?.('userData')
-    if (iconsDir && oldValue.startsWith(iconsDir)) {
-      window.services.removeFile(oldValue)
-    }
-  }
 }
 </script>
 
 <template>
   <div class="store-icon-picker">
     <div class="sip-header">
-      <span class="sip-label">商店图标</span>
+      <span class="sip-label">图标</span>
       <button class="sip-clear" :class="{ hidden: !modelValue }" title="清除图标" @click="clearIcon">
         <svg
           width="12"
@@ -124,13 +146,13 @@ function clearIcon() {
         </svg>
         图标库
       </button>
-      <button :class="['sip-tab', { active: activeTab === 'upload' }]" @click="activeTab = 'upload'">
+      <button :class="['sip-tab', { active: activeTab === 'my-icons' }]" @click="activeTab = 'my-icons'">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
           <polyline points="17 8 12 3 7 8" />
           <line x1="12" y1="3" x2="12" y2="15" />
         </svg>
-        本地导入
+        我的导入
       </button>
       <button :class="['sip-tab', { active: activeTab === 'url' }]" @click="activeTab = 'url'">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -228,24 +250,40 @@ function clearIcon() {
         </div>
       </template>
 
-      <!-- 本地导入 -->
-      <template v-if="activeTab === 'upload'">
-        <div class="sip-upload">
-          <button class="sip-upload-btn" @click="browseLocalFile">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <!-- 我的导入 -->
+      <template v-if="activeTab === 'my-icons'">
+        <div class="sip-import-actions">
+          <button class="sip-upload-btn" @click="importIcon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
               <polyline points="17 8 12 3 7 8" />
               <line x1="12" y1="3" x2="12" y2="15" />
             </svg>
-            <span>浏览文件</span>
+            <span>导入图标</span>
           </button>
-          <div class="sip-upload-hint">支持 SVG、PNG、JPG、GIF、ICO 格式</div>
-          <div v-if="localFilePath" class="sip-upload-path">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-            </svg>
-            {{ localFilePath }}
+        </div>
+        <div v-if="userIcons.length" class="sip-grid">
+          <div
+            v-for="icon in userIcons"
+            :key="icon.id"
+            class="sip-grid-item sip-user-icon"
+            :class="{ active: modelValue === icon.path }"
+            :title="icon.name"
+            @click="selectIcon(icon.path)"
+          >
+            <ProviderIcon :icon="icon.path" :size="24" />
+            <span class="sip-grid-label">{{ icon.name }}</span>
+            <button class="sip-user-icon-del" title="删除" @click.stop="deleteUserIcon(icon.id)">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
           </div>
+        </div>
+        <div v-else class="sip-empty">
+          <span>还没有导入的图标</span>
+          <span class="sip-empty-hint">点击上方按钮导入本地图片文件</span>
         </div>
       </template>
 
@@ -336,24 +374,6 @@ function clearIcon() {
   color: hsl(var(--foreground));
 }
 
-.sip-preview-svg {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: hsl(var(--foreground));
-}
-
-.sip-preview-svg :deep(svg) {
-  width: 22px;
-  height: 22px;
-}
-
-.sip-preview-img {
-  width: 28px;
-  height: 28px;
-  object-fit: contain;
-}
-
 .sip-preview-hint {
   font-size: 12px;
   color: hsl(var(--muted-foreground));
@@ -437,6 +457,7 @@ function clearIcon() {
   border-radius: 8px;
   cursor: pointer;
   transition: background 0.1s;
+  position: relative;
 }
 
 .sip-grid-item:hover {
@@ -459,45 +480,22 @@ function clearIcon() {
   white-space: nowrap;
 }
 
-.sip-grid-img {
-  width: 24px;
-  height: 24px;
-  object-fit: contain;
-}
-
-.sip-grid-svg {
+.sip-import-actions {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  color: hsl(var(--foreground));
-}
-
-.sip-grid-svg :deep(svg) {
-  width: 20px;
-  height: 20px;
-}
-
-.sip-upload {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  padding: 20px;
+  margin-bottom: 8px;
 }
 
 .sip-upload-btn {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 20px;
-  font-size: 13px;
+  padding: 8px 16px;
+  font-size: 12px;
   font-weight: 500;
   color: hsl(var(--primary));
   background: hsl(var(--primary) / 0.08);
   border: 1.5px dashed hsl(var(--primary) / 0.3);
-  border-radius: 10px;
+  border-radius: 8px;
   cursor: pointer;
   transition: all 0.15s;
 }
@@ -507,25 +505,42 @@ function clearIcon() {
   border-color: hsl(var(--primary) / 0.5);
 }
 
-.sip-upload-hint {
-  font-size: 11px;
-  color: hsl(var(--muted-foreground));
-}
-
-.sip-upload-path {
+.sip-user-icon-del {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 16px;
+  height: 16px;
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 11px;
+  justify-content: center;
+  background: hsl(var(--destructive));
+  color: white;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.sip-user-icon:hover .sip-user-icon-del {
+  opacity: 1;
+}
+
+.sip-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 24px 16px;
+  font-size: 12px;
   color: hsl(var(--muted-foreground));
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding: 6px 10px;
-  background: hsl(var(--card));
-  border-radius: 6px;
-  border: 1px solid hsl(var(--border) / 0.5);
+  text-align: center;
+}
+
+.sip-empty-hint {
+  font-size: 11px;
+  opacity: 0.6;
 }
 
 .sip-url {
