@@ -17,6 +17,7 @@ const props = withDefaults(
 )
 
 const resolved = ref<ResolvedIcon>({ mode: 'empty' })
+const isStoreIcon = ref(false)
 let seq = 0
 
 watch(
@@ -27,6 +28,7 @@ watch(
       icon && typeof icon === 'object' && 'kind' in icon
         ? (icon as IconValue)
         : parseIcon(icon as string | undefined)
+    isStoreIcon.value = typeof icon === 'string' && (icon?.startsWith('store:') || false)
     const next = await resolveIcon(value)
     if (my === seq) resolved.value = next
   },
@@ -40,7 +42,7 @@ watch(
     class="pi-avatar"
     :style="{ width: size + 'px', height: size + 'px', minWidth: size + 'px' }"
   >
-    <span v-if="resolved.mode === 'svg'" v-html="resolved.svg" class="pi-avatar-icon" />
+    <span v-if="resolved.mode === 'svg'" v-html="resolved.svg" :class="['pi-avatar-icon', { 'pi-store-icon': isStoreIcon }]" />
     <img v-else-if="resolved.mode === 'img'" :src="resolved.src" class="pi-avatar-img" />
     <span v-else class="pi-fallback">{{ fallback }}</span>
   </span>
