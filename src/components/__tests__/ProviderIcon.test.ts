@@ -1,6 +1,12 @@
-import { describe, test, expect } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { describe, test, expect, vi } from 'vitest'
+import { mount, flushPromises } from '@vue/test-utils'
 import ProviderIcon from '../ProviderIcon.vue'
+
+async function settleIcons() {
+  await flushPromises()
+  await vi.dynamicImportSettled()
+  await flushPromises()
+}
 
 describe('ProviderIcon', () => {
   test('renders avatar variant by default', () => {
@@ -25,18 +31,21 @@ describe('ProviderIcon', () => {
     expect(avatar.attributes('style')).toContain('height: 32px')
   })
 
-  test('with known icon renders avatar-icon', () => {
+  test('with known icon renders avatar-icon', async () => {
     const wrapper = mount(ProviderIcon, { props: { icon: 'openai' } })
+    await settleIcons()
     expect(wrapper.find('.pi-avatar-icon').exists()).toBe(true)
   })
 
-  test('with unknown icon name shows fallback', () => {
+  test('with unknown icon name shows fallback', async () => {
     const wrapper = mount(ProviderIcon, { props: { icon: 'nonexistent' } })
+    await settleIcons()
     expect(wrapper.find('.pi-fallback').exists()).toBe(true)
   })
 
-  test('mono variant with known icon renders pi-mono', () => {
+  test('mono variant with known icon renders pi-mono', async () => {
     const wrapper = mount(ProviderIcon, { props: { icon: 'openai', variant: 'mono' } })
+    await settleIcons()
     expect(wrapper.find('.pi-mono').exists()).toBe(true)
   })
 })
