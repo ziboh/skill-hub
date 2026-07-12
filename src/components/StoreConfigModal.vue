@@ -4,6 +4,7 @@ import { storage } from '../utils/storage'
 import type { StoreSource, StoreSourceType } from '../types'
 import { getDefaultStoreIcon, ICON_GITHUB, ICON_MARKETPLACE, ICON_WELL_KNOWN, ICON_FOLDER } from '../data/store-icons'
 import StoreIconPicker from './StoreIconPicker.vue'
+import ProviderIcon from './ProviderIcon.vue'
 import { KeyShowToast } from '../inject-keys'
 import { validateStoreUrl } from '../utils/validate-store'
 
@@ -148,7 +149,9 @@ async function handleSave() {
               @click="sourceType = option.value"
             >
               <div class="type-card-header">
-                <span class="type-icon" v-html="option.icon" />
+                <span class="type-icon">
+                  <ProviderIcon :icon="option.icon" :size="18" />
+                </span>
                 <span class="type-label">{{ option.label }}</span>
               </div>
               <div class="type-hint">

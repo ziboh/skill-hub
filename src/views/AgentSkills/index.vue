@@ -14,7 +14,6 @@ import { detectPlatforms, getPlatformPath, defaultPlatforms } from '../../data/p
 import { storage } from '../../utils/storage'
 import { isChineseContent } from '../../utils/translate'
 import { useSettings } from '../../composables/useSettings'
-import {} from '../../utils/source-info'
 import { normalizePath } from '../../utils/path'
 import type { PlatformInfo, Skill, SkillScanResult } from '../../types'
 import ProviderIcon from '../../components/ProviderIcon.vue'

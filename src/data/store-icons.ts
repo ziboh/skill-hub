@@ -38,8 +38,10 @@ export function getStoreIconFromSource(source: { type: string; icon?: string }):
   return getDefaultStoreIcon(source.type)
 }
 
+/** @deprecated 使用 parseIcon / AppIcon，勿在业务 template 分支渲染 */
 export type IconRenderType = 'svg' | 'url' | 'data-uri' | 'local-path' | 'provider-icon' | 'store-icon'
 
+/** @deprecated 使用 parseIcon(icon).kind */
 export function getIconRenderType(icon?: string): IconRenderType {
   const k = parseIcon(icon).kind
   if (k === 'inline-svg' || k === 'empty') return 'svg'
@@ -53,6 +55,7 @@ export function getIconRenderType(icon?: string): IconRenderType {
   return 'local-path'
 }
 
+/** @deprecated 使用 AppIcon / resolveIconKey */
 export function isProviderIcon(name: string): boolean {
   if (!name) return false
   const p = parseIcon(name)
@@ -61,6 +64,7 @@ export function isProviderIcon(name: string): boolean {
   return !!full && (full.startsWith('providers:') || full.startsWith('platforms:'))
 }
 
+/** @deprecated 使用 AppIcon / getIconAsset */
 export function isStoreIconKey(name: string): boolean {
   if (!name?.startsWith('store:')) return false
   if (getIconAsset(name)) return true
@@ -68,6 +72,7 @@ export function isStoreIconKey(name: string): boolean {
   return key in STORE_ICONS || key in STORE_TYPE_DEFAULT_ICONS
 }
 
+/** @deprecated 使用 AppIcon；module 资产无法同步返回 */
 export function resolveStoreIcon(name: string): string | undefined {
   if (!name?.startsWith('store:')) return undefined
   const asset = getIconAsset(name)

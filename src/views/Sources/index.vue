@@ -236,7 +236,9 @@ function getSourceLabel(type: string): string {
             @click="sourceType = option.value"
           >
             <div class="type-card-header">
-              <span class="type-icon" v-html="option.icon" />
+              <span class="type-icon">
+                <ProviderIcon :icon="option.icon" :size="18" />
+              </span>
               <span class="type-label">{{ option.label }}</span>
             </div>
             <div class="type-hint">

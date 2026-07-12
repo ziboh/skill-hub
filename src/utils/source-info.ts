@@ -7,7 +7,6 @@ import {
   ICON_WELL_KNOWN,
   getStoreIconFromSource,
 } from '../data/store-icons'
-import { parseIcon } from '../icons'
 import { storage } from './storage'
 
 export interface SourceInfo {
@@ -15,17 +14,6 @@ export interface SourceInfo {
   icon: string
   color: string
   bg: string
-}
-
-export function isSvgIcon(val: string | undefined | null): boolean {
-  return parseIcon(val).kind === 'inline-svg'
-}
-
-export function isImageUrl(val: string | undefined | null): boolean {
-  if (!val) return false
-  const p = parseIcon(val)
-  if (p.kind !== 'src') return false
-  return !val.startsWith('data:')
 }
 
 export function getSourceInfo(skill: Skill): SourceInfo {
