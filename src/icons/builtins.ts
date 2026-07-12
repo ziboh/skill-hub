@@ -6,6 +6,24 @@ import {
   ICON_FOLDER,
   ICON_STORE,
 } from './store-default-svgs'
+import {
+  ICON_OPENAI,
+  ICON_GITHUB as SKILL_ICON_GITHUB,
+  ICON_GITHUB_ACTIONS,
+  ICON_PLAYWRIGHT,
+  ICON_HTML5,
+  ICON_DOCKER,
+  ICON_JUPYTER,
+  ICON_LINEAR,
+  ICON_NOTION,
+  ICON_SENTRY,
+  ICON_VERCEL,
+  ICON_NETLIFY,
+  ICON_CLOUDFLARE,
+  ICON_FIGMA,
+  ICON_LOCK,
+  ICON_SHEETS,
+} from './skill-builtin-assets'
 import skillsShIcon from '../assets/platforms/skills-sh-favicon.ico'
 import claudeIcon from '../assets/platforms/claude.png'
 import codexIcon from '../assets/platforms/codex.png'
@@ -89,3 +107,51 @@ registerAlias('kilo', 'platforms:kilo-light')
 registerAlias('codebuddy', 'platforms:codebuddy-light')
 registerAlias('trae-cn', 'platforms:trae')
 registerAlias('skills-sh', 'platforms:skills-sh')
+
+// Skill builtin icons (namespace skill:slug) — lookup still returns data-uri
+const skillBuiltinIcons: Record<string, string> = {
+  openai: ICON_OPENAI,
+  github: SKILL_ICON_GITHUB,
+  'github-actions': ICON_GITHUB_ACTIONS,
+  playwright: ICON_PLAYWRIGHT,
+  html5: ICON_HTML5,
+  docker: ICON_DOCKER,
+  jupyter: ICON_JUPYTER,
+  linear: ICON_LINEAR,
+  notion: ICON_NOTION,
+  sentry: ICON_SENTRY,
+  vercel: ICON_VERCEL,
+  netlify: ICON_NETLIFY,
+  cloudflare: ICON_CLOUDFLARE,
+  figma: ICON_FIGMA,
+  lock: ICON_LOCK,
+  sheets: ICON_SHEETS,
+  // skill slugs used by registries
+  spreadsheet: ICON_SHEETS,
+  yeet: SKILL_ICON_GITHUB,
+  'gh-fix-ci': ICON_GITHUB_ACTIONS,
+  'gh-address-comments': SKILL_ICON_GITHUB,
+  'develop-web-game': ICON_HTML5,
+  screenshot: ICON_OPENAI,
+  'docker-compose': ICON_DOCKER,
+  imagegen: ICON_OPENAI,
+  transcribe: ICON_OPENAI,
+  'jupyter-notebook': ICON_JUPYTER,
+  'notion-knowledge-capture': ICON_NOTION,
+  'vercel-deploy': ICON_VERCEL,
+  'netlify-deploy': ICON_NETLIFY,
+  'cloudflare-deploy': ICON_CLOUDFLARE,
+  'security-best-practices': ICON_LOCK,
+  'webapp-testing': SKILL_ICON_GITHUB,
+  pptx: ICON_OPENAI,
+  pdf: ICON_OPENAI,
+  docx: ICON_OPENAI,
+  xlsx: ICON_OPENAI,
+  'pptx-generator': ICON_OPENAI,
+  'mcp-builder': ICON_OPENAI,
+  'skill-creator': ICON_OPENAI,
+}
+
+for (const [id, src] of Object.entries(skillBuiltinIcons)) {
+  registerIcon('skill', id, { type: 'src', src })
+}
