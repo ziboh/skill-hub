@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { inject, ref, computed, unref, onDeactivated } from 'vue'
+import { inject, ref, computed, unref, onDeactivated, watch } from 'vue'
 import {
   KeyShowToast,
   KeySelectedProject,
@@ -15,6 +15,7 @@ import { isChineseContent } from '../../utils/translate'
 import { useSettings } from '../../composables/useSettings'
 import { useTheme } from '../../composables/useTheme'
 import { useProjectState } from '../../composables/useProjectState'
+import { useBatchSelection } from '../../composables/useBatchSelection'
 import { normalizePath } from '../../utils/path'
 import type { Skill, SkillScanResult } from '../../types'
 import { defaultPlatforms, getPlatformPath } from '../../data/platforms'
@@ -22,11 +23,11 @@ import SkillCard from '../../components/SkillCard.vue'
 import DeployModal from '../../components/DeployModal.vue'
 import QuickSwitcher from '../../components/QuickSwitcher.vue'
 import ConfirmModal from '../../components/ConfirmModal.vue'
-import { loadRegistry, registerSkillFromProject, removeFromRegistry } from '../../utils/skill-registry'
 import { getAvatarColor } from '../../utils/color'
 import { cacheVersion as translationCacheVersion } from '../../composables/useTranslationQueue'
 import { getSkillsRepoDir } from '../../utils/skill-path'
 import { safeRemovePath } from '../../utils/fs-ops'
+import { importScanResultToMySkills } from '../../utils/skill-import'
 
 const emit = defineEmits(['navigate', 'edit-project', 'delete-project'])
 
@@ -54,6 +55,7 @@ const downloadedIds = ref<string[]>(storage.getDownloadedIds())
 
 function refreshDownloaded() {
   downloadedIds.value = storage.getDownloadedIds()
+  refreshInstallDirs()
 }
 
 const { settings, updateSettings: _updateSettings } = useSettings()
@@ -87,43 +89,62 @@ function toggleAgentDropdown() {
   }
 }
 
-function findCachedSkill(skill: any): Skill | null {
-  const id = getSkillId(skill)
-  if (downloadedIds.value.includes(id)) {
-    const cached = storage.getCachedSkills()
-    const found = cached.find((s) => s.id === id && downloadedIds.value.includes(s.id))
-    if (found) return found
+function findDownloadedSkill(skill: any): Skill | null {
+  const skillDir = normalizePath(skill.dir || '')
+  if (!skillDir) return null
+  const cached = storage.getDownloadedSkills()
+  const downloadedSet = new Set(downloadedIds.value)
+  const byPath = cached.find((s) => downloadedSet.has(s.id) && normalizePath(s.path || '') === skillDir)
+  if (byPath) return byPath
+  const record = storage.getDistributeRecords().find((r) => normalizePath(r.targetPath) === skillDir)
+  if (record) {
+    const byId = cached.find((s) => s.id === record.skillId)
+    if (byId) return byId
   }
-  const dirName = (skill.dir || '').split(/[\\/]/).pop() || ''
-  if (!dirName) return null
-  const cached = storage.getCachedSkills()
-  return (
-    cached.find((s) => {
-      if (!downloadedIds.value.includes(s.id)) return false
-      const cachedPathLast = (s.path || '').split('/').pop() || ''
-      if (cachedPathLast && cachedPathLast === dirName) return true
-      if (s.name && s.name.toLowerCase() === (skill.manifest?.name || skill.name || '').toLowerCase()) return true
-      return false
-    }) || null
-  )
+  return null
 }
 
 function isInMySkills(skill: any): boolean {
-  return findCachedSkill(skill) !== null
+  return findDownloadedSkill(skill) !== null
 }
 
+function isLinkedSkill(skill: any): boolean {
+  const t = getBadgeType(skill)
+  return t === 'managed' || t === 'source'
+}
+
+function getProjectInstallDirSet(): Set<string> {
+  const records = storage.getDistributeRecords()
+  if (selectedProject.value?.id) {
+    return new Set(records.filter((r) => r.platformId === selectedProject.value!.id).map((r) => normalizePath(r.targetPath)))
+  }
+  return new Set(records.map((r) => normalizePath(r.targetPath)))
+}
+
+const _projectInstallDirs = ref<Set<string>>(getProjectInstallDirSet())
+
+function refreshInstallDirs() {
+  _projectInstallDirs.value = getProjectInstallDirSet()
+}
+
+watch(
+  () => selectedProject.value?.id,
+  () => {
+    refreshInstallDirs()
+  },
+)
+
 function getBadgeType(skill: any): string {
-  if (!isInMySkills(skill)) return 'local'
-  const cached = findCachedSkill(skill)
+  const skillDir = normalizePath(skill.dir || '')
+  const cached = findDownloadedSkill(skill)
   if (cached && cached.source === 'local') {
     const cachedPath = normalizePath(cached.path || '')
-    const skillDir = normalizePath(skill.dir || '')
     if (cachedPath && skillDir && cachedPath === skillDir) {
       return 'source'
     }
-    return 'local'
   }
-  return 'managed'
+  if (skillDir && _projectInstallDirs.value.has(skillDir)) return 'managed'
+  return 'local'
 }
 
 function getBadge(skill: any): { text: string; type: string } {
@@ -216,7 +237,7 @@ function getSkillPlatformIds(skill: MergedSkill): string[] {
 function getMatchedLibrarySkill(skill: any): any | null {
   const dirName = (skill.dir || '').split(/[\\/]/).pop() || ''
   if (!dirName) return null
-  const cached = storage.getCachedSkills()
+  const cached = storage.getDownloadedSkills()
   return (
     cached.find((s) => {
       if (!downloadedIds.value.includes(s.id)) return false
@@ -258,31 +279,10 @@ async function importSkill(skill: SkillScanResult) {
   const id = getSkillId(skill)
   importing.value[id] = true
   try {
-    const targetDir = getSkillsRepoDir(id)
-    window.services.mkdir(targetDir)
-    window.services.copyFile(skill.dir, targetDir)
-    try {
-      const cached = storage.getCachedSkills()
-      if (!cached.some((s) => s.id === id)) {
-        const manifest = skill.manifest || { name: id, description: '', author: '', tags: [], language: 'en' }
-        cached.push({
-          id,
-          name: manifest.name || id,
-          description: manifest.description || '',
-          author: manifest.author || '',
-          tags: manifest.tags || [],
-          source: 'local',
-          path: skill.dir || '',
-        })
-        storage.saveCachedSkills(cached)
-      }
-    } catch {}
-    storage.addDownloadedId(id)
-    storage.addSessionDownload(id, skill.manifest?.name || skill.name, 'project')
-    const registry = loadRegistry()
-    registerSkillFromProject(registry, skill, selectedProject.value?.id || '')
+    importScanResultToMySkills({ skill, sessionSource: 'project' })
     refreshDownloaded()
     refreshCounts()
+    showToast(`已导入「${skill.manifest?.name || skill.name}」到我的 Skill`, 'success')
   } catch (err: any) {
     showToast(err?.message || `导入「${skill.manifest?.name || skill.name}」失败`, 'error')
   }
@@ -290,7 +290,6 @@ async function importSkill(skill: SkillScanResult) {
 }
 
 async function uninstallSkillFromProject(skill: SkillScanResult) {
-  const id = getSkillId(skill)
   uninstalling.value = true
   try {
     const dir = skill.dir
@@ -313,21 +312,6 @@ async function uninstallSkillFromProject(skill: SkillScanResult) {
       storage.updateRegisteredProject(selectedProject.value.id, {
         skills: selectedProject.value.skills,
       })
-    }
-
-    if (storage.getDownloadedIds().includes(id)) {
-      storage.removeDownloadedId(id)
-      storage.removeAllForSkill(id)
-      storage.removeSkillFromCache(id)
-      const registry = loadRegistry()
-      removeFromRegistry(registry, skill.manifest.name || skill.name)
-      try {
-        const libDir = getSkillsRepoDir(id)
-        const libRm = safeRemovePath(libDir)
-        if (!libRm.ok) {
-          showToast(`项目中已卸载，但库目录删除失败: ${libRm.error}`, 'warning')
-        }
-      } catch {}
     }
 
     refreshDownloaded()
@@ -360,66 +344,14 @@ function _openImportModal() {
   showImportModal.value = true
 }
 
-// === Batch mode ===
-const batchMode = ref(false)
-const selectedIds = ref<Set<string>>(new Set())
-
-onDeactivated(() => {
-  batchMode.value = false
-  selectedIds.value.clear()
-})
-
-function toggleBatchMode() {
-  batchMode.value = !batchMode.value
-  selectedIds.value.clear()
-}
-
-function toggleSelect(id: string) {
-  const s = new Set(selectedIds.value)
-  if (s.has(id)) s.delete(id)
-  else s.add(id)
-  selectedIds.value = s
-}
-
-function toggleSelectAll() {
-  const list = filteredProjectSkills.value
-  if (selectedIds.value.size === list.length) {
-    selectedIds.value.clear()
-  } else {
-    selectedIds.value = new Set(list.map((s: any) => s.dir))
-  }
-}
-
-const isAllSelected = computed(() => {
-  const list = filteredProjectSkills.value
-  return list.length > 0 && selectedIds.value.size === list.length
-})
-
 async function batchImportToMySkills() {
   let successCount = 0
   let failCount = 0
   for (const dir of selectedIds.value) {
     const skill = filteredProjectSkills.value.find((s: any) => s.dir === dir)
     if (!skill || isInMySkills(skill)) continue
-    const id = getSkillId(skill)
     try {
-      const targetDir = getSkillsRepoDir(id)
-      window.services.mkdir(targetDir)
-      window.services.copyFile(skill.dir, targetDir)
-      const cached = storage.getCachedSkills()
-      if (!cached.some((s) => s.id === id)) {
-        cached.push({
-          id,
-          name: skill.manifest?.name || id,
-          description: skill.manifest?.description || '',
-          author: '',
-          tags: [],
-          source: 'local',
-        })
-        storage.saveCachedSkills(cached)
-      }
-      storage.addDownloadedId(id)
-      storage.addSessionDownload(id, skill.manifest?.name || id, 'project')
+      importScanResultToMySkills({ skill, sessionSource: 'project' })
       successCount++
     } catch {
       failCount++
@@ -427,8 +359,7 @@ async function batchImportToMySkills() {
   }
   refreshDownloaded()
   refreshCounts()
-  selectedIds.value.clear()
-  batchMode.value = false
+  exitBatchMode()
   if (failCount > 0) {
     showToast(`导入完成：${successCount} 成功，${failCount} 失败`, 'warning')
   } else if (successCount > 0) {
@@ -441,22 +372,10 @@ function batchRemoveFromLibrary() {
 }
 
 function executeBatchRemove() {
-  const registry = loadRegistry()
   const removedDirs = new Set<string>()
   for (const dir of selectedIds.value) {
     const skill = filteredProjectSkills.value.find((s: any) => s.dir === dir)
     if (!skill) continue
-    const id = getSkillId(skill)
-    if (storage.getDownloadedIds().includes(id)) {
-      storage.removeDownloadedId(id)
-      storage.removeAllForSkill(id)
-      storage.removeSkillFromCache(id)
-      removeFromRegistry(registry, skill.manifest.name || skill.name)
-      try {
-        const libDir = getSkillsRepoDir(id)
-        safeRemovePath(libDir)
-      } catch {}
-    }
     const projectDistributes = storage
       .getDistributeRecords()
       .filter((r) => r.targetPath.replace(/\\/g, '/') === dir.replace(/\\/g, '/') && r.scope === 'project')
@@ -475,8 +394,7 @@ function executeBatchRemove() {
   }
   refreshDownloaded()
   refreshCounts()
-  selectedIds.value.clear()
-  batchMode.value = false
+  exitBatchMode()
   showBatchRemoveConfirm.value = false
 }
 
@@ -525,6 +443,23 @@ const filteredProjectSkills = computed(() => {
   }
   return mergeDuplicateSkills(skills)
 })
+const {
+  batchMode,
+  selectedIds,
+  isAllSelected,
+  toggleBatchMode,
+  toggleSelect,
+  toggleSelectAll,
+  exitBatchMode,
+} = useBatchSelection({
+  getItems: () => filteredProjectSkills.value,
+  getKey: (s: any) => s.dir,
+})
+
+onDeactivated(() => {
+  exitBatchMode()
+})
+
 
 // === Deploy modal ===
 const showDeployModal = ref(false)
@@ -564,7 +499,7 @@ const availableProjectDirs = computed(() => {
 })
 
 const mySkills = computed(() => {
-  const cached = storage.getCachedSkills()
+  const cached = storage.getDownloadedSkills()
   const downloaded = storage.getDownloadedIds()
   return cached.filter((s) => downloaded.includes(s.id))
 })
@@ -636,7 +571,6 @@ async function confirmImportFromMy() {
           if (importMode.value === 'symlink') {
             window.services.createSymlink(sourceDir, targetDir)
           } else {
-            window.services.mkdir(targetDir)
             window.services.copyFile(sourceDir, targetDir)
           }
           storage.saveDistributeRecord({
@@ -655,12 +589,11 @@ async function confirmImportFromMy() {
         }
       }
     }
-    if (importedCount > 0 && failCount > 0) {
-      showToast(`导入完成：${importedCount} 成功，${failCount} 失败`, 'warning')
+    if (importedCount > 0) {
+      refreshInstallDirs()
       scanProject(selectedProject.value)
-    } else if (importedCount > 0) {
-      showToast(`已导入 ${importedCount} 个技能到项目`, 'success')
-      scanProject(selectedProject.value)
+      if (failCount > 0) showToast(`导入完成：${importedCount} 成功，${failCount} 失败`, 'warning')
+      else showToast(`已导入 ${importedCount} 个技能到项目`, 'success')
     } else if (failCount > 0) {
       showToast(`所有技能导入失败`, 'error')
     }
@@ -1160,7 +1093,7 @@ async function confirmImportFromMy() {
                   <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                 </svg>
               </button>
-              <button v-if="isInMySkills(skill)" class="card-action-btn primary" title="分发到平台" @click.stop="openDeploy(skill)">
+              <button v-if="isLinkedSkill(skill)" class="card-action-btn primary" title="分发到平台" @click.stop="openDeploy(skill)">
                 <svg
                   width="14"
                   height="14"
@@ -1437,70 +1370,14 @@ async function confirmImportFromMy() {
       @confirm="doDeleteProject"
       @cancel="confirmDeleteProjectId = null"
     />
-
-    <div v-if="showBatchRemoveConfirm" class="confirm-overlay" @click.self="showBatchRemoveConfirm = false">
-      <div class="confirm-modal">
-        <div class="confirm-header">
-          <div class="confirm-icon">
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <path d="M3 6h18" />
-              <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-              <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-            </svg>
-          </div>
-          <h3 class="confirm-title">批量移除 Skill</h3>
-          <button class="confirm-close" @click="showBatchRemoveConfirm = false">
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
-        </div>
-        <div class="confirm-body">
-          <p class="confirm-desc">
-            确定要移除选中的 <strong>{{ selectedIds.size }}</strong> 个 Skill 吗？此操作将从项目中移除相关文件和分发记录。
-          </p>
-        </div>
-        <div class="confirm-footer">
-          <button class="confirm-btn cancel" @click="showBatchRemoveConfirm = false">取消</button>
-          <button class="confirm-btn delete" @click="executeBatchRemove">
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <path d="M3 6h18" />
-              <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-              <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-            </svg>
-            移除 {{ selectedIds.size }} 个 Skill
-          </button>
-        </div>
-      </div>
-    </div>
+    <ConfirmModal
+      v-if="showBatchRemoveConfirm"
+      title="批量移除 Skill"
+      :message="`确定要移除选中的 <strong>${selectedIds.size}</strong> 个 Skill 吗？此操作将从项目中移除相关文件和分发记录。`"
+      :confirm-text="`移除 ${selectedIds.size} 个 Skill`"
+      @confirm="executeBatchRemove"
+      @cancel="showBatchRemoveConfirm = false"
+    />
   </div>
 </template>
 
