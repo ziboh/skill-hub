@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { getAvatarColor } from '../utils/color'
-import { isSvgIcon, isImageUrl } from '../utils/source-info'
 import ProviderIcon from './ProviderIcon.vue'
 
 const props = withDefaults(
@@ -110,8 +109,8 @@ watch(
       </svg>
     </div>
     <div class="card-top-row">
-      <div v-if="avatarIcon && isImageUrl(avatarIcon)" class="card-avatar-icon">
-        <img :src="avatarIcon" :alt="name" />
+      <div v-if="avatarIcon" class="card-avatar-icon">
+        <ProviderIcon :icon="avatarIcon" :size="22" />
       </div>
       <div v-else class="card-avatar" :style="{ background: avatarColor }">
         {{ avatarLetter }}
@@ -149,15 +148,6 @@ watch(
                   <line x1="2" y1="12" x2="22" y2="12" />
                   <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
                 </svg>
-                <img
-                  v-else-if="isImageUrl(sourceTag.icon)"
-                  :src="sourceTag.icon"
-                  width="10"
-                  height="10"
-                  alt=""
-                  style="border-radius: 2px"
-                />
-                <span v-else-if="isSvgIcon(sourceTag.icon)" v-html="sourceTag.icon" class="tag-icon-svg" />
                 <svg
                   v-else-if="sourceTag.icon === 'git'"
                   width="10"
@@ -174,6 +164,7 @@ watch(
                   <path d="M13 6h3a2 2 0 0 1 2 2v7" />
                   <line x1="6" y1="9" x2="6" y2="21" />
                 </svg>
+                <ProviderIcon v-else-if="sourceTag.icon" :icon="sourceTag.icon" :size="10" />
                 <svg
                   v-else
                   width="10"

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, inject, computed } from 'vue'
-import { KeyShowToast, KeyRefreshCounts, KeyBumpCachedSkillsVersion } from '../inject-keys'
+import { KeyShowToast, KeyRefreshCounts, KeyBumpDownloadedSkillsVersion } from '../inject-keys'
 import { fetchSkillDetailFromSkill } from '../utils/skills-sh'
 import { storage } from '../utils/storage'
 import { parseFrontmatter, extractChineseSummary } from '../utils/frontmatter'
@@ -9,17 +9,19 @@ import SkillPickModal from './SkillPickModal.vue'
 import SkillPreviewPanel from './SkillPreviewPanel.vue'
 import { useSettings } from '../composables/useSettings'
 import { getAvatarColor } from '../utils/color'
-import { SKILL_CATEGORIES, inferCategory, CATEGORY_ICONS } from '../data/skill-categories'
-import { getSourceInfo, isSvgIcon, isImageUrl } from '../utils/source-info'
+import { SKILL_CATEGORIES, inferCategory, CATEGORY_ICONS, ALL_CATEGORIES, type SkillCategory } from '../data/skill-categories'
+import { getSourceInfo } from '../utils/source-info'
+import ProviderIcon from './ProviderIcon.vue'
 import { isWellKnownSkill, downloadSkillFromWebsite, downloadDirectFromStore, type WellKnownSkillResult } from '../utils/well-known'
 import { atomicReplaceDir, atomicWriteDir } from '../utils/fs-ops'
 import { getSkillsRepoDir, skillIdSlug } from '../utils/skill-path'
+import { finalizeImportedSkill, resolveImportSourceType } from '../utils/skill-import'
 
 const props = defineProps<{ skill: Skill }>()
 const emit = defineEmits(['close', 'imported'])
 const showToast = inject(KeyShowToast, () => {})
 const refreshCounts = inject(KeyRefreshCounts)
-const bumpCachedSkillsVersion = inject(KeyBumpCachedSkillsVersion, () => {})
+const bumpDownloadedSkillsVersion = inject(KeyBumpDownloadedSkillsVersion, () => {})
 
 const { settings: _settings } = useSettings()
 
@@ -82,7 +84,20 @@ onUnmounted(() => {
 const sourceInfo = computed(() => getSourceInfo(props.skill))
 
 const currentCategory = computed(() => {
-  const cat = (props.skill.category as any) || inferCategory(props.skill.name, props.skill.description || '')
+  for (const tag of props.skill.tags || []) {
+    const lower = tag.trim().toLowerCase()
+    if (ALL_CATEGORIES.includes(lower as SkillCategory)) {
+      const cat = lower as SkillCategory
+      return { id: cat, label: SKILL_CATEGORIES[cat].label, icon: CATEGORY_ICONS[cat] }
+    }
+    for (const cat of ALL_CATEGORIES) {
+      const meta = SKILL_CATEGORIES[cat]
+      if (meta.label === tag.trim() || meta.labelEn.toLowerCase() === lower) {
+        return { id: cat, label: meta.label, icon: CATEGORY_ICONS[cat] }
+      }
+    }
+  }
+  const cat = (props.skill.category as SkillCategory) || inferCategory(props.skill.name, props.skill.description || '')
   return {
     id: cat,
     label: SKILL_CATEGORIES[cat as keyof typeof SKILL_CATEGORIES]?.label || '其他',
@@ -323,13 +338,16 @@ function handlePickCancel() {
 async function writeImportFiles(result: WellKnownSkillResult) {
   const targetDir = getSkillsRepoDir(props.skill.id)
   atomicWriteDir(targetDir, result.files)
-  const parsed = window.services.parseSkillFile(window.services.pathJoin(targetDir, 'SKILL.md'))
-  const description = parsed?.manifest?.description || props.skill.description || ''
-  storage.saveCachedSkills([{ ...props.skill, description, storeSourceId: props.skill.storeSourceId }])
-  storage.addDownloadedId(props.skill.id)
-  storage.addSessionDownload(props.skill.id, props.skill.name, 'skills-sh')
+  finalizeImportedSkill({
+    skill: { ...props.skill },
+    targetDir,
+    sourceType: resolveImportSourceType(props.skill.source),
+    location: props.skill.repo || props.skill.sourceUrl || '',
+    sessionSource: 'skills-sh',
+    storeSourceId: props.skill.storeSourceId,
+  })
   refreshCounts?.()
-  bumpCachedSkillsVersion()
+  bumpDownloadedSkillsVersion()
   emit('imported')
   showToast(`已导入 ${props.skill.name}`, 'success')
 }
@@ -407,16 +425,16 @@ async function handleImport() {
       targetDir,
     )
     window.services.removeFile(extractDir)
-    const skillFile = ['SKILL.md', 'skill.md'].find((f) => window.services.pathExists(window.services.pathJoin(targetDir, f)))
-    if (skillFile) {
-      const parsed = window.services.parseSkillFile(window.services.pathJoin(targetDir, skillFile))
-      const description = parsed?.manifest?.description || props.skill.description || ''
-      storage.saveCachedSkills([{ ...props.skill, description, storeSourceId: props.skill.storeSourceId }])
-    }
-    storage.addDownloadedId(props.skill.id)
-    storage.addSessionDownload(props.skill.id, props.skill.name, 'marketplace')
+    finalizeImportedSkill({
+      skill: { ...props.skill },
+      targetDir,
+      sourceType: 'github',
+      location: props.skill.repo || '',
+      sessionSource: 'marketplace',
+      storeSourceId: props.skill.storeSourceId,
+    })
     refreshCounts?.()
-    bumpCachedSkillsVersion()
+    bumpDownloadedSkillsVersion()
     emit('imported')
     showToast(`已导入 ${props.skill.name}`, 'success')
   } catch (err: any) {
@@ -470,15 +488,6 @@ async function handleImport() {
                     <line x1="2" y1="12" x2="22" y2="12" />
                     <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
                   </svg>
-                  <img
-                    v-else-if="isImageUrl(sourceInfo.icon)"
-                    :src="sourceInfo.icon"
-                    width="12"
-                    height="12"
-                    alt=""
-                    style="border-radius: 2px"
-                  />
-                  <span v-else-if="isSvgIcon(sourceInfo.icon)" v-html="sourceInfo.icon" class="tag-icon-svg" />
                   <svg
                     v-else-if="sourceInfo.icon === 'git'"
                     width="12"
@@ -495,6 +504,7 @@ async function handleImport() {
                     <path d="M13 6h3a2 2 0 0 1 2 2v7" />
                     <line x1="6" y1="9" x2="6" y2="21" />
                   </svg>
+                  <ProviderIcon v-else-if="sourceInfo.icon" :icon="sourceInfo.icon" :size="12" />
                   <svg
                     v-else
                     width="12"

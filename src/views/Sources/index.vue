@@ -5,9 +5,6 @@ import { useSettings } from '../../composables/useSettings'
 import type { StoreSource, StoreSourceType } from '../../types'
 import {
   getDefaultStoreIcon,
-  getStoreIconFromSource,
-  getIconRenderType,
-  resolveStoreIcon,
   ICON_GITHUB,
   ICON_MARKETPLACE,
   ICON_WELL_KNOWN,
@@ -64,25 +61,12 @@ const examples: Record<StoreSourceType, { label: string; lines: string[] }> = {
   'local-dir': { label: 'Example', lines: ['~/Documents/my-skills'] },
 }
 
-const localIconCache = ref<Record<string, string>>({})
-
-function loadLocalIcons(sources: StoreSource[]) {
-  for (const s of sources) {
-    if (s.icon && getIconRenderType(s.icon) === 'local-path') {
-      const dataUri = window.services.readFileAsDataUri(s.icon)
-      if (dataUri) localIconCache.value[s.id] = dataUri
-    }
-  }
-}
-
 onMounted(() => {
   sources.value = storage.getStoreSources().filter((s) => s.type !== 'builtin')
-  loadLocalIcons(sources.value)
 })
 
 onActivated(() => {
   sources.value = storage.getStoreSources().filter((s) => s.type !== 'builtin')
-  loadLocalIcons(sources.value)
 })
 
 function canAdd(): boolean {
@@ -138,7 +122,6 @@ async function handleAddOrSave() {
   }
   validating.value = false
   sources.value = storage.getStoreSources().filter((s) => s.type !== 'builtin')
-  loadLocalIcons(sources.value)
   sourceName.value = ''
   sourceUrl.value = ''
   sourceBranch.value = ''
@@ -298,26 +281,7 @@ function getSourceLabel(type: string): string {
       <div v-for="s in sources" :key="s.id" class="source-card">
         <div class="source-info">
           <span class="source-icon">
-            <template v-if="getIconRenderType(s.icon) === 'svg'">
-              <span v-html="getStoreIconFromSource(s)" />
-            </template>
-            <template v-else-if="getIconRenderType(s.icon) === 'store-icon' && s.icon && resolveStoreIcon(s.icon)">
-              <img
-                v-if="resolveStoreIcon(s.icon)!.startsWith('data:') || resolveStoreIcon(s.icon)!.startsWith('http')"
-                :src="resolveStoreIcon(s.icon)"
-              />
-              <span v-else v-html="resolveStoreIcon(s.icon)" />
-            </template>
-            <template v-else-if="getIconRenderType(s.icon) === 'provider-icon'">
-              <ProviderIcon :icon="s.icon" :size="18" />
-            </template>
-            <template v-else-if="getIconRenderType(s.icon) === 'local-path'">
-              <img v-if="localIconCache[s.id]" :src="localIconCache[s.id]" />
-              <span v-else v-html="getDefaultStoreIcon(s.type)" />
-            </template>
-            <template v-else>
-              <img :src="s.icon" />
-            </template>
+            <ProviderIcon :icon="s.icon || getDefaultStoreIcon(s.type)" :size="18" />
           </span>
           <div>
             <div class="source-name">
@@ -340,7 +304,9 @@ function getSourceLabel(type: string): string {
     </div>
 
     <div v-else class="empty-state">
-      <div class="empty-icon" v-html="ICON_STORE" />
+      <div class="empty-icon">
+        <ProviderIcon icon="store:store" :size="48" />
+      </div>
       <div class="empty-title">暂无自定义商店</div>
       <div class="empty-desc">使用上方表单添加商店。</div>
     </div>

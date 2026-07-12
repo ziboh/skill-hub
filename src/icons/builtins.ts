@@ -64,6 +64,10 @@ registerIcon('platforms', 'skills-sh', { type: 'src', src: skillsShIcon })
 registerIcon('platforms', 'claude', { type: 'src', src: claudeIcon })
 registerIcon('platforms', 'codex', { type: 'src', src: codexIcon })
 
+registerIcon('store', 'skills-sh', { type: 'src', src: skillsShIcon })
+registerIcon('store', 'claude', { type: 'src', src: claudeIcon })
+registerIcon('store', 'codex', { type: 'src', src: codexIcon })
+
 const storeDefaults: Record<string, string> = {
   'git-repo': ICON_GITHUB,
   github: ICON_GITHUB,

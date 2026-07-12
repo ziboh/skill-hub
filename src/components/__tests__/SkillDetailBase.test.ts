@@ -15,7 +15,7 @@ vi.mock('../../utils/storage', () => ({
     saveSkillUserTags: vi.fn(),
     getDownloadedIds: vi.fn(() => []),
     getDistributeRecords: vi.fn(() => []),
-    getCachedSkills: vi.fn(() => []),
+    getDownloadedSkills: vi.fn(() => []),
     getTranslationByHash: vi.fn(() => null),
     getDescTranslationByHash: vi.fn(() => null),
   },
@@ -64,8 +64,6 @@ vi.mock('../../data/skill-categories', () => ({
 
 vi.mock('../../utils/source-info', () => ({
   getSourceInfo: vi.fn(() => ({ icon: 'git', label: 'GitHub', bg: '#333', color: '#fff' })),
-  isSvgIcon: vi.fn(() => false),
-  isImageUrl: vi.fn(() => false),
 }))
 
 vi.mock('../SkillFileEditor.vue', () => ({

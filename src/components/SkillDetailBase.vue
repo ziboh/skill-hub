@@ -7,7 +7,8 @@ import SkillPreviewPanel from './SkillPreviewPanel.vue'
 import { storage } from '../utils/storage'
 import { getAvatarColor } from '../utils/color'
 import { SKILL_CATEGORIES, ALL_CATEGORIES, inferCategory, CATEGORY_ICONS, type SkillCategory } from '../data/skill-categories'
-import { getSourceInfo, isSvgIcon, isImageUrl } from '../utils/source-info'
+import { getSourceInfo } from '../utils/source-info'
+import ProviderIcon from './ProviderIcon.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -87,7 +88,25 @@ const editingTags = ref(false)
 const selectedCategory = ref<SkillCategory>('other')
 
 const currentCategory = computed(() => {
-  const cat = (userTags.value[0] as SkillCategory) || inferCategory(props.skill.name, props.skill.description || '')
+  const fromUser = userTags.value[0]
+  if (fromUser && ALL_CATEGORIES.includes(fromUser as SkillCategory)) {
+    const cat = fromUser as SkillCategory
+    return { id: cat, label: SKILL_CATEGORIES[cat].label, icon: CATEGORY_ICONS[cat] }
+  }
+  for (const tag of props.skill.tags || []) {
+    const lower = tag.trim().toLowerCase()
+    if (ALL_CATEGORIES.includes(lower as SkillCategory)) {
+      const cat = lower as SkillCategory
+      return { id: cat, label: SKILL_CATEGORIES[cat].label, icon: CATEGORY_ICONS[cat] }
+    }
+    for (const cat of ALL_CATEGORIES) {
+      const meta = SKILL_CATEGORIES[cat]
+      if (meta.label === tag.trim() || meta.labelEn.toLowerCase() === lower) {
+        return { id: cat, label: meta.label, icon: CATEGORY_ICONS[cat] }
+      }
+    }
+  }
+  const cat = inferCategory(props.skill.name, props.skill.description || '')
   return { id: cat, label: SKILL_CATEGORIES[cat].label, icon: CATEGORY_ICONS[cat] }
 })
 
@@ -101,7 +120,7 @@ function saveUserTags() {
 
 function startEditTags() {
   editingTags.value = true
-  selectedCategory.value = (userTags.value[0] as SkillCategory) || inferCategory(props.skill.name, props.skill.description || '')
+  selectedCategory.value = (currentCategory.value.id as SkillCategory) || 'other'
 }
 
 function cancelEditTags() {
@@ -198,15 +217,6 @@ function openSource() {
                   <line x1="2" y1="12" x2="22" y2="12" />
                   <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
                 </svg>
-                <img
-                  v-else-if="isImageUrl(sourceInfo.icon)"
-                  :src="sourceInfo.icon"
-                  width="12"
-                  height="12"
-                  alt=""
-                  style="border-radius: 2px"
-                />
-                <span v-else-if="isSvgIcon(sourceInfo.icon)" v-html="sourceInfo.icon" class="tag-icon-svg" />
                 <svg
                   v-else-if="sourceInfo.icon === 'git'"
                   width="12"
@@ -223,6 +233,7 @@ function openSource() {
                   <path d="M13 6h3a2 2 0 0 1 2 2v7" />
                   <line x1="6" y1="9" x2="6" y2="21" />
                 </svg>
+                <ProviderIcon v-else-if="sourceInfo.icon" :icon="sourceInfo.icon" :size="12" />
                 <svg
                   v-else
                   width="12"

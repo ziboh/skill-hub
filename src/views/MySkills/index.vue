@@ -1,17 +1,19 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onActivated, onUnmounted, inject, watch, reactive } from 'vue'
 import { storage } from '../../utils/storage'
-import type { Skill, SkillIdentity } from '../../types'
+import type { MySkillsSortMode, Skill } from '../../types'
 import {} from '../../data/platforms'
 import { useSettings } from '../../composables/useSettings'
 import { useTheme } from '../../composables/useTheme'
 import { useFilteredSkills, SKILL_CATEGORIES, CATEGORY_ICONS } from '../../composables/useFilteredSkills'
+import { MY_SKILLS_SORT_OPTIONS, getSortLabel } from '../../utils/skill-sort'
+import { useBatchSelection } from '../../composables/useBatchSelection'
 import DeployModal from '../../components/DeployModal.vue'
 import BatchSyncModal from '../../components/BatchSyncModal.vue'
 import ConfirmDeleteModal from '../../components/ConfirmDeleteModal.vue'
 import ConfirmBatchDeleteModal from '../../components/ConfirmBatchDeleteModal.vue'
-import { loadRegistry, getSourceLabel as getRegistrySourceLabel } from '../../utils/skill-registry'
 import { getSourceInfo as getSourceInfoUtil } from '../../utils/source-info'
+import ProviderIcon from '../../components/ProviderIcon.vue'
 import { isChineseContent } from '../../utils/translate'
 import SkillCard from '../../components/SkillCard.vue'
 import {
@@ -27,9 +29,17 @@ import { cacheVersion as translationCacheVersion } from '../../composables/useTr
 
 const emit = defineEmits(['navigate'])
 
-const { settings: _settings, updateSettings: _updateSettings } = useSettings()
+const { settings, updateSettings } = useSettings()
 
 const { isDarkMode, toggleTheme } = useTheme()
+
+const sortMode = computed<MySkillsSortMode>(() => settings.mySkillsSort || 'default')
+const sortLabel = computed(() => getSortLabel(sortMode.value))
+
+function setSortMode(mode: MySkillsSortMode) {
+  updateSettings({ mySkillsSort: mode })
+  showSortDropdown.value = false
+}
 
 const filterCategory = inject(KeyFilterCategory, ref('all'))
 const filterSource = inject(KeyFilterSource, ref(''))
@@ -42,7 +52,6 @@ const refreshCounts = inject(KeyRefreshCounts, () => {})
 const allSkills = ref<Skill[]>([])
 const distributeRecords = ref(storage.getDistributeRecords())
 const downloadedIds = ref<string[]>([])
-const registry = ref<Map<string, SkillIdentity>>(new Map())
 
 onMounted(() => {
   refreshData()
@@ -62,23 +71,21 @@ watch(refreshKey, () => {
 watch(currentRoute, (r) => {
   if (r === 'my') refreshData()
   else {
-    batchMode.value = false
-    selectedIds.value.clear()
+    exitBatchMode()
   }
 })
 
 function refreshData() {
-  allSkills.value = storage.getCachedSkills()
+  allSkills.value = storage.getDownloadedSkills()
   downloadedIds.value = storage.getDownloadedIds()
   distributeRecords.value = storage.getDistributeRecords()
-  registry.value = loadRegistry()
   refreshMySkills()
 }
 
 async function enrichLocalDescriptions() {
   if (storage.enrichDownloadedDescriptions()) {
     storage.updateChineseTags()
-    allSkills.value = storage.getCachedSkills()
+    allSkills.value = storage.getDownloadedSkills()
   }
 }
 
@@ -105,12 +112,19 @@ const totalDistributed = computed(() => downloadedSkillStats.value.distCount)
 const totalPending = computed(() => downloadedSkillStats.value.pendCount)
 
 const sourceCounts = computed(() => {
-  const map = new Map<string, number>()
+  const map = new Map<string, { count: number; icon: string }>()
   for (const s of downloadedSkills.value) {
-    const src = getSourceLabel(s)
-    map.set(src, (map.get(src) || 0) + 1)
+    const info = getSourceInfo(s)
+    const prev = map.get(info.label)
+    if (prev) prev.count++
+    else map.set(info.label, { count: 1, icon: info.icon })
   }
-  return Array.from(map.entries())
+  return Array.from(map.entries()).map(([label, { count, icon }]) => ({ label, count, icon }))
+})
+
+const selectedSourceIcon = computed(() => {
+  if (!filterSource.value) return ''
+  return sourceCounts.value.find((s) => s.label === filterSource.value)?.icon || ''
 })
 
 const { filteredSkills, filteredBaseCount, allUserTags, getSkillCategory } = useFilteredSkills({
@@ -120,6 +134,7 @@ const { filteredSkills, filteredBaseCount, allUserTags, getSkillCategory } = use
   filterTag: () => filterTag.value,
   distributedSkillIds: () => distributedSkillIds.value,
   getSourceLabel,
+  sortMode: () => sortMode.value,
 })
 
 function getInstalledPlatforms(skillId: string): string[] {
@@ -189,7 +204,7 @@ function isFavorited(id: string) {
 }
 function toggleFavorite(id: string) {
   storage.toggleFavorite(id)
-  allSkills.value = storage.getCachedSkills()
+  allSkills.value = storage.getDownloadedSkills()
   refreshMySkills()
 }
 function deleteSkill(skill: Skill) {
@@ -201,7 +216,7 @@ function onSkillDeleted() {
   showDeleteModal.value = false
   deleteSkillTarget.value = null
   downloadedIds.value = storage.getDownloadedIds()
-  allSkills.value = storage.getCachedSkills()
+  allSkills.value = storage.getDownloadedSkills()
   refreshMySkills()
   refreshCounts()
 }
@@ -210,16 +225,8 @@ function getSourceLabel(skill: Skill): string {
   return getSourceInfo(skill).label
 }
 
-function _getAllSourceLabels(skill: Skill): string[] {
-  const identity = registry.value.get(skill.canonicalId || skill.id)
-  if (identity) {
-    return [...new Set(identity.sources.map((s) => getRegistrySourceLabel(s)))]
-  }
-  return [getSourceInfo(skill).label]
-}
-
 function getSourceInfo(skill: Skill): { label: string; icon: string; color: string; bg: string } {
-  return getSourceInfoUtil(skill, registry.value)
+  return getSourceInfoUtil(skill)
 }
 
 function getCategoryInfo(skill: Skill): { label: string; icon: string } {
@@ -255,25 +262,38 @@ const showDeleteModal = ref(false)
 const deleteSkillTarget = ref<Skill | null>(null)
 const showBatchDeleteModal = ref(false)
 const sourceDropdownStyle = ref<Record<string, string>>({})
+const sortDropdownStyle = ref<Record<string, string>>({})
+
+function positionDropdown(btn: HTMLElement | undefined, styleRef: typeof sourceDropdownStyle, width = 180) {
+  if (!btn) return
+  const rect = btn.getBoundingClientRect()
+  let left = rect.left
+  if (left + width > window.innerWidth - 12) {
+    left = window.innerWidth - width - 12
+  }
+  styleRef.value = {
+    top: `${rect.bottom + 6}px`,
+    left: `${left}px`,
+  }
+}
 
 function toggleSourceDropdown() {
   if (showSourceDropdown.value) {
     showSourceDropdown.value = false
   } else {
-    const btn = sourceBtnRef.value
-    if (btn) {
-      const rect = btn.getBoundingClientRect()
-      const dropdownWidth = 180
-      let left = rect.left
-      if (left + dropdownWidth > window.innerWidth - 12) {
-        left = window.innerWidth - dropdownWidth - 12
-      }
-      sourceDropdownStyle.value = {
-        top: `${rect.bottom + 6}px`,
-        left: `${left}px`,
-      }
-    }
+    showSortDropdown.value = false
+    positionDropdown(sourceBtnRef.value, sourceDropdownStyle, 180)
     showSourceDropdown.value = true
+  }
+}
+
+function toggleSortDropdown() {
+  if (showSortDropdown.value) {
+    showSortDropdown.value = false
+  } else {
+    showSourceDropdown.value = false
+    positionDropdown(sortBtnRef.value, sortDropdownStyle, 160)
+    showSortDropdown.value = true
   }
 }
 
@@ -285,18 +305,24 @@ function openDeploy(skill: Skill) {
 const viewMode = ref<'grid' | 'list'>('grid')
 const showSourceDropdown = ref(false)
 const sourceBtnRef = ref<HTMLElement>()
+const showSortDropdown = ref(false)
+const sortBtnRef = ref<HTMLElement>()
 
-const batchMode = ref(false)
-const selectedIds = ref<Set<string>>(new Set())
 const showBatchSyncModal = ref(false)
 const batchSyncSkills = ref<Skill[]>([])
 
-const totalSources = computed(() => sourceCounts.value.reduce((sum, [, c]) => sum + c, 0))
+// batch selection — defined after filteredSkills is available via lazy getter
+const { batchMode, selectedIds, isAllSelected, toggleBatchMode, toggleSelect, toggleSelectAll, exitBatchMode } = useBatchSelection({
+  getItems: () => filteredSkills.value,
+  getKey: (s) => s.id,
+})
+
+const totalSources = computed(() => sourceCounts.value.reduce((sum, s) => sum + s.count, 0))
 
 const sourceFilterCount = computed(() => {
   if (!filterSource.value) return totalDownloaded.value
-  const entry = sourceCounts.value.find(([src]) => src === filterSource.value)
-  return entry ? entry[1] : 0
+  const entry = sourceCounts.value.find((s) => s.label === filterSource.value)
+  return entry ? entry.count : 0
 })
 
 const emptyMessage = computed(() => {
@@ -325,28 +351,6 @@ const emptyHint = computed(() => {
   }
 })
 
-function toggleBatchMode() {
-  batchMode.value = !batchMode.value
-  selectedIds.value.clear()
-}
-
-function toggleSelectAll() {
-  if (selectedIds.value.size === filteredSkills.value.length) {
-    selectedIds.value.clear()
-  } else {
-    selectedIds.value = new Set(filteredSkills.value.map((s) => s.id))
-  }
-}
-
-function toggleSelect(id: string) {
-  const s = new Set(selectedIds.value)
-  if (s.has(id)) s.delete(id)
-  else s.add(id)
-  selectedIds.value = s
-}
-
-const isAllSelected = computed(() => filteredSkills.value.length > 0 && selectedIds.value.size === filteredSkills.value.length)
-
 const selectedAllFavorited = computed(() => {
   if (selectedIds.value.size === 0) return false
   return Array.from(selectedIds.value).every((id) => allSkills.value.find((s) => s.id === id)?.isFavorited)
@@ -360,9 +364,9 @@ function batchToggleFavorite() {
     if (shouldFavorite && !isFav) storage.toggleFavorite(id)
     else if (!shouldFavorite && isFav) storage.toggleFavorite(id)
   }
-  allSkills.value = storage.getCachedSkills()
+  allSkills.value = storage.getDownloadedSkills()
   refreshMySkills()
-  batchMode.value = false
+  exitBatchMode()
 }
 
 function batchDelete() {
@@ -372,9 +376,8 @@ function batchDelete() {
 function onBatchDeleted() {
   showBatchDeleteModal.value = false
   downloadedIds.value = storage.getDownloadedIds()
-  allSkills.value = storage.getCachedSkills()
-  selectedIds.value.clear()
-  batchMode.value = false
+  allSkills.value = storage.getDownloadedSkills()
+  exitBatchMode()
   refreshMySkills()
   refreshCounts()
 }
@@ -610,23 +613,57 @@ function batchSyncToPlatform() {
           <span class="tab-count">{{ totalPending }}</span>
         </button>
       </div>
-      <div class="source-dropdown-wrap">
-        <button ref="sourceBtnRef" class="tab-btn source-tab" :class="{ active: filterSource }" @click="toggleSourceDropdown">
-          {{ filterSource || '全部来源' }}
-          <span class="tab-count">{{ sourceFilterCount }}</span>
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <polyline points="6 9 12 15 18 9" />
-          </svg>
-        </button>
+      <div class="filter-right-actions">
+        <div class="source-dropdown-wrap">
+          <button ref="sortBtnRef" class="tab-btn source-tab" :class="{ active: sortMode !== 'default' }" @click="toggleSortDropdown">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M11 5h10M11 9h7M11 13h4M3 17l4 4 4-4M7 3v18" />
+            </svg>
+            {{ sortLabel }}
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+        </div>
+        <div class="source-dropdown-wrap">
+          <button ref="sourceBtnRef" class="tab-btn source-tab" :class="{ active: filterSource }" @click="toggleSourceDropdown">
+            <span v-if="selectedSourceIcon" class="source-tab-icon">
+              <ProviderIcon :icon="selectedSourceIcon" :size="14" />
+            </span>
+            {{ filterSource || '全部来源' }}
+            <span class="tab-count">{{ sourceFilterCount }}</span>
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+        </div>
       </div>
     </div>
 
@@ -634,18 +671,44 @@ function batchSyncToPlatform() {
       <div v-if="showSourceDropdown" class="source-dropdown-overlay" @click="showSourceDropdown = false" />
       <div v-if="showSourceDropdown" class="source-dropdown" :style="sourceDropdownStyle">
         <button class="dropdown-item" :class="{ active: !filterSource }" @click="((filterSource = ''), (showSourceDropdown = false))">
-          全部来源
+          <span class="dropdown-item-left">
+            <span class="dropdown-item-icon dropdown-item-icon--all">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="2" y1="12" x2="22" y2="12" />
+                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+              </svg>
+            </span>
+            全部来源
+          </span>
           <span class="dropdown-count">{{ totalSources }}</span>
         </button>
         <button
-          v-for="[src, cnt] in sourceCounts"
-          :key="src"
+          v-for="src in sourceCounts"
+          :key="src.label"
           class="dropdown-item"
-          :class="{ active: filterSource === src }"
-          @click="((filterSource = filterSource === src ? '' : src), (showSourceDropdown = false))"
+          :class="{ active: filterSource === src.label }"
+          @click="((filterSource = filterSource === src.label ? '' : src.label), (showSourceDropdown = false))"
         >
-          {{ src }}
-          <span class="dropdown-count">{{ cnt }}</span>
+          <span class="dropdown-item-left">
+            <span class="dropdown-item-icon">
+              <ProviderIcon :icon="src.icon" :size="16" />
+            </span>
+            {{ src.label }}
+          </span>
+          <span class="dropdown-count">{{ src.count }}</span>
+        </button>
+      </div>
+      <div v-if="showSortDropdown" class="source-dropdown-overlay" @click="showSortDropdown = false" />
+      <div v-if="showSortDropdown" class="source-dropdown" :style="sortDropdownStyle">
+        <button
+          v-for="opt in MY_SKILLS_SORT_OPTIONS"
+          :key="opt.value"
+          class="dropdown-item"
+          :class="{ active: sortMode === opt.value }"
+          @click="setSortMode(opt.value)"
+        >
+          {{ opt.label }}
         </button>
       </div>
     </Teleport>
@@ -679,94 +742,94 @@ function batchSyncToPlatform() {
       </button>
     </div>
 
-    <div class="ms-scroll">
-      <div v-if="batchMode" class="batch-bar">
-        <div class="batch-left">
-          <span class="batch-label">批量模式</span>
-          <span class="batch-count">已选 {{ selectedIds.size }} 项</span>
-        </div>
-        <div class="batch-actions">
-          <button class="batch-action-btn" @click="toggleSelectAll">
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <rect x="3" y="3" width="18" height="18" rx="2" ry="2" :fill="isAllSelected ? 'currentColor' : 'none'" />
-              <polyline v-if="isAllSelected" points="9 11 12 14 22 4" />
-            </svg>
-            全选
-          </button>
-          <button class="batch-action-btn" :disabled="selectedIds.size === 0" @click="batchToggleFavorite">
-            <svg
-              v-if="selectedAllFavorited"
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="hsl(45 90% 55%)"
-              stroke="hsl(45 90% 55%)"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-            </svg>
-            <svg
-              v-else
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-            </svg>
-            {{ selectedAllFavorited ? '取消收藏' : '添加收藏' }}
-          </button>
-          <button class="batch-action-btn primary" :disabled="selectedIds.size === 0" @click="batchSyncToPlatform">
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <line x1="22" y1="2" x2="11" y2="13" />
-              <polygon points="22 2 15 22 11 13 2 9 22 2" />
-            </svg>
-            批量同步到平台
-          </button>
-          <button class="batch-action-btn danger" :disabled="selectedIds.size === 0" @click="batchDelete">
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <path d="M3 6h18" />
-              <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-              <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-            </svg>
-            删除
-          </button>
-        </div>
+    <div v-if="batchMode" class="batch-bar">
+      <div class="batch-left">
+        <span class="batch-label">批量模式</span>
+        <span class="batch-count">已选 {{ selectedIds.size }} 项</span>
       </div>
+      <div class="batch-actions">
+        <button class="batch-action-btn" @click="toggleSelectAll">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2" :fill="isAllSelected ? 'currentColor' : 'none'" />
+            <polyline v-if="isAllSelected" points="9 11 12 14 22 4" />
+          </svg>
+          全选
+        </button>
+        <button class="batch-action-btn" :disabled="selectedIds.size === 0" @click="batchToggleFavorite">
+          <svg
+            v-if="selectedAllFavorited"
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="hsl(45 90% 55%)"
+            stroke="hsl(45 90% 55%)"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+          </svg>
+          <svg
+            v-else
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+          </svg>
+          {{ selectedAllFavorited ? '取消收藏' : '添加收藏' }}
+        </button>
+        <button class="batch-action-btn primary" :disabled="selectedIds.size === 0" @click="batchSyncToPlatform">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <line x1="22" y1="2" x2="11" y2="13" />
+            <polygon points="22 2 15 22 11 13 2 9 22 2" />
+          </svg>
+          批量同步到平台
+        </button>
+        <button class="batch-action-btn danger" :disabled="selectedIds.size === 0" @click="batchDelete">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M3 6h18" />
+            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+          </svg>
+          删除
+        </button>
+      </div>
+    </div>
 
+    <div class="ms-scroll">
       <div v-if="!filteredSkills.length" class="empty">
         <p>{{ emptyMessage }}</p>
         <p v-if="emptyHint" class="empty-hint">
@@ -877,7 +940,7 @@ function batchSyncToPlatform() {
       v-if="showBatchSyncModal"
       :skills="batchSyncSkills"
       @close="((showBatchSyncModal = false), (batchSyncSkills = []))"
-      @deployed="((showBatchSyncModal = false), (batchSyncSkills = []), refreshData(), (batchMode = false))"
+      @deployed="((showBatchSyncModal = false), (batchSyncSkills = []), refreshData(), exitBatchMode())"
     />
 
     <ConfirmDeleteModal
@@ -912,279 +975,24 @@ function batchSyncToPlatform() {
   scrollbar-gutter: stable;
 }
 
-/* Page header */
-.page-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  padding: 22px 28px 16px;
-  background: hsl(var(--card));
-  border-bottom: 1px solid hsl(var(--border));
-}
-
-.header-left {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-}
-
-.header-title-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.header-left h2 {
-  font-size: 22px;
-  font-weight: 600;
-  color: hsl(var(--foreground));
-  margin: 0;
-}
-
-.page-subtitle {
-  font-size: 13px;
-  color: hsl(var(--muted-foreground));
-  margin: 0;
-  white-space: nowrap;
-  overflow: hidden;
-}
-
-.count-badge {
-  font-size: 11px;
-  font-weight: 600;
-  color: hsl(var(--muted-foreground));
-  background: hsl(var(--accent));
-  padding: 2px 8px;
-  border-radius: 10px;
-}
-
-.header-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-.toolbar-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 14px;
-  font-size: 13px;
-  font-weight: 500;
-  border-radius: 8px;
-  border: 1px solid hsl(var(--border));
-  background: hsl(var(--card));
-  color: hsl(var(--foreground));
-  cursor: pointer;
-  transition: all var(--duration-base) var(--ease-standard);
-  white-space: nowrap;
-}
-
-.toolbar-btn:hover {
-  background: hsl(var(--accent));
-  border-color: hsl(var(--primary) / 0.3);
-}
-
-.toolbar-btn.batch-active {
-  background: hsl(var(--destructive) / 0.08);
-  border-color: hsl(var(--destructive) / 0.3);
-  color: hsl(var(--destructive));
-}
-
-.toolbar-btn.batch-active:hover {
-  background: hsl(var(--destructive) / 0.15);
-}
-
-.toolbar-btn:disabled {
-  opacity: 0.35;
-  cursor: default;
-  pointer-events: none;
-}
-
-.toolbar-btn.add-skill-btn {
-  background: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
-  border-color: transparent;
-}
-
-.toolbar-btn.add-skill-btn:hover {
-  background: hsl(var(--primary) / 0.9);
-}
-
-.toolbar-icon-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: 1px solid hsl(var(--border));
-  border-radius: 8px;
-  background: hsl(var(--card));
-  color: hsl(var(--muted-foreground));
-  cursor: pointer;
-  transition: all var(--duration-base) var(--ease-standard);
-}
-
-.toolbar-icon-btn:hover {
-  background: hsl(var(--accent));
-  color: hsl(var(--foreground));
-}
-
-.toolbar-icon-btn:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
-
-.view-toggle {
-  display: flex;
-  border: 1px solid hsl(var(--border));
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.view-toggle button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: none;
-  background: hsl(var(--card));
-  color: hsl(var(--muted-foreground));
-  cursor: pointer;
-  transition: all var(--duration-base) var(--ease-standard);
-}
-
-.view-toggle button + button {
-  border-left: 1px solid hsl(var(--border));
-}
-
-.view-toggle button:hover {
-  background: hsl(var(--accent));
-  color: hsl(var(--foreground));
-}
-
-.view-toggle button.active {
-  background: hsl(var(--primary) / 0.1);
-  color: hsl(var(--primary));
-}
-
-/* Batch bar */
 .batch-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 14px 28px;
-  margin: 12px 28px 0;
-  background: hsl(var(--card));
-  border: 1px solid hsl(var(--border));
-  border-radius: 12px;
-}
-
-.batch-left {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
   flex-shrink: 0;
 }
 
-.batch-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: hsl(var(--foreground));
+/* MySkills padded skill grid (overrides page-common) */
+.my-skills :deep(.skill-grid),
+.skill-grid {
+  gap: 10px;
+  padding: 20px 28px 28px;
 }
-
-.batch-count {
-  font-size: 12px;
-  color: hsl(var(--muted-foreground));
-}
-
-.batch-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.batch-action-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 6px 14px;
-  font-size: 12px;
-  font-weight: 500;
-  border: 1px solid hsl(var(--border));
-  border-radius: 6px;
-  background: hsl(var(--card));
-  color: hsl(var(--muted-foreground));
-  cursor: pointer;
-  transition: all var(--duration-base) var(--ease-standard);
-  white-space: nowrap;
-}
-
-.batch-action-btn svg {
-  color: hsl(var(--muted-foreground));
-  flex-shrink: 0;
-}
-
-.batch-action-btn:hover:not(:disabled) {
-  background: hsl(var(--accent));
-  border-color: hsl(var(--primary) / 0.3);
-  color: hsl(var(--foreground));
-}
-
-.batch-action-btn:hover:not(:disabled) svg {
-  color: hsl(var(--primary));
-}
-
-.batch-action-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.batch-action-btn.primary {
-  background: hsl(var(--primary));
-  border-color: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
-}
-
-.batch-action-btn.primary svg {
-  color: hsl(var(--primary-foreground));
-}
-
-.batch-action-btn.primary:hover:not(:disabled) {
-  background: hsl(var(--primary) / 0.85);
-  border-color: hsl(var(--primary) / 0.85);
-}
-
-.batch-action-btn.primary:hover:not(:disabled) svg {
-  color: hsl(var(--primary-foreground));
-}
-
-.batch-action-btn.danger {
-  color: hsl(var(--destructive));
-  border-color: hsl(var(--destructive) / 0.25);
-  background: hsl(var(--destructive) / 0.04);
-}
-
-.batch-action-btn.danger svg {
-  color: hsl(var(--destructive));
-}
-
-.batch-action-btn.danger:hover:not(:disabled) {
-  background: hsl(var(--destructive) / 0.1);
-  border-color: hsl(var(--destructive) / 0.4);
-}
-
 /* Filter tabs */
 .filter-tabs-row {
   display: flex;
   align-items: center;
   gap: 4px;
   padding: 10px 28px 0;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .filter-tabs {
@@ -1195,6 +1003,7 @@ function batchSyncToPlatform() {
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
+  padding: 0;
 }
 
 .filter-tabs::-webkit-scrollbar {
@@ -1256,6 +1065,13 @@ function batchSyncToPlatform() {
   flex-shrink: 0;
 }
 
+.filter-right-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
 .source-dropdown-wrap {
   position: relative;
 }
@@ -1294,6 +1110,65 @@ function batchSyncToPlatform() {
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-standard);
   white-space: nowrap;
+}
+
+.dropdown-item-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dropdown-item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: hsl(var(--muted-foreground));
+}
+
+.dropdown-item-icon img,
+.dropdown-item-icon :deep(img) {
+  width: 16px;
+  height: 16px;
+  border-radius: 2px;
+  object-fit: contain;
+}
+
+.dropdown-item-icon-svg,
+.dropdown-item-icon :deep(svg) {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+.dropdown-item-icon--all {
+  color: hsl(var(--muted-foreground));
+}
+
+.source-tab-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.source-tab-icon img {
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+  object-fit: contain;
+}
+
+.source-tab-icon-svg,
+.source-tab-icon :deep(svg) {
+  display: block;
+  width: 14px;
+  height: 14px;
 }
 
 .dropdown-item:hover {

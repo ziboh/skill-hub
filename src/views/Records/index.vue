@@ -7,7 +7,7 @@ import { defaultPlatforms } from '../../data/platforms'
 import { KeyCurrentRoute } from '../../inject-keys'
 import { useDownloadQueue } from '../../composables/useDownloadQueue'
 import { useTranslationQueue } from '../../composables/useTranslationQueue'
-import { getSourceInfo as getSourceInfoUtil, isSvgIcon, isImageUrl } from '../../utils/source-info'
+import { getSourceInfo as getSourceInfoUtil } from '../../utils/source-info'
 
 import type { Skill } from '../../types'
 import ProviderIcon from '../../components/ProviderIcon.vue'
@@ -32,7 +32,7 @@ function toggleTheme() {
 const activeTab = ref<'downloads' | 'dist' | 'translations' | 'failures'>('downloads')
 
 const { queue, activeCount, clearCompleted: _clearCompleted } = useDownloadQueue()
-const { queue: translationQueue, cacheVersion, addTranslation, removeTranslation, clearAll: _clearAll } = useTranslationQueue()
+const { queue: translationQueue, cacheVersion, removeTranslation, clearAll: _clearAll } = useTranslationQueue()
 
 const failureRecords = ref<FailureRecord[]>([])
 const failureTypeFilter = ref<FailureType | 'all'>('all')
@@ -49,7 +49,7 @@ const translations = ref<
 function getSkillNameByHash(hash: string): string {
   const cache = storage.getTranslationByHash(hash)
   if (cache?.skillName) return cache.skillName
-  const skills = storage.getCachedSkills()
+  const skills = storage.getDownloadedSkills()
   for (const s of skills) {
     if (s.readme) {
       if (window.services.hashContent(s.readme.replace(/\r\n/g, '\n').replace(/\r/g, '\n')) === hash) return s.name
@@ -86,6 +86,36 @@ onDeactivated(() => {
   selectedItems.value.clear()
 })
 
+/** Stable selection keys (platformId may contain `:`, e.g. project:…). */
+function distRecordKey(r: Pick<DistributeRecord, 'skillId' | 'platformId' | 'scope'>): string {
+  return JSON.stringify({ k: 'dist', skillId: r.skillId, platformId: r.platformId, scope: r.scope || '' })
+}
+function translationRecordKey(type: string, hash: string): string {
+  return JSON.stringify({ k: 'translation', type, hash })
+}
+function failureRecordKey(id: string): string {
+  return JSON.stringify({ k: 'failure', id })
+}
+
+function parseSelectionKey(
+  key: string,
+): { k: string; skillId?: string; platformId?: string; scope?: string; type?: string; hash?: string; id?: string } | null {
+  try {
+    const o = JSON.parse(key)
+    if (o && typeof o === 'object' && o.k) return o
+  } catch {
+    /* legacy colon keys */
+  }
+  if (key.startsWith('content:') || key.startsWith('desc:')) {
+    const type = key.startsWith('content:') ? 'content' : 'desc'
+    return { k: 'translation', type, hash: key.slice(type.length + 1) }
+  }
+  if (key.startsWith('failure:')) {
+    return { k: 'failure', id: key.slice(8) }
+  }
+  return null
+}
+
 function toggleSelect(key: string) {
   if (selectedItems.value.has(key)) {
     selectedItems.value.delete(key)
@@ -118,21 +148,22 @@ function confirmBatchDelete() {
   showBatchDeleteConfirm.value = true
 }
 
+function deleteBySelectionKey(key: string) {
+  const parsed = parseSelectionKey(key)
+  if (!parsed) return
+  if (parsed.k === 'dist' && parsed.skillId != null && parsed.platformId != null) {
+    storage.removeDistributeRecord(parsed.skillId, parsed.platformId, parsed.scope || undefined)
+  } else if (parsed.k === 'translation' && parsed.hash && (parsed.type === 'content' || parsed.type === 'desc')) {
+    storage.removeTranslationByHash(parsed.hash, parsed.type)
+    removeTranslation(parsed.hash, parsed.type)
+  } else if (parsed.k === 'failure' && parsed.id) {
+    storage.removeFailureRecord(parsed.id)
+  }
+}
+
 function executeBatchDelete() {
   for (const key of selectedItems.value) {
-    const [type, ...rest] = key.split(':')
-    if (type === 'dist') {
-      const [skillId, platformId, scope] = rest
-      storage.removeDistributeRecord(skillId, platformId, scope || undefined)
-    } else if (type === 'content') {
-      storage.removeTranslationByHash(rest[0], 'content')
-      removeTranslation(rest[0], 'content')
-    } else if (type === 'desc') {
-      storage.removeTranslationByHash(rest[0], 'desc')
-      removeTranslation(rest[0], 'desc')
-    } else if (type === 'failure') {
-      storage.removeFailureRecord(rest[0])
-    }
+    deleteBySelectionKey(key)
   }
   clearSelection()
   loadData()
@@ -193,16 +224,17 @@ function getErrorCategoryColor(category?: ErrorCategory): string {
 function executeDelete() {
   if (!deleteTarget.value) return
   if (deleteTarget.value.type === 'dist') {
-    const r = deleteTarget.value.data
+    const r = deleteTarget.value.data as DistributeRecord
     storage.removeDistributeRecord(r.skillId, r.platformId, r.scope)
   } else if (deleteTarget.value.type === 'failure') {
-    const r = deleteTarget.value.data
+    const r = deleteTarget.value.data as FailureRecord
     storage.removeFailureRecord(r.id)
   } else {
-    const item = deleteTarget.value.data
+    const item = deleteTarget.value.data as { skillId: string; type: 'content' | 'desc' }
     storage.removeTranslationByHash(item.skillId, item.type)
     removeTranslation(item.skillId, item.type)
   }
+  clearSelection()
   loadData()
   showDeleteConfirm.value = false
   deleteTarget.value = null
@@ -238,10 +270,10 @@ watch(cacheVersion, () => {
 })
 
 function loadData() {
-  distributeRecords.value = storage.getDistributeRecords()
-  const cacheRaw = storage._readTranslationCache()
-  translations.value = cacheRaw
-  failureRecords.value = storage.getFailureRecords()
+  // New array/object refs so Vue always re-renders after delete
+  distributeRecords.value = [...storage.getDistributeRecords()]
+  translations.value = { ...storage.getTranslationCaches() }
+  failureRecords.value = [...storage.getFailureRecords()]
 }
 
 function _getTranslationModel(): ModelConfig | null {
@@ -267,14 +299,8 @@ function _getTranslationModel(): ModelConfig | null {
   return null
 }
 
-/** item.skillId here is the content hash (queue key), not skill id */
-function resumeTranslation(item: { skillId: string; type: 'content' | 'desc'; skillName?: string }) {
-  storage.removeTranslationByHash(item.skillId, item.type)
-  // skillId field on Records UI = translation content hash
-  addTranslation(item.skillId, item.type, item.skillName)
-}
-
-function _clearStuckItem(item: { skillId: string; type: 'content' | 'desc' }) {
+/** Cancel in-progress or pending translation (skillId field = content hash) */
+function cancelTranslation(item: { skillId: string; type: 'content' | 'desc' }) {
   removeTranslation(item.skillId, item.type)
 }
 
@@ -283,17 +309,10 @@ function _clearAllFailureRecords() {
   loadData()
 }
 
-async function resumeAllStuck() {
-  const items = [...translationQueue.value]
-  for (const item of items) {
-    await resumeTranslation({ skillId: item.hash, type: item.type })
-  }
-}
-
-const hasStuckItems = computed(() => translationQueue.value.length > 0)
+const hasQueueItems = computed(() => translationQueue.value.length > 0)
 
 function getSkillName(skillId: string): string {
-  const cached = storage.getCachedSkills()
+  const cached = storage.getDownloadedSkills()
   const skill = cached.find((s) => s.id === skillId)
   return skill?.name || skillId
 }
@@ -709,96 +728,93 @@ watch(activeTab, () => {
                 </span>
               </div>
             </div>
-            <div v-for="(record, idx) in downloadsPaged" :key="idx" class="record-row">
-              <div class="col-status">
-                <svg
-                  v-if="record.status"
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  :stroke="getStatusColor(record.status)"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  :class="{ spinning: record.status === 'running' }"
-                >
-                  <path :d="getStatusIcon(record.status)" />
-                </svg>
-                <svg
-                  v-else
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="hsl(142 50% 45%)"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="M20 6 9 17 4 12" />
-                </svg>
-              </div>
-              <div class="col-name">
-                <span class="skill-name">{{ record.skillName }}</span>
-                <span class="skill-id">{{ record.skillId }}</span>
-              </div>
-              <div class="col-source">
-                <span
-                  class="source-badge"
-                  :style="{ color: getSourceInfoForDownload(record.source).color, background: getSourceInfoForDownload(record.source).bg }"
-                >
+            <div class="record-table-body">
+              <div v-for="(record, idx) in downloadsPaged" :key="idx" class="record-row">
+                <div class="col-status">
                   <svg
-                    v-if="getSourceInfoForDownload(record.source).icon === 'multi'"
-                    width="10"
-                    height="10"
+                    v-if="record.status"
+                    width="14"
+                    height="14"
                     viewBox="0 0 24 24"
                     fill="none"
-                    stroke="currentColor"
+                    :stroke="getStatusColor(record.status)"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    :class="{ spinning: record.status === 'running' }"
+                  >
+                    <path :d="getStatusIcon(record.status)" />
+                  </svg>
+                  <svg
+                    v-else
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="hsl(142 50% 45%)"
                     stroke-width="2"
                     stroke-linecap="round"
                     stroke-linejoin="round"
                   >
-                    <circle cx="12" cy="12" r="10" />
-                    <line x1="2" y1="12" x2="22" y2="12" />
-                    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+                    <path d="M20 6 9 17 4 12" />
                   </svg>
-                  <img
-                    v-else-if="isImageUrl(getSourceInfoForDownload(record.source).icon)"
-                    :src="getSourceInfoForDownload(record.source).icon"
-                    width="10"
-                    height="10"
-                    alt=""
-                    style="border-radius: 2px"
-                  />
+                </div>
+                <div class="col-name">
+                  <span class="skill-name">{{ record.skillName }}</span>
+                  <span class="skill-id">{{ record.skillId }}</span>
+                </div>
+                <div class="col-source">
                   <span
-                    v-else-if="isSvgIcon(getSourceInfoForDownload(record.source).icon)"
-                    class="tag-icon-svg"
-                    v-html="getSourceInfoForDownload(record.source).icon"
-                  />
-                  <svg
-                    v-else-if="getSourceInfoForDownload(record.source).icon === 'git'"
-                    width="10"
-                    height="10"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
+                    class="source-badge"
+                    :style="{
+                      color: getSourceInfoForDownload(record.source).color,
+                      background: getSourceInfoForDownload(record.source).bg,
+                    }"
                   >
-                    <circle cx="18" cy="18" r="3" />
-                    <circle cx="6" cy="6" r="3" />
-                    <path d="M13 6h3a2 2 0 0 1 2 2v7" />
-                    <line x1="6" y1="9" x2="6" y2="21" />
-                  </svg>
-                  {{ getSourceLabel(record.source) }}
-                </span>
-              </div>
-              <div class="col-time">
-                {{
-                  record.status === 'running' ? formatQueueTime(new Date(record.downloadedAt).getTime()) : formatTime(record.downloadedAt)
-                }}
+                    <svg
+                      v-if="getSourceInfoForDownload(record.source).icon === 'multi'"
+                      width="10"
+                      height="10"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <circle cx="12" cy="12" r="10" />
+                      <line x1="2" y1="12" x2="22" y2="12" />
+                      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+                    </svg>
+                    <svg
+                      v-else-if="getSourceInfoForDownload(record.source).icon === 'git'"
+                      width="10"
+                      height="10"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <circle cx="18" cy="18" r="3" />
+                      <circle cx="6" cy="6" r="3" />
+                      <path d="M13 6h3a2 2 0 0 1 2 2v7" />
+                      <line x1="6" y1="9" x2="6" y2="21" />
+                    </svg>
+                    <ProviderIcon
+                      v-else-if="getSourceInfoForDownload(record.source).icon"
+                      :icon="getSourceInfoForDownload(record.source).icon"
+                      :size="10"
+                    />
+                    {{ getSourceLabel(record.source) }}
+                  </span>
+                </div>
+                <div class="col-time">
+                  {{
+                    record.status === 'running' ? formatQueueTime(new Date(record.downloadedAt).getTime()) : formatTime(record.downloadedAt)
+                  }}
+                </div>
               </div>
             </div>
           </div>
@@ -831,8 +847,8 @@ watch(activeTab, () => {
                 <label class="checkbox-wrap">
                   <input
                     type="checkbox"
-                    :checked="isAllSelected(distPaged.map((r) => ({ key: `dist:${r.skillId}:${r.platformId}:${r.scope || ''}` })))"
-                    @change="toggleSelectAll(distPaged.map((r) => ({ key: `dist:${r.skillId}:${r.platformId}:${r.scope || ''}` })))"
+                    :checked="isAllSelected(distPaged.map((r) => ({ key: distRecordKey(r) })))"
+                    @change="toggleSelectAll(distPaged.map((r) => ({ key: distRecordKey(r) })))"
                   />
                   <span class="checkbox-custom" />
                 </label>
@@ -860,56 +876,58 @@ watch(activeTab, () => {
               </div>
               <div class="col-action" />
             </div>
-            <div
-              v-for="(record, idx) in distPaged"
-              :key="idx"
-              class="record-row"
-              :class="{ selected: selectedItems.has(`dist:${record.skillId}:${record.platformId}:${record.scope || ''}`) }"
-            >
-              <div class="col-check">
-                <label class="checkbox-wrap">
-                  <input
-                    type="checkbox"
-                    :checked="selectedItems.has(`dist:${record.skillId}:${record.platformId}:${record.scope || ''}`)"
-                    @change="toggleSelect(`dist:${record.skillId}:${record.platformId}:${record.scope || ''}`)"
-                  />
-                  <span class="checkbox-custom" />
-                </label>
-              </div>
-              <div class="col-name">
-                <span class="skill-name">{{ getSkillName(record.skillId) }}</span>
-                <span class="skill-id">{{ record.skillId }}</span>
-              </div>
-              <div class="col-platform">
-                <div class="platform-info">
-                  <ProviderIcon :icon="getDistPlatformId(record)" :size="16" variant="mono" />
-                  <span v-if="record.scope === 'project'" class="platform-label">{{ getProjectName(record.platformId) }}</span>
-                  <span v-else class="platform-label">{{ platformMap.get(record.platformId) || record.platformId }}</span>
+            <div class="record-table-body">
+              <div
+                v-for="(record, idx) in distPaged"
+                :key="idx"
+                class="record-row"
+                :class="{ selected: selectedItems.has(distRecordKey(record)) }"
+              >
+                <div class="col-check">
+                  <label class="checkbox-wrap">
+                    <input
+                      type="checkbox"
+                      :checked="selectedItems.has(distRecordKey(record))"
+                      @change="toggleSelect(distRecordKey(record))"
+                    />
+                    <span class="checkbox-custom" />
+                  </label>
                 </div>
-              </div>
-              <div class="col-mode">
-                <span class="mode-badge" :class="record.mode">{{ record.mode === 'symlink' ? '链接' : '复制' }}</span>
-              </div>
-              <div class="col-time">
-                {{ formatTime(record.distributedAt) }}
-              </div>
-              <div class="col-action">
-                <button class="delete-btn" @click.stop="confirmDeleteDist(record)" title="删除">
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <path d="M3 6h18" />
-                    <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                    <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                  </svg>
-                </button>
+                <div class="col-name">
+                  <span class="skill-name">{{ getSkillName(record.skillId) }}</span>
+                  <span class="skill-id">{{ record.skillId }}</span>
+                </div>
+                <div class="col-platform">
+                  <div class="platform-info">
+                    <ProviderIcon :icon="getDistPlatformId(record)" :size="16" variant="mono" />
+                    <span v-if="record.scope === 'project'" class="platform-label">{{ getProjectName(record.platformId) }}</span>
+                    <span v-else class="platform-label">{{ platformMap.get(record.platformId) || record.platformId }}</span>
+                  </div>
+                </div>
+                <div class="col-mode">
+                  <span class="mode-badge" :class="record.mode">{{ record.mode === 'symlink' ? '链接' : '复制' }}</span>
+                </div>
+                <div class="col-time">
+                  {{ formatTime(record.distributedAt) }}
+                </div>
+                <div class="col-action">
+                  <button type="button" class="delete-btn" @click.stop="confirmDeleteDist(record)" title="删除">
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M3 6h18" />
+                      <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                      <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                    </svg>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -917,9 +935,8 @@ watch(activeTab, () => {
       </div>
 
       <div v-else-if="activeTab === 'translations'" class="records-list">
-        <div v-if="hasStuckItems" class="stuck-bar">
+        <div v-if="hasQueueItems" class="stuck-bar">
           <span class="stuck-bar-text">{{ translationQueue.length }} 项翻译在队列中</span>
-          <button class="resume-all-btn" @click="resumeAllStuck">继续全部</button>
         </div>
         <div v-if="translationsTotal === 0" class="empty">
           <svg
@@ -948,10 +965,14 @@ watch(activeTab, () => {
                   <input
                     type="checkbox"
                     :checked="
-                      isAllSelected(translationsPaged.filter((i) => i.status === 'done').map((i) => ({ key: `${i.type}:${i.skillId}` })))
+                      isAllSelected(
+                        translationsPaged.filter((i) => i.status === 'done').map((i) => ({ key: translationRecordKey(i.type, i.skillId) })),
+                      )
                     "
                     @change="
-                      toggleSelectAll(translationsPaged.filter((i) => i.status === 'done').map((i) => ({ key: `${i.type}:${i.skillId}` })))
+                      toggleSelectAll(
+                        translationsPaged.filter((i) => i.status === 'done').map((i) => ({ key: translationRecordKey(i.type, i.skillId) })),
+                      )
                     "
                   />
                   <span class="checkbox-custom" />
@@ -963,66 +984,56 @@ watch(activeTab, () => {
               <div class="col-time">时间</div>
               <div class="col-action" />
             </div>
-            <div
-              v-for="(item, idx) in translationsPaged"
-              :key="idx"
-              class="record-row"
-              :class="{
-                'in-progress': item.status !== 'done',
-                translating: item.status === 'translating',
-                pending: item.status === 'pending',
-                selected: selectedItems.has(`${item.type}:${item.skillId}`),
-              }"
-            >
-              <div class="col-check">
-                <label v-if="item.status === 'done'" class="checkbox-wrap">
-                  <input
-                    type="checkbox"
-                    :checked="selectedItems.has(`${item.type}:${item.skillId}`)"
-                    @change="toggleSelect(`${item.type}:${item.skillId}`)"
-                  />
-                  <span class="checkbox-custom" />
-                </label>
-              </div>
-              <div class="col-name">
-                <span class="skill-name">{{ item.skillName }}</span>
-                <span class="skill-id">{{ item.skillId }}</span>
-              </div>
-              <div class="col-type">
-                <span class="type-badge" :class="item.type">{{ item.type === 'content' ? '内容翻译' : '描述翻译' }}</span>
-              </div>
-              <div class="col-preview">
-                <span v-if="item.status === 'translating'" class="preview-text translating-preview">
-                  <svg class="spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-                  </svg>
-                  翻译中...
-                </span>
-                <span v-else-if="item.status === 'pending'" class="preview-text pending-preview"> 排队中... </span>
-                <span v-else class="preview-text">{{ truncate(item.preview, 80) }}</span>
-              </div>
-              <div class="col-time">
-                <span class="time-text">{{ item.updatedAt ? formatTime(item.updatedAt) : '—' }}</span>
-              </div>
-              <div class="col-action">
-                <button v-if="item.status === 'done'" class="delete-btn" title="删除" @click.stop="confirmDeleteTranslation(item)">
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
+            <div class="record-table-body">
+              <div
+                v-for="(item, idx) in translationsPaged"
+                :key="idx"
+                class="record-row"
+                :class="{
+                  'in-progress': item.status !== 'done',
+                  translating: item.status === 'translating',
+                  pending: item.status === 'pending',
+                  selected: selectedItems.has(translationRecordKey(item.type, item.skillId)),
+                }"
+              >
+                <div class="col-check">
+                  <label v-if="item.status === 'done'" class="checkbox-wrap">
+                    <input
+                      type="checkbox"
+                      :checked="selectedItems.has(translationRecordKey(item.type, item.skillId))"
+                      @change="toggleSelect(translationRecordKey(item.type, item.skillId))"
+                    />
+                    <span class="checkbox-custom" />
+                  </label>
+                </div>
+                <div class="col-name">
+                  <span class="skill-name">{{ item.skillName }}</span>
+                  <span class="skill-id">{{ item.skillId }}</span>
+                </div>
+                <div class="col-type">
+                  <span class="type-badge" :class="item.type">{{ item.type === 'content' ? '内容翻译' : '描述翻译' }}</span>
+                </div>
+                <div class="col-preview">
+                  <span v-if="item.status === 'translating'" class="preview-text translating-preview">
+                    <svg class="spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                    </svg>
+                    翻译中...
+                  </span>
+                  <span v-else-if="item.status === 'pending'" class="preview-text pending-preview"> 排队中... </span>
+                  <span v-else class="preview-text">{{ truncate(item.preview, 80) }}</span>
+                </div>
+                <div class="col-time">
+                  <span class="time-text">{{ item.updatedAt ? formatTime(item.updatedAt) : '—' }}</span>
+                </div>
+                <div class="col-action">
+                  <button
+                    v-if="item.status === 'done'"
+                    type="button"
+                    class="delete-btn"
+                    title="删除"
+                    @click.stop="confirmDeleteTranslation(item)"
                   >
-                    <path d="M3 6h18" />
-                    <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                    <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                  </svg>
-                </button>
-                <template v-else>
-                  <button class="stuck-resume-btn" @click.stop="resumeTranslation(item)" title="继续翻译">
                     <svg
                       width="14"
                       height="14"
@@ -1033,10 +1044,33 @@ watch(activeTab, () => {
                       stroke-linecap="round"
                       stroke-linejoin="round"
                     >
-                      <polygon points="5 3 19 12 5 21 5 3" />
+                      <path d="M3 6h18" />
+                      <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                      <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
                     </svg>
                   </button>
-                </template>
+                  <button
+                    v-else
+                    type="button"
+                    class="stuck-clear-btn"
+                    title="取消翻译"
+                    @click.stop="cancelTranslation(item)"
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M18 6 6 18" />
+                      <path d="m6 6 12 12" />
+                    </svg>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -1086,8 +1120,8 @@ watch(activeTab, () => {
                 <label class="checkbox-wrap">
                   <input
                     type="checkbox"
-                    :checked="isAllSelected(failuresPaged.map((r) => ({ key: `failure:${r.id}` })))"
-                    @change="toggleSelectAll(failuresPaged.map((r) => ({ key: `failure:${r.id}` })))"
+                    :checked="isAllSelected(failuresPaged.map((r) => ({ key: failureRecordKey(r.id) })))"
+                    @change="toggleSelectAll(failuresPaged.map((r) => ({ key: failureRecordKey(r.id) })))"
                   />
                   <span class="checkbox-custom" />
                 </label>
@@ -1098,62 +1132,64 @@ watch(activeTab, () => {
               <div class="col-time">时间</div>
               <div class="col-action" />
             </div>
-            <div
-              v-for="(record, idx) in failuresPaged"
-              :key="idx"
-              class="record-row clickable"
-              :class="{ selected: selectedItems.has(`failure:${record.id}`) }"
-              @click="openFailureDetail(record)"
-            >
-              <div class="col-check">
-                <label class="checkbox-wrap">
-                  <input
-                    type="checkbox"
-                    :checked="selectedItems.has(`failure:${record.id}`)"
-                    @change="toggleSelect(`failure:${record.id}`)"
-                  />
-                  <span class="checkbox-custom" />
-                </label>
-              </div>
-              <div class="col-type">
-                <span class="failure-type-badge" :class="record.type">
-                  {{ record.type === 'translation' ? '翻译' : record.type === 'download' ? '下载' : '分发' }}
-                </span>
-              </div>
-              <div class="col-name">
-                <span class="skill-name">{{ record.skillName }}</span>
-                <span class="skill-id">{{ record.skillId }}</span>
-              </div>
-              <div class="col-error">
-                <span
-                  v-if="record.errorCategory"
-                  class="error-category-badge"
-                  :style="{ color: getErrorCategoryColor(record.errorCategory) }"
-                >
-                  {{ getErrorCategoryLabel(record.errorCategory) }}
-                </span>
-                <span class="error-text">{{ truncate(record.error, 60) }}</span>
-              </div>
-              <div class="col-time">
-                {{ formatTime(record.timestamp) }}
-              </div>
-              <div class="col-action">
-                <button class="delete-btn" @click.stop="confirmDeleteFailure(record)" title="删除">
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
+            <div class="record-table-body">
+              <div
+                v-for="(record, idx) in failuresPaged"
+                :key="idx"
+                class="record-row clickable"
+                :class="{ selected: selectedItems.has(failureRecordKey(record.id)) }"
+                @click="openFailureDetail(record)"
+              >
+                <div class="col-check">
+                  <label class="checkbox-wrap">
+                    <input
+                      type="checkbox"
+                      :checked="selectedItems.has(failureRecordKey(record.id))"
+                      @change="toggleSelect(failureRecordKey(record.id))"
+                    />
+                    <span class="checkbox-custom" />
+                  </label>
+                </div>
+                <div class="col-type">
+                  <span class="failure-type-badge" :class="record.type">
+                    {{ record.type === 'translation' ? '翻译' : record.type === 'download' ? '下载' : '分发' }}
+                  </span>
+                </div>
+                <div class="col-name">
+                  <span class="skill-name">{{ record.skillName }}</span>
+                  <span class="skill-id">{{ record.skillId }}</span>
+                </div>
+                <div class="col-error">
+                  <span
+                    v-if="record.errorCategory"
+                    class="error-category-badge"
+                    :style="{ color: getErrorCategoryColor(record.errorCategory) }"
                   >
-                    <path d="M3 6h18" />
-                    <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                    <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                  </svg>
-                </button>
+                    {{ getErrorCategoryLabel(record.errorCategory) }}
+                  </span>
+                  <span class="error-text">{{ truncate(record.error, 60) }}</span>
+                </div>
+                <div class="col-time">
+                  {{ formatTime(record.timestamp) }}
+                </div>
+                <div class="col-action">
+                  <button class="delete-btn" @click.stop="confirmDeleteFailure(record)" title="删除">
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M3 6h18" />
+                      <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                      <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                    </svg>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -1244,8 +1280,8 @@ watch(activeTab, () => {
           确定要删除这条{{ deleteTarget?.type === 'dist' ? '分发' : deleteTarget?.type === 'failure' ? '失败' : '翻译' }}记录吗？
         </div>
         <div class="confirm-actions">
-          <button class="confirm-cancel" @click="showDeleteConfirm = false">取消</button>
-          <button class="confirm-ok" @click="executeDelete">删除</button>
+          <button type="button" class="confirm-cancel" @click="showDeleteConfirm = false">取消</button>
+          <button type="button" class="confirm-ok" @click.stop="executeDelete">删除</button>
         </div>
       </div>
     </div>
@@ -1254,8 +1290,8 @@ watch(activeTab, () => {
         <div class="confirm-title">批量删除</div>
         <div class="confirm-message">确定要删除选中的 {{ selectedItems.size }} 条记录吗？此操作不可撤销。</div>
         <div class="confirm-actions">
-          <button class="confirm-cancel" @click="showBatchDeleteConfirm = false">取消</button>
-          <button class="confirm-ok" @click="executeBatchDelete">删除 {{ selectedItems.size }} 项</button>
+          <button type="button" class="confirm-cancel" @click="showBatchDeleteConfirm = false">取消</button>
+          <button type="button" class="confirm-ok" @click.stop="executeBatchDelete">删除 {{ selectedItems.size }} 项</button>
         </div>
       </div>
     </div>
@@ -1428,18 +1464,32 @@ watch(activeTab, () => {
 .filter-tabs-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: flex-start;
+  align-self: stretch;
+  width: 100%;
+  box-sizing: border-box;
+  gap: 4px;
   padding: 10px 28px 0;
+  margin: 0;
 }
+/* Override global page-common .filter-tabs padding so tabs stay left-aligned with header */
 .filter-tabs {
   display: flex;
   align-items: center;
-  gap: 4px;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  padding: 0 !important;
+  margin: 0;
 }
 
 .tab-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 6px;
   padding: 8px 14px;
   font-size: 13px;
@@ -1451,6 +1501,7 @@ watch(activeTab, () => {
   cursor: pointer;
   transition: all var(--duration-base) var(--ease-standard);
   white-space: nowrap;
+  text-align: left;
 }
 .tab-btn:hover {
   background: hsl(var(--accent));
@@ -1487,9 +1538,17 @@ watch(activeTab, () => {
 .records-content {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   padding: 0 28px 16px;
+}
+
+.records-list {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .empty {
@@ -1508,6 +1567,11 @@ watch(activeTab, () => {
 }
 
 .record-table {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background: hsl(var(--card));
   border: 1px solid hsl(var(--border));
   border-radius: 12px;
@@ -1516,14 +1580,33 @@ watch(activeTab, () => {
   box-shadow: var(--shadow-sm);
 }
 
-.record-table .record-row:first-child {
-  border-radius: 12px 12px 0 0;
+.record-table-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.55) hsl(var(--border) / 0.6);
 }
-.record-table .record-row:last-child {
+.record-table-body::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.record-table-body::-webkit-scrollbar-track {
+  background: hsl(var(--border) / 0.6);
+  border-radius: 99px;
+}
+.record-table-body::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.55);
+  border-radius: 99px;
+}
+.record-table-body::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.75);
+}
+
+.record-table-body .record-row:last-child {
   border-radius: 0 0 12px 12px;
-}
-.record-table .record-row:only-child {
-  border-radius: 12px;
 }
 
 .record-row {
@@ -1542,6 +1625,19 @@ watch(activeTab, () => {
 .downloads-table .record-row {
   grid-template-columns: 28px 2fr 1fr 1.2fr;
 }
+.downloads-table .col-status {
+  justify-content: flex-start;
+}
+.downloads-table .col-source {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  text-align: left;
+}
+.downloads-table .col-name,
+.downloads-table .col-time {
+  text-align: left;
+}
 
 .dist-table .record-row {
   grid-template-columns: 36px 2fr 2fr 1fr 1.2fr 40px;
@@ -1557,15 +1653,16 @@ watch(activeTab, () => {
 }
 
 .header-row {
+  flex-shrink: 0;
   background: hsl(var(--muted));
   font-weight: 600;
   font-size: 12px;
   color: hsl(var(--muted-foreground));
-  position: sticky;
-  top: 0;
-  z-index: 2;
+  border-radius: 12px 12px 0 0;
   text-transform: uppercase;
   letter-spacing: 0.3px;
+  /* match record-table-body scrollbar-gutter (8px) so columns stay aligned */
+  padding-right: 26px;
 }
 
 .col-action {
@@ -1693,14 +1790,17 @@ watch(activeTab, () => {
   align-items: center;
   justify-content: center;
   transition: all var(--duration-base) var(--ease-standard);
-  opacity: 0;
+  opacity: 0.45;
+  pointer-events: auto;
 }
-.record-row:hover .delete-btn {
+.record-row:hover .delete-btn,
+.record-row.selected .delete-btn {
   opacity: 1;
 }
 .delete-btn:hover {
   background: hsl(var(--destructive) / 0.1);
   color: hsl(var(--destructive));
+  opacity: 1;
 }
 
 .confirm-overlay {
@@ -2185,6 +2285,7 @@ watch(activeTab, () => {
   gap: 12px;
   padding: 12px 18px;
   margin-top: 16px;
+  flex-shrink: 0;
   background: hsl(38 90% 50% / 0.08);
   border: 1px solid hsl(38 90% 50% / 0.2);
   border-radius: 12px;
@@ -2195,37 +2296,6 @@ watch(activeTab, () => {
   color: hsl(38 90% 40%);
   font-weight: 500;
 }
-.resume-all-btn {
-  padding: 6px 14px;
-  font-size: 12px;
-  font-weight: 600;
-  border: none;
-  border-radius: 7px;
-  background: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
-  cursor: pointer;
-  transition: opacity var(--duration-base) var(--ease-standard);
-}
-.resume-all-btn:hover {
-  opacity: 0.9;
-}
-.clear-all-stuck-btn {
-  padding: 6px 14px;
-  font-size: 12px;
-  font-weight: 500;
-  border: 1px solid hsl(var(--border));
-  border-radius: 7px;
-  background: transparent;
-  color: hsl(var(--muted-foreground));
-  cursor: pointer;
-  transition: all var(--duration-base) var(--ease-standard);
-}
-.clear-all-stuck-btn:hover {
-  background: hsl(var(--accent));
-  color: hsl(var(--foreground));
-}
-
-.stuck-resume-btn,
 .stuck-clear-btn {
   width: 30px;
   height: 30px;
@@ -2238,10 +2308,6 @@ watch(activeTab, () => {
   align-items: center;
   justify-content: center;
   transition: all var(--duration-base) var(--ease-standard);
-}
-.stuck-resume-btn:hover {
-  background: hsl(var(--primary) / 0.1);
-  color: hsl(var(--primary));
 }
 .stuck-clear-btn:hover {
   background: hsl(var(--destructive) / 0.1);

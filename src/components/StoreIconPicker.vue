@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue'
 import ProviderIcon from './ProviderIcon.vue'
 import { AVAILABLE_ICONS } from '../data/ai-providers'
-import { STORE_ICONS, STORE_TYPE_DEFAULT_ICONS, isStoreIconKey, isProviderIcon, resolveStoreIcon } from '../data/store-icons'
+import { STORE_TYPE_DEFAULT_ICONS } from '../data/store-icons'
 
 const props = withDefaults(
   defineProps<{
@@ -23,7 +23,6 @@ const activeTab = ref<'library' | 'upload' | 'url'>('library')
 const searchQuery = ref('')
 const urlInput = ref('')
 const localFilePath = ref('')
-const localFileDataUri = ref('')
 
 const filteredIcons = computed(() => {
   const q = searchQuery.value.toLowerCase().trim()
@@ -31,19 +30,7 @@ const filteredIcons = computed(() => {
   return AVAILABLE_ICONS.filter((name) => name.includes(q))
 })
 
-const currentIconType = computed(() => {
-  if (!props.modelValue) return 'default'
-  if (props.modelValue.startsWith('<svg')) return 'svg'
-  if (props.modelValue.startsWith('data:')) return 'data-uri'
-  if (isStoreIconKey(props.modelValue)) return 'store-icon'
-  if (isProviderIcon(props.modelValue)) return 'provider-icon'
-  return 'url-or-path'
-})
-
-const resolvedStoreIcon = computed(() => {
-  if (currentIconType.value === 'store-icon') return resolveStoreIcon(props.modelValue)
-  return undefined
-})
+const previewIcon = computed(() => props.modelValue || props.defaultIcon || STORE_TYPE_DEFAULT_ICONS['git-repo'])
 
 function selectIcon(name: string) {
   emit('update:modelValue', name)
@@ -77,13 +64,11 @@ async function browseLocalFile() {
     if (content) {
       emit('update:modelValue', content)
       localFilePath.value = filePath
-      localFileDataUri.value = ''
     }
   } else {
     const savedPath = window.services.saveIconFile(filePath)
     emit('update:modelValue', savedPath)
     localFilePath.value = savedPath
-    localFileDataUri.value = window.services.readFileAsDataUri(savedPath) || ''
   }
 }
 
@@ -92,8 +77,6 @@ function clearIcon() {
   emit('update:modelValue', '')
   urlInput.value = ''
   localFilePath.value = ''
-  localFileDataUri.value = ''
-  // 删除本地导入的图标文件（存储在 store-icons 目录下的文件）
   if (oldValue && window.services?.removeFile) {
     const iconsDir = window.ztools?.getPath?.('userData')
     if (iconsDir && oldValue.startsWith(iconsDir)) {
@@ -127,20 +110,7 @@ function clearIcon() {
 
     <div class="sip-preview">
       <div class="sip-preview-icon">
-        <ProviderIcon v-if="currentIconType === 'default' && defaultIcon && isProviderIcon(defaultIcon)" :icon="defaultIcon" :size="32" />
-        <span
-          v-else-if="currentIconType === 'default'"
-          class="sip-preview-svg"
-          v-html="defaultIcon || STORE_TYPE_DEFAULT_ICONS['git-repo']"
-        />
-        <span v-else-if="currentIconType === 'svg'" v-html="modelValue" class="sip-preview-svg" />
-        <ProviderIcon v-else-if="currentIconType === 'provider-icon'" :icon="modelValue" :size="32" />
-        <template v-else-if="currentIconType === 'store-icon' && resolvedStoreIcon">
-          <span v-if="resolvedStoreIcon.startsWith('<svg')" v-html="resolvedStoreIcon" class="sip-preview-svg" />
-          <img v-else :src="resolvedStoreIcon" class="sip-preview-img" />
-        </template>
-        <img v-else-if="localFileDataUri && currentIconType === 'url-or-path'" :src="localFileDataUri" class="sip-preview-img" />
-        <img v-else-if="currentIconType === 'url-or-path' || currentIconType === 'data-uri'" :src="modelValue" class="sip-preview-img" />
+        <ProviderIcon :icon="previewIcon" :size="32" />
       </div>
       <span class="sip-preview-hint">{{ modelValue ? '当前图标' : '使用默认图标' }}</span>
     </div>
@@ -183,8 +153,7 @@ function clearIcon() {
         </div>
         <div class="sip-grid">
           <div class="sip-grid-item" :class="{ active: !modelValue }" title="默认（根据类型自动选择）" @click="selectDefault">
-            <ProviderIcon v-if="defaultIcon && isProviderIcon(defaultIcon)" :icon="defaultIcon" :size="24" />
-            <span v-else class="sip-grid-svg" v-html="defaultIcon || STORE_TYPE_DEFAULT_ICONS['git-repo']" />
+            <ProviderIcon :icon="defaultIcon || STORE_TYPE_DEFAULT_ICONS['git-repo']" :size="24" />
             <span class="sip-grid-label">默认</span>
           </div>
           <div
@@ -193,7 +162,7 @@ function clearIcon() {
             title="Git 仓库"
             @click="selectIcon('store:git-repo')"
           >
-            <span class="sip-grid-svg" v-html="STORE_TYPE_DEFAULT_ICONS['git-repo']" />
+            <ProviderIcon icon="store:git-repo" :size="24" />
             <span class="sip-grid-label">Git</span>
           </div>
           <div
@@ -202,7 +171,7 @@ function clearIcon() {
             title="Marketplace"
             @click="selectIcon('store:marketplace-json')"
           >
-            <span class="sip-grid-svg" v-html="STORE_TYPE_DEFAULT_ICONS['marketplace-json']" />
+            <ProviderIcon icon="store:marketplace-json" :size="24" />
             <span class="sip-grid-label">Market</span>
           </div>
           <div
@@ -211,7 +180,7 @@ function clearIcon() {
             title="Well-Known"
             @click="selectIcon('store:well-known-index')"
           >
-            <span class="sip-grid-svg" v-html="STORE_TYPE_DEFAULT_ICONS['well-known-index']" />
+            <ProviderIcon icon="store:well-known-index" :size="24" />
             <span class="sip-grid-label">Well-Known</span>
           </div>
           <div
@@ -220,7 +189,7 @@ function clearIcon() {
             title="本地目录"
             @click="selectIcon('store:local-dir')"
           >
-            <span class="sip-grid-svg" v-html="STORE_TYPE_DEFAULT_ICONS['local-dir']" />
+            <ProviderIcon icon="store:local-dir" :size="24" />
             <span class="sip-grid-label">Folder</span>
           </div>
           <div
@@ -229,11 +198,11 @@ function clearIcon() {
             title="Claude Code"
             @click="selectIcon('store:claude')"
           >
-            <img :src="STORE_ICONS.claude" class="sip-grid-img" />
+            <ProviderIcon icon="store:claude" :size="24" />
             <span class="sip-grid-label">Claude</span>
           </div>
           <div class="sip-grid-item" :class="{ active: modelValue === 'store:codex' }" title="Codex" @click="selectIcon('store:codex')">
-            <img :src="STORE_ICONS.codex" class="sip-grid-img" />
+            <ProviderIcon icon="store:codex" :size="24" />
             <span class="sip-grid-label">Codex</span>
           </div>
           <div
@@ -242,7 +211,7 @@ function clearIcon() {
             title="skills.sh"
             @click="selectIcon('store:skills-sh')"
           >
-            <img :src="STORE_ICONS['skills-sh']" class="sip-grid-img" />
+            <ProviderIcon icon="store:skills-sh" :size="24" />
             <span class="sip-grid-label">skills.sh</span>
           </div>
           <div

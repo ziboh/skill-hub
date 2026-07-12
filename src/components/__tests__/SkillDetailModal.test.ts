@@ -17,7 +17,7 @@ vi.mock('../../utils/storage', () => ({
     getDescTranslationByHash: vi.fn(() => null),
     saveTranslation: vi.fn(),
     saveTranslationDesc: vi.fn(),
-    saveCachedSkills: vi.fn(),
+    saveDownloadedSkills: vi.fn(),
     addDownloadedId: vi.fn(),
     addSessionDownload: vi.fn(),
   },
@@ -62,8 +62,6 @@ vi.mock('../../data/skill-categories', () => ({
 
 vi.mock('../../utils/source-info', () => ({
   getSourceInfo: vi.fn(() => ({ icon: '📦', label: 'GitHub', bg: '#333', color: '#fff' })),
-  isSvgIcon: vi.fn(() => false),
-  isImageUrl: vi.fn(() => false),
 }))
 
 function createSkill(overrides = {}) {
