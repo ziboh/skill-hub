@@ -30,7 +30,7 @@ export const STORE_TYPE_DEFAULT_ICONS: Record<string, string> = {
 }
 
 export function getDefaultStoreIcon(type: string): string {
-  return STORE_TYPE_DEFAULT_ICONS[type] || ICON_STORE
+  return STORE_TYPE_DEFAULT_ICONS[type] ? `store:${type}` : 'store:git-repo'
 }
 
 export function getStoreIconFromSource(source: { type: string; icon?: string }): string {

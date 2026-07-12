@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import ProviderIcon from './ProviderIcon.vue'
 import { AVAILABLE_ICONS } from '../data/ai-providers'
-import { STORE_TYPE_DEFAULT_ICONS } from '../data/store-icons'
+
 import { storage } from '../utils/storage'
 import type { UserIconEntry } from '../types'
 
@@ -33,7 +33,7 @@ const filteredIcons = computed(() => {
   return AVAILABLE_ICONS.filter((name) => name.includes(q))
 })
 
-const previewIcon = computed(() => props.modelValue || props.defaultIcon || STORE_TYPE_DEFAULT_ICONS['git-repo'])
+const previewIcon = computed(() => props.modelValue || props.defaultIcon || 'store:git-repo')
 
 function loadUserIcons() {
   userIcons.value = storage.getUserIcons()
@@ -175,7 +175,7 @@ function clearIcon() {
         </div>
         <div class="sip-grid">
           <div class="sip-grid-item" :class="{ active: !modelValue }" title="默认（根据类型自动选择）" @click="selectDefault">
-            <ProviderIcon :icon="defaultIcon || STORE_TYPE_DEFAULT_ICONS['git-repo']" :size="24" />
+            <ProviderIcon :icon="defaultIcon || 'store:git-repo'" :size="24" />
             <span class="sip-grid-label">默认</span>
           </div>
           <div
