@@ -36,3 +36,7 @@ Thumbs.db
 
 # 文档（本地副本，不提交）
 docs/ztools-doc/
+
+# 本地工具运行产物与临时差异文件
+.superpowers/
+temp_diff*.txt

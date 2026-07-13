@@ -81,10 +81,6 @@ function findCachedSkill(skill: any): Skill | null {
   )
 }
 
-function isInMySkills(skill: any): boolean {
-  return findCachedSkill(skill) !== null
-}
-
 function getPlatFormInstallDirSet(): Set<string> {
   if (!selectedPlatform.value) return new Set()
   const distributed = storage.getDistributedForPlatform(selectedPlatform.value.id)
@@ -92,21 +88,16 @@ function getPlatFormInstallDirSet(): Set<string> {
 }
 
 function getBadgeType(skill: any): string {
-  if (!isInMySkills(skill)) return 'local'
+  const skillDir = normalizePath(skill.dir || '')
   const cached = findCachedSkill(skill)
   if (cached && cached.source === 'local') {
     const cachedPath = normalizePath(cached.path || '')
-    const skillDir = normalizePath(skill.dir || '')
     if (cachedPath && skillDir && cachedPath === skillDir) {
       return 'source'
     }
   }
-  if (selectedPlatform.value) {
-    const normalizedDir = normalizePath(skill.dir || '')
-    const installedTargetPaths = _platformInstallDirs.value
-    if (!installedTargetPaths.has(normalizedDir)) return 'local'
-  }
-  return 'managed'
+  if (skillDir && _platformInstallDirs.value.has(skillDir)) return 'managed'
+  return 'local'
 }
 
 const _platformInstallDirs = ref<Set<string>>(new Set())
@@ -259,25 +250,24 @@ watch(
 const filteredSkills = computed(() => {
   const skills = selectedSkills.value
   if (!skillFilter.value) return skills
-  return skills.filter((s) => {
-    const t = getBadgeType(s)
-    if (skillFilter.value === 'local') return t === 'local'
-    if (skillFilter.value === 'managed') return t === 'managed' || t === 'source'
-    return true
-  })
+  return skills.filter((s) => getBadgeType(s) === skillFilter.value)
 })
 
 const localAndManagedCount = computed(() => {
   let local = 0,
-    managed = 0
+    managed = 0,
+    source = 0
   for (const s of selectedSkills.value) {
-    if (getBadgeType(s) === 'local') local++
+    const type = getBadgeType(s)
+    if (type === 'local') local++
+    else if (type === 'source') source++
     else managed++
   }
-  return { local, managed }
+  return { local, managed, source }
 })
 const localCount = computed(() => localAndManagedCount.value.local)
 const managedCount = computed(() => localAndManagedCount.value.managed)
+const sourceCount = computed(() => localAndManagedCount.value.source)
 
 function getBadge(skill: any): { text: string; type: string } {
   const t = getBadgeType(skill)
@@ -355,6 +345,7 @@ function skillToSkill(skill: any): Skill {
     tags: skill.manifest?.tags || [],
     source: 'local',
     readme: skill.content || '',
+    path: skill.dir || '',
     skillDir: skill.dir || '',
   } as any
 }
@@ -370,6 +361,7 @@ function openDeploy(skill: any) {
 function onDeployed() {
   showDeployModal.value = false
   deploySkill.value = null
+  _platformInstallDirs.value = getPlatFormInstallDirSet()
   refreshCurrent()
   refreshCounts()
 }
@@ -699,6 +691,7 @@ function confirmImportFromMy() {
     } else if (importedCount > 0) {
       showToast(`已导入 ${importedCount} 个技能到 ${targetPlatform.name}`, 'success')
       refreshCurrent()
+      _platformInstallDirs.value = getPlatFormInstallDirSet()
       refreshCounts()
     } else if (failCount > 0) {
       showToast(`所有技能导入失败`, 'error')
@@ -950,6 +943,25 @@ function confirmImportFromMy() {
         已管理
         <span class="tab-count">{{ managedCount }}</span>
       </button>
+      <button class="tab-btn" :class="{ active: skillFilter === 'source' }" @click="skillFilter = skillFilter === 'source' ? '' : 'source'">
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+          <line x1="16" y1="13" x2="8" y2="13" />
+          <line x1="16" y1="17" x2="8" y2="17" />
+        </svg>
+        源文件
+        <span class="tab-count">{{ sourceCount }}</span>
+      </button>
     </div>
 
     <div v-if="batchMode" class="batch-bar">
@@ -1029,7 +1041,7 @@ function confirmImportFromMy() {
                   <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                 </svg>
               </button>
-              <button v-if="isInMySkills(s)" class="card-action-btn primary" title="分发到平台" @click.stop="openDeploy(s)">
+              <button v-if="getBadgeType(s) !== 'local'" class="card-action-btn primary" title="分发到平台" @click.stop="openDeploy(s)">
                 <svg
                   width="14"
                   height="14"
@@ -1045,7 +1057,7 @@ function confirmImportFromMy() {
                 </svg>
               </button>
               <button
-                v-else
+                v-if="getBadgeType(s) === 'local'"
                 class="card-action-btn primary"
                 :disabled="importing[getSkillId(s)]"
                 title="导入到我的 Skill"

@@ -28,6 +28,7 @@ import { cacheVersion as translationCacheVersion } from '../../composables/useTr
 import { getSkillsRepoDir } from '../../utils/skill-path'
 import { safeRemovePath } from '../../utils/fs-ops'
 import { importScanResultToMySkills } from '../../utils/skill-import'
+import { makeProjectPlatformKey } from '../../utils/skill-deploy'
 import { normalizeSkillNameKey, getSkillDisplayName } from '../../utils/skill-identity'
 
 const emit = defineEmits(['navigate', 'edit-project', 'delete-project'])
@@ -42,6 +43,7 @@ const detectedPlatforms = inject(KeyDetectedPlatforms, ref<PlatformInfo[]>([]))
 const refreshCounts = inject(KeyRefreshCounts, () => {})
 
 const importing = ref<Record<string, boolean>>({})
+
 const confirmDeleteProjectId = ref<string | null>(null)
 const confirmDeleteProjectName = ref('')
 
@@ -107,17 +109,19 @@ function isInMySkills(skill: any): boolean {
   return findDownloadedSkill(skill) !== null
 }
 
-function isLinkedSkill(skill: any): boolean {
-  const t = getBadgeType(skill)
-  return t === 'managed' || t === 'source'
-}
-
 function getProjectInstallDirSet(): Set<string> {
   const records = storage.getDistributeRecords()
-  if (selectedProject.value?.id) {
-    return new Set(records.filter((r) => r.platformId === selectedProject.value!.id).map((r) => normalizePath(r.targetPath)))
-  }
-  return new Set(records.map((r) => normalizePath(r.targetPath)))
+  const projectId = selectedProject.value?.id
+  return new Set(
+    records
+      .filter((r) =>
+        projectId
+          ? r.scope === 'project' &&
+            (r.platformId === projectId || r.platformId.startsWith(`project:${projectId}/`))
+          : r.scope === 'project',
+      )
+      .map((r) => normalizePath(r.targetPath)),
+  )
 }
 
 const _projectInstallDirs = ref<Set<string>>(getProjectInstallDirSet())
@@ -264,6 +268,7 @@ function skillToSkill(skill: SkillScanResult): any {
     tags: skill.manifest?.tags || [],
     source: 'local',
     readme: skill.content || '',
+    path: skill.dir || '',
     skillDir: skill.dir || '',
   }
 }
@@ -476,6 +481,7 @@ function openDeploy(skill: SkillScanResult) {
 function onDeployed() {
   showDeployModal.value = false
   deploySkill.value = null
+  refreshInstallDirs()
   if (selectedProject.value) scanProject(selectedProject.value)
 }
 
@@ -578,7 +584,7 @@ async function confirmImportFromMy() {
           }
           storage.saveDistributeRecord({
             skillId: skill.id,
-            platformId: selectedProject.value.id,
+            platformId: makeProjectPlatformKey(selectedProject.value.id, targetRel),
             mode: importMode.value,
             scope: 'project',
             targetPath: targetDir,
@@ -1096,7 +1102,7 @@ async function confirmImportFromMy() {
                   <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                 </svg>
               </button>
-              <button v-if="isLinkedSkill(skill)" class="card-action-btn primary" title="分发到平台" @click.stop="openDeploy(skill)">
+              <button v-if="getBadgeType(skill) !== 'local'" class="card-action-btn primary" title="分发到平台" @click.stop="openDeploy(skill)">
                 <svg
                   width="14"
                   height="14"
@@ -1112,7 +1118,7 @@ async function confirmImportFromMy() {
                 </svg>
               </button>
               <button
-                v-else
+                v-if="getBadgeType(skill) === 'local'"
                 class="card-action-btn primary"
                 :disabled="importing[getSkillId(skill)]"
                 title="导入到我的 Skill"
