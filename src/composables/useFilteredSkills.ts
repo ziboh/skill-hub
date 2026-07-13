@@ -1,11 +1,32 @@
 import { computed } from 'vue'
-import type { Skill } from '../types'
+import type { MySkillsSortMode, Skill } from '../types'
 import { SKILL_CATEGORIES, ALL_CATEGORIES, inferCategory, CATEGORY_ICONS, type SkillCategory } from '../data/skill-categories'
+import { sortSkills } from '../utils/skill-sort'
 
 export { SKILL_CATEGORIES, CATEGORY_ICONS, type SkillCategory }
 
+function matchCategoryFromTag(tag: string): SkillCategory | null {
+  const t = tag.trim()
+  if (!t) return null
+  const lower = t.toLowerCase()
+  if (ALL_CATEGORIES.includes(lower as SkillCategory)) return lower as SkillCategory
+  for (const cat of ALL_CATEGORIES) {
+    const meta = SKILL_CATEGORIES[cat]
+    if (meta.label === t || meta.labelEn.toLowerCase() === lower) return cat
+  }
+  return null
+}
+
 function getSkillCategory(skill: Skill): SkillCategory {
-  return (skill.userTags?.[0] as SkillCategory) || inferCategory(skill.name, skill.description || '')
+  if (skill.userTags?.[0]) {
+    const fromUser = matchCategoryFromTag(skill.userTags[0])
+    if (fromUser) return fromUser
+  }
+  for (const tag of skill.tags || []) {
+    const fromTag = matchCategoryFromTag(tag)
+    if (fromTag) return fromTag
+  }
+  return inferCategory(skill.name, skill.description || '')
 }
 
 export function useFilteredSkills(opts: {
@@ -15,6 +36,7 @@ export function useFilteredSkills(opts: {
   filterTag: () => string
   distributedSkillIds: () => Set<string>
   getSourceLabel: (skill: Skill) => string
+  sortMode?: () => MySkillsSortMode
 }) {
   function applyBaseFilters(list: Skill[]) {
     if (opts.filterSource()) list = list.filter((s) => opts.getSourceLabel(s) === opts.filterSource())
@@ -37,7 +59,8 @@ export function useFilteredSkills(opts: {
   const filteredSkills = computed(() => {
     let list = baseFilteredSkills.value
     if (opts.filterTag()) list = list.filter((s) => getSkillCategory(s) === opts.filterTag())
-    return list
+    const mode = opts.sortMode?.() || 'default'
+    return sortSkills(list, mode)
   })
 
   const filteredBaseCount = computed(() => baseFilteredSkills.value.length)

@@ -1,4 +1,5 @@
 import type { PlatformInfo } from '../types'
+import { storage } from '../utils/storage'
 
 type OsKey = 'darwin' | 'win32' | 'linux'
 
@@ -73,7 +74,6 @@ export const defaultPlatforms: PlatformInfo[] = [
     },
     skillsRelativePath: 'Data/Skills',
     defaultPath: '~/.config/CherryStudio/Data/Skills/',
-    projectPath: 'Data/Skills/',
     enabled: true,
     detected: false,
   },
@@ -229,32 +229,132 @@ export const defaultPlatforms: PlatformInfo[] = [
   },
 ]
 
-export function detectPlatforms(): PlatformInfo[] {
-  const svc = typeof window !== 'undefined' ? window.services : null
-  if (!svc) return defaultPlatforms.map((p) => ({ ...p, detected: false }))
+const builtinIdSet = new Set(defaultPlatforms.map((p) => p.id))
 
-  return defaultPlatforms.map((p) => {
-    let detected = false
-    if (p.rootDir) {
-      const rootExpanded = resolveRootDir(p).replace(/^~/, svc.homeDir())
-      detected = svc.pathExists(rootExpanded)
-    } else {
-      const checkPath = p.defaultPath || p.projectPath || ''
-      if (checkPath) {
-        const expanded = checkPath.replace(/^~/, svc.homeDir())
-        detected = svc.pathExists(expanded)
-      }
-    }
-    return { ...p, detected }
-  })
+export function isBuiltinPlatformId(id: string): boolean {
+  return builtinIdSet.has(id)
+}
+
+/** Merge saved config onto a platform definition (enabled / paths / icon / name for custom). */
+export function mergePlatformConfig(base: PlatformInfo, cfg?: PlatformInfo | null): PlatformInfo {
+  if (!cfg) return { ...base }
+  return {
+    ...base,
+    customPath: cfg.customPath ?? base.customPath,
+    customProjectPath: cfg.customProjectPath ?? base.customProjectPath,
+    enabled: cfg.enabled !== undefined ? cfg.enabled : base.enabled,
+    icon: cfg.icon !== undefined ? cfg.icon : base.icon,
+    // Custom platforms store full definition in config
+    name: base.isCustom || cfg.isCustom ? cfg.name || base.name : base.name,
+    defaultPath: base.isCustom || cfg.isCustom ? cfg.defaultPath || base.defaultPath : base.defaultPath,
+    projectPath: base.isCustom || cfg.isCustom ? cfg.projectPath ?? base.projectPath : base.projectPath,
+    isCustom: base.isCustom || cfg.isCustom,
+  }
+}
+
+/**
+ * Builtin defaults + user custom platforms from storage, with saved overrides applied.
+ * Does not run path detection (detected stays as on definition / false).
+ */
+export function getAllPlatformDefinitions(): PlatformInfo[] {
+  let saved: PlatformInfo[] = []
+  try {
+    saved = storage.getPlatformConfigs() || []
+  } catch {
+    saved = []
+  }
+  const savedById = new Map(saved.map((c) => [c.id, c]))
+  const builtins = defaultPlatforms.map((p) => mergePlatformConfig(p, savedById.get(p.id)))
+  const customs = saved
+    .filter((c) => c.isCustom || !builtinIdSet.has(c.id))
+    .filter((c) => !builtinIdSet.has(c.id))
+    .map((c) =>
+      mergePlatformConfig(
+        {
+          id: c.id,
+          name: c.name || c.id,
+          defaultPath: c.defaultPath || '',
+          projectPath: c.projectPath,
+          customPath: c.customPath,
+          customProjectPath: c.customProjectPath,
+          enabled: c.enabled !== false,
+          detected: false,
+          isCustom: true,
+          icon: c.icon,
+        },
+        c,
+      ),
+    )
+  return [...builtins, ...customs]
+}
+
+function detectOne(p: PlatformInfo, svc: NonNullable<typeof window.services>): boolean {
+  if (p.rootDir) {
+    const rootExpanded = resolveRootDir(p).replace(/^~/, svc.homeDir())
+    return svc.pathExists(rootExpanded)
+  }
+  const checkPath = p.customPath || p.defaultPath || p.projectPath || ''
+  if (!checkPath) return false
+  return svc.pathExists(checkPath.replace(/^~/, svc.homeDir()))
+}
+
+export function detectPlatforms(): PlatformInfo[] {
+  const defs = getAllPlatformDefinitions()
+  const svc = typeof window !== 'undefined' ? window.services : null
+  if (!svc) return defs.map((p) => ({ ...p, detected: false }))
+  return defs.map((p) => ({ ...p, detected: detectOne(p, svc) }))
 }
 
 export function getPlatformPath(platform: PlatformInfo, mode: 'global' | 'project' = 'global'): string {
   const svc = typeof window !== 'undefined' ? window.services : null
+  // Prefer explicit customPath for global even when rootDir exists
+  if (mode === 'global' && platform.customPath) {
+    return platform.customPath.replace(/^~/, svc ? svc.homeDir() : '~')
+  }
   if (mode === 'global' && platform.rootDir && platform.skillsRelativePath) {
     const root = resolveRootDir(platform).replace(/^~/, svc ? svc.homeDir() : '~')
     return joinPath(root, platform.skillsRelativePath)
   }
   const base = mode === 'global' ? platform.customPath || platform.defaultPath : platform.customProjectPath || platform.projectPath
   return base ? base.replace(/^~/, svc ? svc.homeDir() : '~') : ''
+}
+
+/** Icon key for ProviderIcon: custom icon field, else platform id (registry resolves bare id → platforms:*). */
+export function platformDisplayIcon(platform: Pick<PlatformInfo, 'id' | 'icon'>): string {
+  if (platform.icon) return platform.icon
+  // 非内置平台 ID 都是用户自定义的，不保证存在于图标注册表中。
+  // 这里也覆盖 custom- 前缀加入前创建的历史自定义平台。
+  if (!isBuiltinPlatformId(platform.id)) return '_generic'
+  return platform.id
+}
+
+export function getDefaultPlatformOrder(): string[] {
+  return getAllPlatformDefinitions().map((p) => p.id)
+}
+
+/** id → name map including custom platforms. */
+export function getPlatformNameMap(): Record<string, string> {
+  const map: Record<string, string> = {}
+  for (const p of getAllPlatformDefinitions()) map[p.id] = p.name
+  return map
+}
+
+export function findPlatformById(id: string): PlatformInfo | undefined {
+  return getAllPlatformDefinitions().find((p) => p.id === id)
+}
+
+export function createCustomPlatformId(name: string): string {
+  const slug =
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 24) || 'platform'
+  const rand = Math.random().toString(36).slice(2, 8)
+  let id = `custom-${slug}-${rand}`
+  const existing = new Set(getAllPlatformDefinitions().map((p) => p.id))
+  while (existing.has(id)) {
+    id = `custom-${slug}-${Math.random().toString(36).slice(2, 8)}`
+  }
+  return id
 }

@@ -1,14 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, inject, watch } from 'vue'
-import {
-  KeyShowToast,
-  KeySelectedProject,
-  KeyRegisteredProjects,
-  KeySelectProject,
-  KeyNavigateToProjectSkills,
-  KeyMarkAgentSkillsDirty,
-} from '../inject-keys'
-import { getPlatformPath } from '../data/platforms'
+import { KeyShowToast, KeyNavigateToProjectSkills, KeyMarkAgentSkillsDirty } from '../inject-keys'
+import { useProjectState } from '../composables/useProjectState'
+import { getPlatformPath, platformDisplayIcon } from '../data/platforms'
 import { storage } from '../utils/storage'
 import { normalizePath } from '../utils/path'
 import type { Skill, InstallMode, RegisteredProject } from '../types'
@@ -23,7 +17,9 @@ import {
   deploySkillToGlobalPlatform,
   deploySkillToProjectPath,
 } from '../utils/skill-deploy'
-import { safeRemovePath } from '../utils/fs-ops'
+import { findPhysicallyInstalledPlatforms, toastSourceMissing, uninstallPathAndRecord } from '../utils/skill-install-status'
+import { skillMatchesInstalled } from '../utils/skill-identity'
+import { formatSkillLifecycleWarnings } from '../utils/skill-lifecycle'
 
 const props = defineProps<{
   skill: Skill
@@ -32,9 +28,7 @@ const props = defineProps<{
 
 const emit = defineEmits(['close', 'deployed'])
 const showToast = inject(KeyShowToast, () => {})
-const _selectedProject = inject(KeySelectedProject, ref(null))
-const registeredProjects = inject(KeyRegisteredProjects, ref([]))
-const _selectProject = inject(KeySelectProject, () => {})
+const { registeredProjects } = useProjectState()
 const navigateToProjectSkills = inject(KeyNavigateToProjectSkills, () => {})
 const markAgentSkillsDirty = inject(KeyMarkAgentSkillsDirty, () => {})
 
@@ -51,19 +45,14 @@ const platforms = computed(() => getDeployPlatforms())
 
 const physicallyInstalledPlatforms = computed(() => {
   void globalRefreshTick.value
-  const result = new Set<string>()
-  const skillDir = getSkillFolderName(props.skill)
-  for (const p of platforms.value) {
-    const base = getPlatformPath(p, 'global') || getPlatformPath(p, 'project')
-    if (!base) continue
-    if (!window.services.pathExists(base)) continue
-    const existingSkills = window.services.scanForSkillFiles([base])
-    const exists = existingSkills.some(
-      (s) => s.dir.includes(skillDir) || (s.manifest?.name || s.name).toLowerCase() === props.skill.name.toLowerCase(),
-    )
-    if (exists) result.add(p.id)
-  }
-  return result
+  return findPhysicallyInstalledPlatforms({
+    platforms: platforms.value.map((p) => ({
+      id: p.id,
+      basePath: getPlatformPath(p, 'global') || getPlatformPath(p, 'project') || '',
+    })),
+    skillFolder: getSkillFolderName(props.skill),
+    skillName: props.skill.name,
+  })
 })
 
 const sourcePlatformIds = computed(() => {
@@ -145,17 +134,23 @@ function uninstallGlobalPlatform() {
   const platform = platforms.value.find((p) => p.id === pid)
   const skillDir = getSkillFolderName(props.skill)
   const base = platform ? getPlatformPath(platform, 'global') || getPlatformPath(platform, 'project') : ''
-  if (base) {
-    const targetDir = window.services.pathJoin(base, skillDir)
-    const rm = safeRemovePath(targetDir)
-    if (!rm.ok) {
-      showToast(`卸载失败: ${rm.error || '请检查文件权限'}`, 'error')
-      cancelGlobalUninstall()
-      return
-    }
+  const record = storage.getDistributedForSkill(props.skill.id).find((r) => r.platformId === pid && (r.scope || 'global') === 'global')
+  const targetDir = record?.targetPath || (base ? window.services.pathJoin(base, skillDir) : '')
+  const result = uninstallPathAndRecord({
+    targetPath: targetDir,
+    skillId: props.skill.id,
+    skillName: props.skill.name,
+    platformId: pid,
+    scope: 'global',
+  })
+  if (!result.ok) {
+    showToast(`卸载失败: ${result.error || '请检查文件权限'}`, 'error')
+    cancelGlobalUninstall()
+    return
   }
-  storage.removeDistributeRecord(props.skill.id, pid, 'global')
   globalRefreshTick.value++
+  const warning = formatSkillLifecycleWarnings('uninstall', result.warnings)
+  if (warning) showToast(warning, 'warning')
   showToast(`已从 ${platform?.name || pid} 卸载`, 'success')
   cancelGlobalUninstall()
 }
@@ -238,9 +233,7 @@ function loadProjectInstallStatus() {
       const baseDir = window.services.pathJoin(primaryProject.rootDir, a.path)
       if (!window.services.pathExists(baseDir)) continue
       const existingSkills = window.services.scanForSkillFiles([baseDir])
-      const exists = existingSkills.some(
-        (s: any) => s.dir.includes(skillDirName.value) || (s.manifest?.name || s.name).toLowerCase() === props.skill.name.toLowerCase(),
-      )
+      const exists = existingSkills.some((s) => skillMatchesInstalled(s, skillDirName.value, props.skill.name))
       if (exists) existingDirs.add(a.path)
     }
   }
@@ -308,20 +301,24 @@ function uninstall() {
     return
   }
 
-  try {
-    if (record.targetPath && window.services.pathExists(record.targetPath)) {
-      window.services.removeFile(record.targetPath)
-    }
-    storage.removeDistributeRecord(props.skill.id, key, 'project')
+  const result = uninstallPathAndRecord({
+    targetPath: record.targetPath || '',
+    skillId: props.skill.id,
+    skillName: props.skill.name,
+    platformId: key,
+    scope: 'project',
+  })
+  if (!result.ok) {
+    showToast('卸载失败: ' + (result.error || '未知错误'), 'error')
+  } else {
     loadProjectInstallStatus()
     const stillExists = projectDistributeRecords.value.some((r: any) => r.platformId === key)
-    if (stillExists) {
-      showToast('卸载失败：记录删除异常', 'error')
-    } else {
+    if (stillExists) showToast('卸载失败：记录删除异常', 'error')
+    else {
+      const warning = formatSkillLifecycleWarnings('uninstall', result.warnings)
+      if (warning) showToast(warning, 'warning')
       showToast(`已从项目卸载`, 'success')
     }
-  } catch (err: any) {
-    showToast('卸载失败: ' + (err.message || '未知错误'), 'error')
   }
   cancelUninstall()
 }
@@ -389,7 +386,7 @@ async function deployGlobal() {
 
   const sourceDir = resolveSkillSourceDir(props.skill)
   if (!sourceDir) {
-    showToast(`「${props.skill.name}」的源文件不存在，无法分发`, 'error')
+    showToast(toastSourceMissing(props.skill.name), 'error')
     deploying.value = false
     return
   }
@@ -410,6 +407,8 @@ async function deployGlobal() {
       status: result.ok ? 'ok' : 'error',
       msg: result.message,
     })
+    const warning = formatSkillLifecycleWarnings('install', result.warnings)
+    if (warning) showToast(warning, 'warning')
     done++
   }
 
@@ -443,7 +442,7 @@ async function deployProject() {
 
   const sourceDir = resolveSkillSourceDir(props.skill)
   if (!sourceDir) {
-    showToast(`「${props.skill.name}」的源文件不存在，无法分发`, 'error')
+    showToast(toastSourceMissing(props.skill.name), 'error')
     deploying.value = false
     return
   }
@@ -461,6 +460,8 @@ async function deployProject() {
         status: result.ok ? 'ok' : 'error',
         msg: result.message,
       })
+      const warning = formatSkillLifecycleWarnings('install', result.warnings)
+      if (warning) showToast(warning, 'warning')
       done++
     }
   }
@@ -645,7 +646,7 @@ watch(
                 @click="!recordPlatformIds.has(p.id) && !sourcePlatformIds.has(p.id) && !deploying && togglePlatform(p.id)"
               >
                 <div class="deploy-platform-icon">
-                  <ProviderIcon :icon="p.id" :size="28" variant="mono" />
+                  <ProviderIcon :icon="platformDisplayIcon(p)" :size="28" variant="mono" />
                 </div>
                 <div class="deploy-platform-info">
                   <span class="deploy-platform-name">{{ p.name }}</span>

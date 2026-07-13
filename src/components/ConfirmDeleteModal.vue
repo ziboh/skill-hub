@@ -2,11 +2,12 @@
 import { ref, computed, watch, inject } from 'vue'
 import { storage } from '../utils/storage'
 import type { Skill, DistributeRecord } from '../types'
-import { defaultPlatforms } from '../data/platforms'
+import { getPlatformNameMap, findPlatformById, platformDisplayIcon } from '../data/platforms'
 import ProviderIcon from './ProviderIcon.vue'
-import { loadRegistry, removeFromRegistry } from '../utils/skill-registry'
 import { getSkillsRepoDir } from '../utils/skill-path'
 import { safeRemovePath } from '../utils/fs-ops'
+import { uninstallPathAndRecord } from '../utils/skill-install-status'
+import { formatSkillLifecycleWarnings } from '../utils/skill-lifecycle'
 import { KeyShowToast } from '../inject-keys'
 
 const props = defineProps<{
@@ -29,11 +30,7 @@ const distributeRecords = computed<DistributeRecord[]>(() => {
   return storage.getDistributedForSkill(props.skill.id)
 })
 
-const platformNameMap = computed(() => {
-  const map: Record<string, string> = {}
-  for (const p of defaultPlatforms) map[p.id] = p.name
-  return map
-})
+const platformNameMap = computed(() => getPlatformNameMap())
 
 const uniquePlatforms = computed(() => {
   const seen = new Set<string>()
@@ -85,27 +82,37 @@ function deleteSkill() {
   }
   try {
     window.services.removeEmptyAncestors?.(dir)
-  } catch {}
+  } catch (e) {
+    console.warn('[ConfirmDeleteModal] removeEmptyAncestors failed:', dir, e)
+  }
 
   const distErrors: string[] = []
+  const lifecycleWarnings: string[] = []
   if (removeDistributed.value && selectedPlatforms.value.size > 0) {
     for (const record of distributeRecords.value) {
       if (!selectedPlatforms.value.has(record.platformId)) continue
       if (!record.targetPath) continue
-      const r = safeRemovePath(record.targetPath)
+      const r = uninstallPathAndRecord({
+        targetPath: record.targetPath,
+        skillId: record.skillId,
+        skillName: props.skill.name,
+        platformId: record.platformId,
+        scope: record.scope,
+      })
       if (!r.ok) distErrors.push(record.platformId)
+      if (r.warnings?.length) lifecycleWarnings.push(...r.warnings)
     }
   }
 
   storage.removeAllForSkill(props.skill.id)
   storage.removeDownloadedId(props.skill.id)
-  storage.removeSkillFromCache(props.skill.id)
-  const registry = loadRegistry()
-  removeFromRegistry(registry, props.skill.name)
+  storage.removeDownloadedSkill(props.skill.id)
 
   if (distErrors.length) {
     showToast(`技能已删除，但 ${distErrors.length} 处分发文件删除失败`, 'warning')
   }
+  const warning = formatSkillLifecycleWarnings('uninstall', lifecycleWarnings)
+  if (warning) showToast(warning, 'warning')
   emit('deleted')
 }
 </script>
@@ -179,7 +186,7 @@ function deleteSkill() {
                   class="platform-checkbox"
                   @change="togglePlatform(p.platformId)"
                 />
-                <ProviderIcon :icon="p.platformId" :size="18" variant="mono" />
+                <ProviderIcon :icon="platformDisplayIcon(findPlatformById(p.platformId) || { id: p.platformId })" :size="18" variant="mono" />
                 <span class="platform-name">{{ p.name }}</span>
                 <span class="platform-mode">{{ p.mode === 'symlink' ? '软链接' : '复制' }}</span>
               </label>

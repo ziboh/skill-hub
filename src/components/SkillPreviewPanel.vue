@@ -98,8 +98,8 @@ function loadTranslationCache() {
   const fh = fileHash.value
 
   const cached = fh ? storage.getTranslationByHash(fh) : null
-  if (cached) {
-    translatedContent.value = cached.translatedContent || ''
+  if (cached?.translatedContent) {
+    translatedContent.value = cached.translatedContent
     translationMode.value = cached.mode as TranslationMode
     showTranslation.value = true
   } else {
@@ -204,8 +204,8 @@ function handleTranslate() {
   if (!ch) return
 
   const cached = storage.getTranslationByHash(ch)
-  if (cached) {
-    translatedContent.value = cached.translatedContent || ''
+  if (cached?.translatedContent) {
+    translatedContent.value = cached.translatedContent
     showTranslation.value = true
     showToast(`${props.skillName || props.skill.name} 内容翻译完成`, 'success')
     return
@@ -220,8 +220,8 @@ function handleTranslate() {
 
   const unwatch = watch(translationCacheVersion, () => {
     const cached = storage.getTranslationByHash(ch)
-    if (cached) {
-      translatedContent.value = cached.translatedContent || ''
+    if (cached?.translatedContent) {
+      translatedContent.value = cached.translatedContent
       showTranslation.value = true
       isTranslating.value = false
       isPendingInQueue.value = false
@@ -266,8 +266,8 @@ function handleReTranslate() {
 
   const unwatch = watch(translationCacheVersion, () => {
     const cached = storage.getTranslationByHash(ch)
-    if (cached) {
-      translatedContent.value = cached.translatedContent || ''
+    if (cached?.translatedContent) {
+      translatedContent.value = cached.translatedContent
       showTranslation.value = true
       isTranslating.value = false
       isPendingInQueue.value = false
@@ -709,7 +709,7 @@ function handleReTranslateDesc() {
 .content-panel {
   background: hsl(var(--card));
   box-shadow: 0 1px 3px hsl(0 0% 0% / 0.04);
-  overflow: hidden;
+  overflow: visible;
   min-height: 200px;
   display: flex;
   flex-direction: column;

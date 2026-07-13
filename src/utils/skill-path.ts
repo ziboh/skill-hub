@@ -82,7 +82,7 @@ export function isRegisteredSkillsRepoFolder(folderName: string, registeredIds: 
       if (segs[0] === folderName) return true
       if (skillIdSlug(id) === folderName) return true
     } catch {
-      // ignore bad ids in registry
+      // ignore bad ids
     }
   }
   return false

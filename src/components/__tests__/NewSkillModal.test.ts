@@ -3,6 +3,7 @@ import { mount, VueWrapper } from '@vue/test-utils'
 import NewSkillModal from '../NewSkillModal.vue'
 import * as github from '../../utils/github'
 import { parseFrontmatter } from '../../utils/frontmatter'
+import { KeyShowToast } from '../../inject-keys'
 
 vi.mock('../../utils/github', () => ({
   parseGitHubUrl: vi.fn(),
@@ -16,6 +17,17 @@ vi.mock('../../utils/frontmatter', () => ({
 }))
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
+const showToast = vi.fn()
+
+function mountModalWithToast() {
+  return mount(NewSkillModal, {
+    global: {
+      provide: {
+        [KeyShowToast as symbol]: showToast,
+      },
+    },
+  })
+}
 
 describe('NewSkillModal', () => {
   let wrapper: VueWrapper
@@ -34,7 +46,7 @@ describe('NewSkillModal', () => {
     wrapper = mount(NewSkillModal)
     const items = wrapper.findAll('.method-item')
     expect(items.length).toBeGreaterThan(0)
-    expect(items[0].text()).toContain('从 Git 仓库')
+    expect(items[0].text()).toContain('从 GitHub 导入')
   })
 
   test('click method item navigates to git input step', async () => {
@@ -54,7 +66,7 @@ describe('NewSkillModal', () => {
   test('scan button disabled when url empty', async () => {
     wrapper = mount(NewSkillModal)
     await wrapper.find('.method-item').trigger('click')
-    const scanBtn = wrapper.find('.scan-btn')
+    const scanBtn = wrapper.find('.scan-btn.secondary')
     expect(scanBtn.attributes('disabled')).toBeDefined()
   })
 
@@ -63,19 +75,19 @@ describe('NewSkillModal', () => {
     await wrapper.find('.method-item').trigger('click')
     const input = wrapper.find('.git-input')
     await input.setValue('owner/repo')
-    const scanBtn = wrapper.find('.scan-btn')
+    const scanBtn = wrapper.find('.scan-btn.secondary')
     expect(scanBtn.attributes('disabled')).toBeUndefined()
   })
 
   test('shows scan error for invalid url', async () => {
     vi.mocked(github.parseGitHubUrl).mockReturnValue(null as any)
-    wrapper = mount(NewSkillModal)
+    wrapper = mountModalWithToast()
     await wrapper.find('.method-item').trigger('click')
     const input = wrapper.find('.git-input')
     await input.setValue('invalid-url')
-    await wrapper.find('.scan-btn').trigger('click')
+    await wrapper.find('.scan-btn.secondary').trigger('click')
     await flush()
-    expect(wrapper.find('.scan-error').text()).toContain('请输入有效的 GitHub URL')
+    expect(showToast).toHaveBeenCalledWith(expect.stringContaining('请输入有效的 GitHub URL'), 'error')
   })
 
   test('back link returns to choose step from git input', async () => {
@@ -86,33 +98,30 @@ describe('NewSkillModal', () => {
     expect(wrapper.find('.hint').text()).toContain('选择添加技能的方式')
   })
 
-  test('scan error shows settings link when rate limited', async () => {
-    vi.mocked(github.parseGitHubUrl).mockImplementation(() => {
-      throw new Error('API 速率限制')
-    })
-    wrapper = mount(NewSkillModal)
+  test('scan error shows toast when rate limited', async () => {
+    const mockInfo = { owner: 'user', repo: 'repo', defaultBranch: 'main' }
+    vi.mocked(github.parseGitHubUrl).mockReturnValue(mockInfo)
+    vi.mocked(github.fetchGitHubRepoTree).mockRejectedValue(new Error('API 速率限制'))
+    wrapper = mountModalWithToast()
     await wrapper.find('.method-item').trigger('click')
     const input = wrapper.find('.git-input')
     await input.setValue('owner/repo')
-    await wrapper.find('.scan-btn').trigger('click')
+    await wrapper.find('.scan-btn.secondary').trigger('click')
     await flush()
-    expect(wrapper.find('.scan-error').text()).toContain('速率限制')
-    expect(wrapper.find('.error-settings-link').exists()).toBe(true)
+    expect(showToast).toHaveBeenCalledWith('API 速率限制', 'error')
   })
 
-  test('error settings link emits navigate event', async () => {
-    vi.mocked(github.parseGitHubUrl).mockImplementation(() => {
-      throw new Error('API 速率限制')
-    })
-    wrapper = mount(NewSkillModal)
+  test('scan error is reported through toast', async () => {
+    const mockInfo = { owner: 'user', repo: 'repo', defaultBranch: 'main' }
+    vi.mocked(github.parseGitHubUrl).mockReturnValue(mockInfo)
+    vi.mocked(github.fetchGitHubRepoTree).mockRejectedValue(new Error('Network error'))
+    wrapper = mountModalWithToast()
     await wrapper.find('.method-item').trigger('click')
     const input = wrapper.find('.git-input')
     await input.setValue('owner/repo')
-    await wrapper.find('.scan-btn').trigger('click')
+    await wrapper.find('.scan-btn.secondary').trigger('click')
     await flush()
-    await wrapper.find('.error-settings-link').trigger('click')
-    expect(wrapper.emitted('navigate')).toBeTruthy()
-    expect(wrapper.emitted('navigate')![0]).toEqual(['settings', { anchor: 'github-token-section' }])
+    expect(showToast).toHaveBeenCalledWith('Network error', 'error')
   })
 
   test('shows scan results with skills', async () => {
@@ -126,9 +135,9 @@ describe('NewSkillModal', () => {
     await wrapper.find('.method-item').trigger('click')
     const input = wrapper.find('.git-input')
     await input.setValue('user/repo')
-    await wrapper.find('.scan-btn').trigger('click')
+    await wrapper.find('.scan-btn.secondary').trigger('click')
     await flush()
-    expect(wrapper.find('.hint').text()).toContain('找到 1 个技能')
+    expect(wrapper.find('.scan-header .hint').text()).toContain('找到 1 个技能')
     expect(wrapper.find('.skill-name').text()).toContain('Test Skill')
   })
 
@@ -146,7 +155,7 @@ describe('NewSkillModal', () => {
     await wrapper.find('.method-item').trigger('click')
     const input = wrapper.find('.git-input')
     await input.setValue('user/repo')
-    await wrapper.find('.scan-btn').trigger('click')
+    await wrapper.find('.scan-btn.secondary').trigger('click')
     await flush()
     const checkboxes = wrapper.findAll('.skill-select-item input[type="checkbox"]')
     expect(checkboxes.length).toBe(2)
@@ -168,7 +177,7 @@ describe('NewSkillModal', () => {
     await wrapper.find('.method-item').trigger('click')
     const input = wrapper.find('.git-input')
     await input.setValue('user/repo')
-    await wrapper.find('.scan-btn').trigger('click')
+    await wrapper.find('.scan-btn.secondary').trigger('click')
     await flush()
     await wrapper.find('.select-all-btn').trigger('click')
     const checkboxes = wrapper.findAll('.skill-select-item input[type="checkbox"]')
@@ -187,7 +196,7 @@ describe('NewSkillModal', () => {
     await wrapper.find('.method-item').trigger('click')
     const input = wrapper.find('.git-input')
     await input.setValue('user/repo')
-    await wrapper.find('.scan-btn').trigger('click')
+    await wrapper.find('.scan-btn.secondary').trigger('click')
     await flush()
     const importBtn = wrapper.find('.import-btn')
     expect(importBtn.attributes('disabled')).toBeDefined()
@@ -210,26 +219,26 @@ describe('NewSkillModal', () => {
     vi.mocked(github.parseGitHubUrl).mockReturnValue(mockInfo)
     vi.mocked(github.fetchGitHubRepoTree).mockResolvedValue([])
     vi.mocked(github.detectSkillDirectories).mockReturnValue([])
-    wrapper = mount(NewSkillModal)
+    wrapper = mountModalWithToast()
     await wrapper.find('.method-item').trigger('click')
     const input = wrapper.find('.git-input')
     await input.setValue('user/repo')
-    await wrapper.find('.scan-btn').trigger('click')
+    await wrapper.find('.scan-btn.secondary').trigger('click')
     await flush()
-    expect(wrapper.find('.scan-error').text()).toContain('未找到可安装的技能')
+    expect(showToast).toHaveBeenCalledWith('未找到可安装的技能', 'error')
   })
 
   test('scan error on API failure', async () => {
     const mockInfo = { owner: 'user', repo: 'repo', defaultBranch: 'main' }
     vi.mocked(github.parseGitHubUrl).mockReturnValue(mockInfo)
     vi.mocked(github.fetchGitHubRepoTree).mockRejectedValue(new Error('Network error'))
-    wrapper = mount(NewSkillModal)
+    wrapper = mountModalWithToast()
     await wrapper.find('.method-item').trigger('click')
     const input = wrapper.find('.git-input')
     await input.setValue('user/repo')
-    await wrapper.find('.scan-btn').trigger('click')
+    await wrapper.find('.scan-btn.secondary').trigger('click')
     await flush()
-    expect(wrapper.find('.scan-error').text()).toContain('Network error')
+    expect(showToast).toHaveBeenCalledWith('Network error', 'error')
   })
 
   test('import button text shows count when selected', async () => {
@@ -243,7 +252,7 @@ describe('NewSkillModal', () => {
     await wrapper.find('.method-item').trigger('click')
     const input = wrapper.find('.git-input')
     await input.setValue('user/repo')
-    await wrapper.find('.scan-btn').trigger('click')
+    await wrapper.find('.scan-btn.secondary').trigger('click')
     await flush()
     await wrapper.find('.select-all-btn').trigger('click')
     const importBtn = wrapper.find('.import-btn')

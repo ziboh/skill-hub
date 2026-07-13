@@ -1,10 +1,9 @@
-import { describe, test, expect, vi, afterEach } from 'vitest'
+import { describe, test, expect, vi, afterEach, beforeEach } from 'vitest'
 import { mount, VueWrapper } from '@vue/test-utils'
 import ProjectDistPanel from '../ProjectDistPanel.vue'
-import {} from '../../utils/storage'
 import { detectPlatforms } from '../../data/platforms'
-import { KeyShowToast, KeySelectedProject, KeyRegisteredProjects, KeySelectProject, KeyNavigateToProjectSkills } from '../../inject-keys'
-import { ref } from 'vue'
+import { KeyShowToast, KeyNavigateToProjectSkills } from '../../inject-keys'
+import { useProjectState } from '../../composables/useProjectState'
 
 vi.mock('../../data/platforms', () => ({
   detectPlatforms: vi.fn(() => []),
@@ -16,6 +15,9 @@ vi.mock('../../utils/storage', () => ({
     getDistributeRecords: vi.fn(() => []),
     saveDistributeRecord: vi.fn(),
     removeDistributeRecord: vi.fn(),
+    getRegisteredProjects: vi.fn(() => []),
+    getPageState: vi.fn(() => null),
+    savePageState: vi.fn(),
   },
 }))
 
@@ -39,22 +41,26 @@ function createProject(overrides = {}) {
 describe('ProjectDistPanel', () => {
   let wrapper: VueWrapper
 
+  beforeEach(() => {
+    const { registeredProjects, selectedProject, selectedProjectSkill } = useProjectState()
+    registeredProjects.value = []
+    selectedProject.value = null
+    selectedProjectSkill.value = null
+  })
+
   afterEach(() => {
     wrapper?.unmount()
     vi.clearAllMocks()
   })
 
-  function mountPanel(skill = createSkill(), provides: Record<string, any> = {}) {
-    const selectedProject = ref(null)
-    const registeredProjects = ref([])
+  function mountPanel(skill = createSkill(), provides: Record<symbol, any> = {}, projects: any[] = []) {
+    const { registeredProjects } = useProjectState()
+    registeredProjects.value = projects as any
     return mount(ProjectDistPanel, {
       props: { skill, installMode: 'copy', installing: false, installProgressText: '' },
       global: {
         provide: {
           [KeyShowToast as symbol]: vi.fn(),
-          [KeySelectedProject as symbol]: selectedProject,
-          [KeyRegisteredProjects as symbol]: registeredProjects,
-          [KeySelectProject as symbol]: vi.fn(),
           [KeyNavigateToProjectSkills as symbol]: vi.fn(),
           ...provides,
         },
@@ -89,14 +95,12 @@ describe('ProjectDistPanel', () => {
   })
 
   test('shows project list', () => {
-    const registeredProjects = ref([createProject()])
-    wrapper = mountPanel(createSkill(), { [KeyRegisteredProjects as symbol]: registeredProjects })
+    wrapper = mountPanel(createSkill(), {}, [createProject()])
     expect(wrapper.find('.project-select-name').text()).toContain('My Project')
   })
 
   test('toggles project selection', async () => {
-    const registeredProjects = ref([createProject()])
-    wrapper = mountPanel(createSkill(), { [KeyRegisteredProjects as symbol]: registeredProjects })
+    wrapper = mountPanel(createSkill(), {}, [createProject()])
     await wrapper.find('.project-select-item').trigger('click')
     expect(wrapper.find('.project-select-checkbox.checked').exists()).toBe(true)
     await wrapper.find('.project-select-item').trigger('click')
@@ -104,16 +108,14 @@ describe('ProjectDistPanel', () => {
   })
 
   test('shows selected projects hint', async () => {
-    const registeredProjects = ref([createProject()])
-    wrapper = mountPanel(createSkill(), { [KeyRegisteredProjects as symbol]: registeredProjects })
+    wrapper = mountPanel(createSkill(), {}, [createProject()])
     expect(wrapper.find('.selected-projects-hint').text()).toContain('尚未选择项目')
     await wrapper.find('.project-select-item').trigger('click')
     expect(wrapper.find('.selected-projects-hint').text()).toContain('已选 1')
   })
 
   test('select all projects button works', async () => {
-    const registeredProjects = ref([createProject({ id: 'p1' }), createProject({ id: 'p2', name: 'P2' })])
-    wrapper = mountPanel(createSkill(), { [KeyRegisteredProjects as symbol]: registeredProjects })
+    wrapper = mountPanel(createSkill(), {}, [createProject({ id: 'p1' }), createProject({ id: 'p2', name: 'P2' })])
     await wrapper.find('.select-all-projects-btn').trigger('click')
     expect(wrapper.findAll('.project-select-checkbox.checked').length).toBe(2)
   })
@@ -121,9 +123,8 @@ describe('ProjectDistPanel', () => {
   test('shows agent directory options when project selected', async () => {
     vi.mocked(detectPlatforms).mockReturnValue([
       { id: 'cursor', name: 'Cursor', detected: true, defaultPath: '', projectPath: '.cursor/skills' },
-    ])
-    const registeredProjects = ref([createProject()])
-    wrapper = mountPanel(createSkill(), { [KeyRegisteredProjects as symbol]: registeredProjects })
+    ] as any)
+    wrapper = mountPanel(createSkill(), {}, [createProject()])
     await wrapper.find('.project-select-item').trigger('click')
     await wrapper.vm.$nextTick()
     const cards = wrapper.findAll('.platform-card')
@@ -132,16 +133,14 @@ describe('ProjectDistPanel', () => {
   })
 
   test('custom dir input exists', async () => {
-    const registeredProjects = ref([createProject()])
-    wrapper = mountPanel(createSkill(), { [KeyRegisteredProjects as symbol]: registeredProjects })
+    wrapper = mountPanel(createSkill(), {}, [createProject()])
     await wrapper.find('.project-select-item').trigger('click')
     await wrapper.vm.$nextTick()
     expect(wrapper.find('.custom-dir-input').exists()).toBe(true)
   })
 
   test('install button disabled when no agent dirs selected', async () => {
-    const registeredProjects = ref([createProject()])
-    wrapper = mountPanel(createSkill(), { [KeyRegisteredProjects as symbol]: registeredProjects })
+    wrapper = mountPanel(createSkill(), {}, [createProject()])
     await wrapper.find('.project-select-item').trigger('click')
     await wrapper.vm.$nextTick()
     const installBtn = wrapper.find('.install-all-btn')
@@ -150,11 +149,7 @@ describe('ProjectDistPanel', () => {
 
   test('add project button calls navigateToProjectSkills', async () => {
     const navigate = vi.fn()
-    const registeredProjects = ref([])
-    wrapper = mountPanel(createSkill(), {
-      [KeyRegisteredProjects as symbol]: registeredProjects,
-      [KeyNavigateToProjectSkills as symbol]: navigate,
-    })
+    wrapper = mountPanel(createSkill(), { [KeyNavigateToProjectSkills as symbol]: navigate }, [])
     await wrapper.find('.add-project-btn').trigger('click')
     expect(navigate).toHaveBeenCalled()
   })

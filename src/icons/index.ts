@@ -1,5 +1,5 @@
 import './builtins'
 export type { IconKind, IconValue, IconAsset, ResolvedIcon, ParseRule } from './types'
 export { parseIcon, registerParseRule, unregisterParseRule } from './detect'
-export { registerIcon, registerAlias, getIconAsset, resolveIconKey } from './registry'
+export { registerIcon, registerAlias, getIconAsset, resolveIconKey, listRegisteredIconKeys, listRegisteredIconIds } from './registry'
 export { resolveIcon, injectSvgIds } from './resolve'

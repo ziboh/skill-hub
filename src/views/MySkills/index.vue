@@ -648,7 +648,7 @@ function batchSyncToPlatform() {
             <span v-if="selectedSourceIcon" class="source-tab-icon">
               <ProviderIcon :icon="selectedSourceIcon" :size="14" />
             </span>
-            {{ filterSource || '全部来源' }}
+            <span class="source-tab-label" :title="filterSource || '全部来源'">{{ filterSource || '全部来源' }}</span>
             <span class="tab-count">{{ sourceFilterCount }}</span>
             <svg
               width="12"
@@ -989,6 +989,7 @@ function batchSyncToPlatform() {
 .filter-tabs-row {
   display: flex;
   align-items: center;
+  flex-wrap: nowrap;
   gap: 4px;
   padding: 10px 28px 0;
   width: 100%;
@@ -999,11 +1000,12 @@ function batchSyncToPlatform() {
   display: flex;
   align-items: center;
   gap: 2px;
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
+  flex-wrap: nowrap;
   overflow-x: auto;
   scrollbar-width: none;
-  padding: 0;
+  padding: 0 !important;
 }
 
 .filter-tabs::-webkit-scrollbar {
@@ -1062,14 +1064,26 @@ function batchSyncToPlatform() {
 }
 
 .source-tab {
-  flex-shrink: 0;
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 12em;
+}
+
+.source-tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  max-width: 7.5em;
 }
 
 .filter-right-actions {
   display: flex;
   align-items: center;
   gap: 2px;
-  flex-shrink: 0;
+  flex-shrink: 1;
+  min-width: 0;
+  margin-left: auto;
 }
 
 .source-dropdown-wrap {

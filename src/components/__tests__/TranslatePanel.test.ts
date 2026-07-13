@@ -3,6 +3,16 @@ import { mount } from '@vue/test-utils'
 import TranslatePanel from '../TranslatePanel.vue'
 import { storage } from '../../utils/storage'
 import type { Skill } from '../../types'
+import { processingHashes, useTranslationQueue } from '../../composables/useTranslationQueue'
+
+vi.mock('../../utils/translate', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../utils/translate')>()
+  return {
+    ...actual,
+    translateContent: vi.fn(async () => new Promise(() => {})),
+    translateDescription: vi.fn(async () => new Promise(() => {})),
+  }
+})
 
 const sampleSkills: Skill[] = [
   { id: 'skill-1', name: 'Skill One', description: 'First skill', tags: [] },
@@ -55,6 +65,8 @@ describe('TranslatePanel', () => {
   beforeEach(() => {
     document.body.innerHTML = ''
     window.ztools.dbStorage.clear()
+    processingHashes.clear()
+    useTranslationQueue().clearAll()
     currentTestSkills = undefined
     setupSettings()
   })
@@ -148,6 +160,8 @@ describe('Translation status detection', () => {
   beforeEach(() => {
     document.body.innerHTML = ''
     window.ztools.dbStorage.clear()
+    processingHashes.clear()
+    useTranslationQueue().clearAll()
     currentTestSkills = undefined
     setupSettings()
   })
@@ -323,6 +337,30 @@ describe('Translation status detection', () => {
     expect(badge).toBe('翻译中')
   })
 
+  test('desc-only translating does not show 翻译中 under content type', async () => {
+    setupModel()
+    const readme = '# Skill Desc Only\n\nContent'
+    const skills = [makeSkill({ id: 'skill-desc-only', name: 'Skill Desc Only', description: 'An English skill', readme })]
+    setupStorageSkills(skills)
+    vi.mocked(window.services.pathExists).mockReturnValue(false)
+
+    const { useTranslationQueue } = await import('../../composables/useTranslationQueue')
+    const { addTranslation } = useTranslationQueue()
+    addTranslation(readme, 'desc', 'Skill Desc Only')
+
+    const wrapper = createWrapper()
+    const typeButtons = wrapper.findAll('.segment-btn')
+    const contentBtn = typeButtons.find((btn) => btn.text() === '内容')
+    await contentBtn?.trigger('click')
+    await wrapper.vm.$nextTick()
+    expect(getStatusBadge(wrapper, 'Skill Desc Only')).not.toBe('翻译中')
+
+    const descBtn = typeButtons.find((btn) => btn.text() === '描述')
+    await descBtn?.trigger('click')
+    await wrapper.vm.$nextTick()
+    expect(getStatusBadge(wrapper, 'Skill Desc Only')).toBe('翻译中')
+  })
+
   test('queued skill shows 排队中 label', async () => {
     setupModel()
     const readme = '# Skill Queue\n\nTest content'
@@ -331,18 +369,18 @@ describe('Translation status detection', () => {
 
     vi.mocked(window.services.pathExists).mockReturnValue(false)
 
-    const { useTranslationQueue } = await import('../../composables/useTranslationQueue')
-    const { addTranslation, queue } = useTranslationQueue()
-    addTranslation(readme, 'content', 'Skill Queue')
-    addTranslation(readme, 'desc', 'Skill Queue')
-
-    queue.value = queue.value.map((item) => ({
-      ...item,
-      status: 'pending' as const,
-    }))
-    queue.value[0].status = 'translating'
+    const { useTranslationQueue, MAX_CONCURRENT } = await import('../../composables/useTranslationQueue')
+    const { addTranslation } = useTranslationQueue()
+    for (let i = 0; i < MAX_CONCURRENT; i++) {
+      // text keeps worker hanging so slots stay occupied
+      addTranslation(`filler-hash-${i}`, 'content', `Filler ${i}`, 'English filler content to translate')
+    }
+    addTranslation(readme, 'desc', 'Skill Queue', 'An English skill')
 
     const wrapper = createWrapper()
+    const typeButtons = wrapper.findAll('.segment-btn')
+    const descBtn = typeButtons.find((btn) => btn.text() === '描述')
+    await descBtn?.trigger('click')
     await wrapper.vm.$nextTick()
 
     const badge = getStatusBadge(wrapper, 'Skill Queue')
@@ -403,5 +441,110 @@ describe('Translation status detection', () => {
 
     const btn = getTranslateBtn(wrapper, 'Skill CN Tags')
     expect(btn?.attributes('disabled')).toBeDefined()
+  })
+
+  test('translateAll with only desc cached still enqueues content', async () => {
+    setupModel()
+    const readme = '# Skill Partial\n\nOriginal English body content for partial translation'
+    const skills = [
+      makeSkill({
+        id: 'skill-partial',
+        name: 'Skill Partial',
+        description: 'An English description for partial',
+        readme,
+      }),
+    ]
+    setupStorageSkills(skills)
+    setupTranslationCache({ [readme]: { translatedDesc: '已翻译的描述' } })
+    vi.mocked(window.services.pathExists).mockReturnValue(false)
+
+    const wrapper = createWrapper()
+    await wrapper.vm.$nextTick()
+
+    expect(getStatusBadge(wrapper, 'Skill Partial')).toBe('待翻译')
+
+    await wrapper.find('.translate-all-btn').trigger('click')
+    await wrapper.vm.$nextTick()
+
+    const { queue } = useTranslationQueue()
+    const items = queue.value.filter((i) => i.hash === readme)
+    expect(items.some((i) => i.type === 'content')).toBe(true)
+    expect(items.some((i) => i.type === 'desc')).toBe(false)
+  })
+
+  test('translateAll with both cached enqueues nothing', async () => {
+    setupModel()
+    const readme = '# Skill Full\n\nOriginal English body content fully translated'
+    const skills = [
+      makeSkill({
+        id: 'skill-full',
+        name: 'Skill Full',
+        description: 'An English description fully done',
+        readme,
+      }),
+    ]
+    setupStorageSkills(skills)
+    setupTranslationCache({
+      [readme]: {
+        translatedDesc: '已翻译的描述',
+        translatedContent: '已翻译的内容',
+        sourceContent: readme,
+        mode: 'full',
+      },
+    })
+    vi.mocked(window.services.pathExists).mockReturnValue(false)
+
+    const wrapper = createWrapper()
+    await wrapper.vm.$nextTick()
+
+    expect(getStatusBadge(wrapper, 'Skill Full')).toBe('已翻译')
+
+    await wrapper.find('.translate-all-btn').trigger('click')
+    await wrapper.vm.$nextTick()
+
+    const { queue } = useTranslationQueue()
+    expect(queue.value.filter((i) => i.hash === readme)).toHaveLength(0)
+  })
+
+  test('retranslate force clears cache and re-enqueues', async () => {
+    setupModel()
+    const readme = '# Skill Retrans\n\nOriginal English body for retranslate force'
+    const skills = [
+      makeSkill({
+        id: 'skill-retrans',
+        name: 'Skill Retrans',
+        description: 'An English description for retranslate',
+        readme,
+      }),
+    ]
+    setupStorageSkills(skills)
+    setupTranslationCache({
+      [readme]: {
+        translatedDesc: '已翻译的描述',
+        translatedContent: '已翻译的内容',
+        sourceContent: readme,
+        mode: 'full',
+      },
+    })
+    vi.mocked(window.services.pathExists).mockReturnValue(false)
+
+    const wrapper = createWrapper()
+    await wrapper.vm.$nextTick()
+
+    expect(getStatusBadge(wrapper, 'Skill Retrans')).toBe('已翻译')
+
+    const btn = getTranslateBtn(wrapper, 'Skill Retrans')
+    expect(btn?.classes()).toContain('retranslate-btn')
+    await btn?.trigger('click')
+    await wrapper.vm.$nextTick()
+
+    const entry = storage.getTranslationByHash(readme)
+    expect(entry?.translatedDesc).toBeFalsy()
+    expect(entry?.translatedContent).toBeFalsy()
+
+    const { queue } = useTranslationQueue()
+    const items = queue.value.filter((i) => i.hash === readme)
+    expect(items.some((i) => i.type === 'desc')).toBe(true)
+    expect(items.some((i) => i.type === 'content')).toBe(true)
   })
 })

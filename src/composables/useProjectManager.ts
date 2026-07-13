@@ -1,14 +1,17 @@
 import { ref } from 'vue'
 import { useProjectState } from './useProjectState'
 import { storage } from '../utils/storage'
-import { defaultPlatforms } from '../data/platforms'
+import { getAllPlatformDefinitions } from '../data/platforms'
 import { syncAllowedWriteRoots } from '../utils/write-roots'
 import type { RegisteredProject, SkillScanResult } from '../types'
 
-const DEFAULT_PROJECT_SCAN_SUBDIRS = [
-  '.agents/skills',
-  ...defaultPlatforms.filter((p) => p.projectPath).map((p) => p.projectPath!.replace(/^\.\//, '')),
-]
+function getDefaultProjectScanSubdirs(): string[] {
+  const paths = getAllPlatformDefinitions()
+    .map((p) => p.projectPath || p.customProjectPath)
+    .filter(Boolean)
+    .map((p) => p!.replace(/^\.\//, ''))
+  return ['.agents/skills', ...new Set(paths)]
+}
 
 export function useProjectManager(opts: {
   showToast: (msg: string, type?: 'success' | 'error' | 'info' | 'warning') => void
@@ -43,7 +46,7 @@ export function useProjectManager(opts: {
       try {
         const dirs = [
           project.rootDir,
-          ...DEFAULT_PROJECT_SCAN_SUBDIRS.map((d) => window.services.pathJoin(project.rootDir, d)),
+          ...getDefaultProjectScanSubdirs().map((d) => window.services.pathJoin(project.rootDir, d)),
           ...project.scanPaths,
         ]
         const skills = window.services.scanForSkillFiles(dirs)

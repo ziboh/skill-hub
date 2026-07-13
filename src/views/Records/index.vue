@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onActivated, onDeactivated, inject, watch } f
 import { storage } from '../../utils/storage'
 import { useSettings } from '../../composables/useSettings'
 import type { DistributeRecord, ModelConfig, FailureRecord, FailureType, ErrorCategory } from '../../types'
-import { defaultPlatforms } from '../../data/platforms'
+import { getAllPlatformDefinitions, getPlatformNameMap, platformDisplayIcon, findPlatformById } from '../../data/platforms'
 import { KeyCurrentRoute } from '../../inject-keys'
 import { useDownloadQueue } from '../../composables/useDownloadQueue'
 import { useTranslationQueue } from '../../composables/useTranslationQueue'
@@ -247,12 +247,8 @@ watch(pageSize, () => {
 
 const platformMap = computed(() => {
   const map = new Map<string, string>()
-  for (const p of defaultPlatforms) {
-    map.set(p.id, p.name)
-  }
-  const saved = storage.getPlatformConfigs()
-  for (const p of saved) {
-    map.set(p.id, p.name)
+  for (const [id, name] of Object.entries(getPlatformNameMap())) {
+    map.set(id, name)
   }
   return map
 })
@@ -386,13 +382,18 @@ function getProjectName(platformId: string): string {
 
 function getDistPlatformId(record: DistributeRecord): string {
   const normalized = record.targetPath.replace(/\\/g, '/').toLowerCase()
-  for (const p of defaultPlatforms) {
-    if (p.projectPath && normalized.includes(p.projectPath.replace(/\\/g, '/').toLowerCase())) {
-      return p.id
-    }
+  for (const p of getAllPlatformDefinitions()) {
+    const pp = (p.projectPath || p.customProjectPath || '').replace(/\\/g, '/').toLowerCase()
+    if (pp && normalized.includes(pp)) return p.id
   }
   if (normalized.includes('.agents/skills')) return '_generic'
   return record.platformId
+}
+
+function getDistPlatformIcon(record: DistributeRecord): string {
+  const id = getDistPlatformId(record)
+  const p = findPlatformById(id)
+  return p ? platformDisplayIcon(p) : id
 }
 
 function truncate(str: string, len: number): string {
@@ -899,7 +900,7 @@ watch(activeTab, () => {
                 </div>
                 <div class="col-platform">
                   <div class="platform-info">
-                    <ProviderIcon :icon="getDistPlatformId(record)" :size="16" variant="mono" />
+                    <ProviderIcon :icon="getDistPlatformIcon(record)" :size="16" variant="mono" />
                     <span v-if="record.scope === 'project'" class="platform-label">{{ getProjectName(record.platformId) }}</span>
                     <span v-else class="platform-label">{{ platformMap.get(record.platformId) || record.platformId }}</span>
                   </div>

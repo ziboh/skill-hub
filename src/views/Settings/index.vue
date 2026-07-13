@@ -1,20 +1,26 @@
 <script setup lang="ts">
-import { ref, onMounted, onActivated, computed, inject, watch, nextTick } from 'vue'
-import { KeyShowToast } from '../../inject-keys'
-import { defaultPlatforms } from '../../data/platforms'
-import { BUILTIN_PROVIDERS, getProviderInfo } from '../../data/ai-providers'
+import { ref, onMounted, onActivated, computed, inject, provide, watch, nextTick } from 'vue'
+import { KeyShowToast, KeyToggleTheme, KeyIsDarkMode } from '../../inject-keys'
+import {
+  getAllPlatformDefinitions,
+  getDefaultPlatformOrder,
+  createCustomPlatformId,
+  platformDisplayIcon,
+  isBuiltinPlatformId,
+} from '../../data/platforms'
 import { storage } from '../../utils/storage'
 import { getMandiThemes, hexToHsl } from '../../utils/theme'
-import type { AppSettings, PlatformInfo, ThemeMode, FontSize, MotionPreference, ModelConfig } from '../../types'
+import type { PlatformInfo, ThemeMode, FontSize, MotionPreference } from '../../types'
 import { MORANDI_THEMES } from '../../types'
 import { useSettings } from '../../composables/useSettings'
 import { useTheme } from '../../composables/useTheme'
-import { fetchAvailableModels, chatCompletion } from '../../utils/ai'
+import { useSettingsAiModels } from '../../composables/useSettingsAiModels'
 import ProviderIcon from '../../components/ProviderIcon.vue'
 import StoreIconPicker from '../../components/StoreIconPicker.vue'
 import ConfirmModal from '../../components/ConfirmModal.vue'
 import CleanupSelectModal from '../../components/CleanupSelectModal.vue'
-import QuickSwitcher, { type QuickSwitcherItem } from '../../components/QuickSwitcher.vue'
+import QuickSwitcher from '../../components/QuickSwitcher.vue'
+import AddPlatformModal from '../../components/AddPlatformModal.vue'
 import { syncAllowedWriteRoots } from '../../utils/write-roots'
 import { useUnregisteredSkillsCleanup } from '../../composables/useUnregisteredSkillsCleanup'
 import DataManagement from './DataManagement.vue'
@@ -23,20 +29,14 @@ const props = defineProps<{ anchor?: string }>()
 const { settings, updateSettings } = useSettings()
 const { isDarkMode, toggleTheme } = useTheme()
 const showToast = inject(KeyShowToast, () => {})
+provide(KeyToggleTheme, toggleTheme)
+provide(KeyIsDarkMode, isDarkMode)
 
 const activeSection = ref('general')
 const showToken = ref(false)
 const platforms = ref<PlatformInfo[]>([])
 const customColorInput = ref('#58a4f6')
 const sidebarWidth = ref(180)
-const confirmDeleteProviderId = ref<string | null>(null)
-const confirmDeleteProviderName = ref('')
-const confirmDeleteApiKey = ref<string | null>(null)
-const confirmDeleteApiKeyLabel = ref('')
-const confirmDeleteGroup = ref<string | null>(null)
-const confirmDeleteGroupLabel = ref('')
-const confirmDeleteModel = ref<string | null>(null)
-const confirmDeleteModelLabel = ref('')
 
 const {
   showCleanupSelect,
@@ -49,6 +49,111 @@ const {
 function onCleanupDeleted(count: number) {
   onCleanupDeletedBase(count, showToast)
 }
+
+const {
+  confirmDeleteProviderId,
+  confirmDeleteProviderName,
+  confirmDeleteApiKey,
+  confirmDeleteApiKeyLabel,
+  confirmDeleteGroup,
+  confirmDeleteGroupLabel,
+  confirmDeleteModel,
+  confirmDeleteModelLabel,
+  showAddModelModal,
+  addModelTargetIndex,
+  newModelName,
+  newModelCustomName,
+  showModelModal,
+  editingModelIndex,
+  modelForm,
+  modelExtraBodyText,
+  modelExtraBodyError,
+  translationExtraBodyText,
+  translationExtraBodyError,
+  translationTimeoutError,
+  providerExtraBodyTexts,
+  providerExtraBodyErrors,
+  objectToJsonString,
+  getProviderExtraBodyText,
+  onProviderExtraBodyInput,
+  onTranslationExtraBodyInput,
+  onTranslationTimeoutChange,
+  showIconPicker,
+  editingIconProviderId,
+  defaultProviderIcon,
+  currentIconValue,
+  showFetchModal,
+  fetchModelsResult,
+  fetchLoading,
+  fetchError,
+  selectedFetchIds,
+  expandedFetchGroups,
+  fetchSearchQuery,
+  fetchFilteredModels,
+  fetchModelGroups,
+  toggleFetchGroup,
+  toggleAllFetchGroups,
+  handleFetchModelToggle,
+  toggleFetchGroupSelection,
+  getGroupColor,
+  testResult,
+  modelTestResults,
+  showApiKeyModal,
+  editingKeyIndex,
+  editingProviderIndex,
+  apiKeyForm,
+  maskKey,
+  expandAllGroups,
+  toggleAllModels,
+  addApiKey,
+  editApiKey,
+  saveApiKey,
+  deleteApiKey,
+  toggleApiKeyEnabled,
+  showApiKey,
+  expandedSections,
+  openAddModel,
+  openEditModel,
+  applyProviderPreset,
+  saveModel,
+  deleteModelFromProvider,
+  toggleGroupModels,
+  deleteGroupModels,
+  deleteProvider,
+  doDeleteApiKey,
+  doDeleteGroup,
+  doDeleteModel,
+  setTranslationModel,
+  openFetchModels,
+  confirmFetchModels,
+  testSingleModel,
+  testAllModels,
+  getModelTestKey,
+  getModelTestResult,
+  isModelTestLoading,
+  isModelTestSuccess,
+  isModelTestFail,
+  restoreBaseUrl,
+  toggleModelEnabled,
+  copyApiKey,
+  toggleExpandedSection,
+  enabledProviders,
+  allEnabledProviders,
+  hasValidTranslationModel,
+  translationModelItems,
+  pendingProviders,
+  disabledProviders,
+  getModelIndex,
+  toggleProviderEnabled,
+  openIconPickerForProvider,
+  openAddModelModal,
+  saveNewModel,
+  expandedGroups,
+  toggleGroup,
+  groupModels,
+  BUILTIN_PROVIDERS,
+  getProviderInfo,
+} = useSettingsAiModels(showToast)
 
 // Sidebar resize
 let isResizing = false
@@ -173,17 +278,101 @@ function scrollToAnchor() {
   }
 }
 
+const showAddPlatformModal = ref(false)
+const editingPlatform = ref<PlatformInfo | null>(null)
+const confirmDeletePlatformId = ref<string | null>(null)
+const confirmDeletePlatformName = ref('')
+
 function loadPlatforms() {
-  const saved = storage.getPlatformConfigs()
-  platforms.value = defaultPlatforms.map((p) => {
-    const savedConfig = saved.find((c) => c.id === p.id)
-    return {
-      ...p,
-      customPath: savedConfig?.customPath || p.customPath,
-      customProjectPath: savedConfig?.customProjectPath || p.customProjectPath,
-      enabled: savedConfig ? savedConfig.enabled : p.enabled,
+  platforms.value = getAllPlatformDefinitions()
+  // Ensure order includes any new custom ids
+  const allIds = platforms.value.map((p) => p.id)
+  const missing = allIds.filter((id) => !platformOrder.value.includes(id))
+  if (missing.length) {
+    platformOrder.value = [...platformOrder.value, ...missing]
+    savePlatformOrder()
+  }
+  // Drop order entries that no longer exist
+  const idSet = new Set(allIds)
+  const filtered = platformOrder.value.filter((id) => idSet.has(id))
+  if (filtered.length !== platformOrder.value.length) {
+    platformOrder.value = filtered
+    savePlatformOrder()
+  }
+}
+
+function openAddPlatform() {
+  editingPlatform.value = null
+  showAddPlatformModal.value = true
+}
+
+function onClosePlatformModal() {
+  showAddPlatformModal.value = false
+  editingPlatform.value = null
+}
+
+function openEditPlatform(p: PlatformInfo) {
+  if (!isCustomPlatform(p)) return
+  editingPlatform.value = { ...p }
+  showAddPlatformModal.value = true
+}
+
+function isCustomPlatform(p: PlatformInfo): boolean {
+  return !!(p.isCustom || !isBuiltinPlatformId(p.id))
+}
+
+function onPlatformSubmit(data: { id?: string; name: string; defaultPath: string; projectPath?: string; icon?: string }) {
+  if (data.id && platforms.value.some((p) => p.id === data.id && isCustomPlatform(p))) {
+    const idx = platforms.value.findIndex((p) => p.id === data.id)
+    const prev = platforms.value[idx]
+    platforms.value[idx] = {
+      ...prev,
+      name: data.name,
+      defaultPath: data.defaultPath,
+      projectPath: data.projectPath,
+      customPath: undefined,
+      icon: data.icon,
+      isCustom: true,
     }
-  })
+  } else {
+    const id = createCustomPlatformId(data.name)
+    const neu: PlatformInfo = {
+      id,
+      name: data.name,
+      defaultPath: data.defaultPath,
+      projectPath: data.projectPath,
+      icon: data.icon,
+      enabled: true,
+      detected: false,
+      isCustom: true,
+    }
+    platforms.value = [...platforms.value, neu]
+    platformOrder.value = [...platformOrder.value, id]
+    savePlatformOrder()
+  }
+  savePlatforms()
+  loadPlatforms()
+  showAddPlatformModal.value = false
+  editingPlatform.value = null
+  showToast(data.id ? '平台已更新' : '平台已添加', 'success')
+}
+
+function requestDeletePlatform(p: PlatformInfo) {
+  if (!p.isCustom && isBuiltinPlatformId(p.id)) return
+  confirmDeletePlatformId.value = p.id
+  confirmDeletePlatformName.value = p.name
+}
+
+function confirmDeletePlatform() {
+  const id = confirmDeletePlatformId.value
+  if (!id) return
+  platforms.value = platforms.value.filter((p) => p.id !== id)
+  platformOrder.value = platformOrder.value.filter((x) => x !== id)
+  savePlatformOrder()
+  savePlatforms()
+  confirmDeletePlatformId.value = null
+  confirmDeletePlatformName.value = ''
+  showToast('平台已删除', 'success')
 }
 
 function setThemeMode(mode: ThemeMode) {
@@ -203,8 +392,35 @@ function setCompactMode(val: boolean) {
 }
 
 function savePlatforms() {
-  storage.savePlatformConfigs(platforms.value)
-  syncAllowedWriteRoots({ platforms: platforms.value })
+  // Persist: full custom platforms + overrides for builtins
+  const toSave: PlatformInfo[] = platforms.value.map((p) => {
+    if (p.isCustom || !isBuiltinPlatformId(p.id)) {
+      return {
+        id: p.id,
+        name: p.name,
+        defaultPath: p.defaultPath,
+        projectPath: p.projectPath,
+        customPath: p.customPath,
+        customProjectPath: p.customProjectPath,
+        icon: p.icon,
+        enabled: p.enabled,
+        detected: false,
+        isCustom: true,
+      }
+    }
+    return {
+      id: p.id,
+      name: p.name,
+      defaultPath: p.defaultPath,
+      enabled: p.enabled,
+      detected: false,
+      customPath: p.customPath,
+      customProjectPath: p.customProjectPath,
+      icon: p.icon,
+    }
+  })
+  storage.savePlatformConfigs(toSave)
+  syncAllowedWriteRoots({ platforms: getAllPlatformDefinitions() })
 }
 
 function togglePlatformEnabled(platform: PlatformInfo) {
@@ -213,7 +429,7 @@ function togglePlatformEnabled(platform: PlatformInfo) {
 }
 
 function detectAgent(platform: PlatformInfo): boolean {
-  if (platform.rootDir) {
+  if (platform.rootDir && !platform.customPath) {
     const osKey = window.services.isWindows() ? 'win32' : window.services.isMacOS() ? 'darwin' : 'linux'
     const root = (platform.rootDir[osKey as keyof typeof platform.rootDir] || platform.rootDir.linux).replace(
       /^~/,
@@ -221,7 +437,7 @@ function detectAgent(platform: PlatformInfo): boolean {
     )
     return window.services.pathExists(root)
   }
-  const p = platform.defaultPath || platform.projectPath || ''
+  const p = platform.customPath || platform.defaultPath || platform.projectPath || ''
   if (!p) return false
   return window.services.pathExists(p.replace(/^~/, window.services.homeDir()))
 }
@@ -269,9 +485,8 @@ function _getThemePreviewSat(id: string): number {
 const _detectedCount = computed(() => platforms.value.filter((p) => detectAgent(p)).length)
 
 // Platform ordering
-const defaultPlatformOrder = defaultPlatforms.map((p) => p.id)
 const savedOrder = storage.getPlatformOrder()
-const platformOrder = ref<string[]>(savedOrder.length ? savedOrder : [...defaultPlatformOrder])
+const platformOrder = ref<string[]>(savedOrder.length ? savedOrder : getDefaultPlatformOrder())
 
 function savePlatformOrder() {
   storage.savePlatformOrder(platformOrder.value)
@@ -294,7 +509,7 @@ function movePlatformDown(index: number) {
 }
 
 function resetPlatformOrder() {
-  platformOrder.value = [...defaultPlatformOrder]
+  platformOrder.value = getDefaultPlatformOrder()
   savePlatformOrder()
 }
 
@@ -393,920 +608,18 @@ function onDragEnd() {
 }
 
 function getPlatformOsPath(platform: PlatformInfo): string {
-  const osKey = window.services.isWindows() ? 'win32' : 'darwin'
-  const rootDir = platform.rootDir?.[osKey] || platform.rootDir?.linux || ''
-  return rootDir.replace(/~/g, '%USERPROFILE%').replace(/\//g, '\\')
-}
-
-// === AI Model Management ===
-const showAddModelModal = ref(false)
-const addModelTargetIndex = ref<number | null>(null)
-const newModelName = ref('')
-const newModelCustomName = ref('')
-
-const showModelModal = ref(false)
-const editingModelIndex = ref<number | null>(null)
-const modelForm = ref<ModelConfig>({
-  id: '',
-  name: '',
-  provider: 'openai',
-  baseUrl: '',
-  apiPath: '',
-  apiKeys: [],
-  model: '',
-  isDefault: false,
-  isBuiltin: false,
-  enabled: true,
-  models: [],
-  icon: '',
-})
-const modelExtraBodyText = ref('')
-const modelExtraBodyError = ref('')
-const translationExtraBodyText = ref('')
-const translationExtraBodyError = ref('')
-const translationTimeoutError = ref('')
-const providerExtraBodyTexts = ref<Record<string, string>>({})
-const providerExtraBodyErrors = ref<Record<string, string>>({})
-
-function objectToJsonString(obj: Record<string, any> | undefined | null): string {
-  if (!obj || !Object.keys(obj).length) return ''
-  try {
-    return JSON.stringify(obj, null, 2)
-  } catch {
-    return ''
-  }
-}
-
-function tryParseJson(text: string): Record<string, any> | null {
-  if (!text.trim()) return {}
-  try {
-    const parsed = JSON.parse(text.trim())
-    if (typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return null
+  if (platform.customPath) return platform.customPath
+  if (platform.rootDir) {
+    const osKey = window.services?.isWindows?.() ? 'win32' : window.services?.isMacOS?.() ? 'darwin' : 'linux'
+    const rootDir = platform.rootDir[osKey as keyof typeof platform.rootDir] || platform.rootDir.linux || ''
+    if (platform.skillsRelativePath) {
+      return `${rootDir}/${platform.skillsRelativePath}`.replace(/\\/g, '/')
     }
-    return parsed
-  } catch {
-    return null
+    return rootDir
   }
+  return platform.defaultPath || platform.projectPath || ''
 }
 
-function getProviderExtraBodyText(providerId: string): string {
-  if (providerExtraBodyTexts.value[providerId] !== undefined) {
-    return providerExtraBodyTexts.value[providerId]
-  }
-  const provider = settings.aiModels.find((m) => m.id === providerId)
-  return objectToJsonString(provider?.extraBody)
-}
-
-function onProviderExtraBodyInput(providerId: string, e: Event) {
-  const text = (e.target as HTMLTextAreaElement).value
-  providerExtraBodyTexts.value = { ...providerExtraBodyTexts.value, [providerId]: text }
-  if (!text.trim()) {
-    providerExtraBodyErrors.value = { ...providerExtraBodyErrors.value, [providerId]: '' }
-    const models = [...settings.aiModels]
-    const idx = models.findIndex((m) => m.id === providerId)
-    if (idx >= 0) {
-      const updated = { ...models[idx] }
-      delete updated.extraBody
-      models[idx] = updated
-      updateSettings({ aiModels: models })
-    }
-    return
-  }
-  const parsed = tryParseJson(text)
-  if (parsed === null) {
-    providerExtraBodyErrors.value = { ...providerExtraBodyErrors.value, [providerId]: 'JSON 格式无效' }
-  } else {
-    providerExtraBodyErrors.value = { ...providerExtraBodyErrors.value, [providerId]: '' }
-    const models = [...settings.aiModels]
-    const idx = models.findIndex((m) => m.id === providerId)
-    if (idx >= 0) {
-      models[idx] = { ...models[idx], extraBody: parsed }
-      updateSettings({ aiModels: models })
-    }
-  }
-}
-
-function _onModelExtraBodyInput(e: Event) {
-  const text = (e.target as HTMLTextAreaElement).value
-  modelExtraBodyText.value = text
-  if (!text.trim()) {
-    modelExtraBodyError.value = ''
-    modelForm.value.extraBody = undefined
-    delete modelForm.value.extraBody
-    return
-  }
-  const parsed = tryParseJson(text)
-  if (parsed === null) {
-    modelExtraBodyError.value = 'JSON 格式无效'
-  } else {
-    modelExtraBodyError.value = ''
-    modelForm.value.extraBody = parsed
-  }
-}
-
-function onTranslationExtraBodyInput(e: Event) {
-  const text = (e.target as HTMLTextAreaElement).value
-  translationExtraBodyText.value = text
-  if (!text.trim()) {
-    translationExtraBodyError.value = ''
-    updateSettings({ translationExtraBody: undefined })
-    return
-  }
-  const parsed = tryParseJson(text)
-  if (parsed === null) {
-    translationExtraBodyError.value = 'JSON 格式无效'
-  } else {
-    translationExtraBodyError.value = ''
-    updateSettings({ translationExtraBody: parsed })
-  }
-}
-
-function onTranslationTimeoutChange(e: Event) {
-  const val = parseInt((e.target as HTMLInputElement).value)
-  if (isNaN(val) || val < 10 || val > 3600) {
-    translationTimeoutError.value = '请输入 10-3600 之间的数值'
-    return
-  }
-  translationTimeoutError.value = ''
-  updateSettings({ translationTimeout: val })
-}
-
-const showIconPicker = ref(false)
-const editingIconProviderId = ref<string | null>(null)
-const defaultProviderIcon = computed(() => {
-  const providerId = editingIconProviderId.value
-    ? settings.aiModels.find((m) => m.id === editingIconProviderId.value)?.provider || ''
-    : modelForm.value.provider
-  return getProviderInfo(providerId)?.icon || 'openai'
-})
-
-const currentIconValue = computed({
-  get() {
-    if (editingIconProviderId.value) {
-      return settings.aiModels.find((m) => m.id === editingIconProviderId.value)?.icon || ''
-    }
-    return modelForm.value.icon
-  },
-  set(value: string) {
-    if (editingIconProviderId.value) {
-      const models = [...settings.aiModels]
-      const idx = models.findIndex((m) => m.id === editingIconProviderId.value)
-      if (idx >= 0) {
-        models[idx] = { ...models[idx], icon: value }
-        updateSettings({ aiModels: models })
-      }
-    } else {
-      modelForm.value.icon = value
-    }
-  },
-})
-const showFetchModal = ref(false)
-const fetchModelsResult = ref<{ id: string; name: string; owned_by?: string }[]>([])
-const fetchLoading = ref(false)
-const fetchError = ref('')
-const selectedFetchIds = ref<Set<string>>(new Set())
-const fetchTargetIndex = ref<number | null>(null)
-const expandedFetchGroups = ref<Set<string>>(new Set())
-const fetchSearchQuery = ref('')
-const fetchFilteredModels = computed(() => {
-  if (!fetchSearchQuery.value.trim()) return fetchModelsResult.value
-  const q = fetchSearchQuery.value.toLowerCase()
-  return fetchModelsResult.value.filter(
-    (m) => m.id.toLowerCase().includes(q) || m.name?.toLowerCase().includes(q) || m.owned_by?.toLowerCase().includes(q),
-  )
-})
-const fetchModelGroups = computed(() => {
-  const groups: Record<string, { name: string; models: typeof fetchModelsResult.value }> = {}
-  for (const m of fetchFilteredModels.value) {
-    const g = m.owned_by || '其他'
-    if (!groups[g]) groups[g] = { name: g, models: [] }
-    groups[g].models.push(m)
-  }
-  return Object.values(groups).sort((a, b) => (a.name === '其他' ? 1 : b.name === '其他' ? -1 : a.name.localeCompare(b.name)))
-})
-function toggleFetchGroup(name: string) {
-  const s = new Set(expandedFetchGroups.value)
-  if (s.has(name)) s.delete(name)
-  else s.add(name)
-  expandedFetchGroups.value = s
-}
-function toggleAllFetchGroups() {
-  const allGroupNames = fetchModelGroups.value.map((g) => g.name)
-  const allExpanded = allGroupNames.every((n) => expandedFetchGroups.value.has(n))
-  expandedFetchGroups.value = allExpanded ? new Set() : new Set(allGroupNames)
-}
-function handleFetchModelToggle(id: string) {
-  const s = new Set(selectedFetchIds.value)
-  if (s.has(id)) s.delete(id)
-  else s.add(id)
-  selectedFetchIds.value = s
-}
-function toggleFetchGroupSelection(group: { name: string; models: { id: string }[] }) {
-  const allSelected = group.models.every((m) => selectedFetchIds.value.has(m.id))
-  const s = new Set(selectedFetchIds.value)
-  for (const m of group.models) {
-    if (allSelected) s.delete(m.id)
-    else s.add(m.id)
-  }
-  selectedFetchIds.value = s
-}
-const GROUP_COLORS = ['#4ade80', '#60a5fa', '#f472b6', '#a78bfa', '#fbbf24', '#34d399', '#f87171', '#818cf8', '#fb923c', '#22d3ee']
-function getGroupColor(name: string): string {
-  let hash = 0
-  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash)
-  return GROUP_COLORS[Math.abs(hash) % GROUP_COLORS.length]
-}
-const testResult = ref<{ index: number; success: boolean; message: string } | null>(null)
-const modelTestResults = ref<Record<string, { success: boolean; message: string } | 'loading'>>({})
-
-const showApiKeyModal = ref(false)
-const editingKeyIndex = ref<number | null>(null)
-const editingProviderIndex = ref<number | null>(null)
-const apiKeyForm = ref({ key: '' })
-
-function maskKey(key: string): string {
-  if (!key) return '未配置'
-  if (key.length <= 4) return key + '*'.repeat(12)
-  return key.substring(0, 4) + '*'.repeat(Math.min(key.length - 4, 12))
-}
-
-function _maskUrl(url: string): string {
-  if (!url) return ''
-  try {
-    const u = new URL(url)
-    return (
-      u.protocol + '//' + u.hostname + (u.port ? ':' + u.port : '') + (u.pathname.length > 1 ? u.pathname.substring(0, 20) + '...' : '')
-    )
-  } catch {
-    return url.length > 30 ? url.substring(0, 30) + '...' : url
-  }
-}
-
-function _getModelUrl(model: any): string {
-  const base = (model.baseUrl || '').replace(/\/+$/, '')
-  const path = model.apiPath || '/v1/chat/completions'
-  return `${base}${path}`
-}
-
-function _getModelsEndpoint(model: any): string {
-  const base = (model.baseUrl || '').replace(/\/+$/, '')
-  return `${base}/v1/models`
-}
-
-function isChatModel(model: any): boolean {
-  const name = (model.name || '').toLowerCase()
-  return (
-    name.includes('chat') ||
-    name.includes('gpt') ||
-    name.includes('claude') ||
-    name.includes('gemini') ||
-    name.includes('deepseek') ||
-    name.includes('qwen') ||
-    name.includes('glm')
-  )
-}
-
-function isImageModel(model: any): boolean {
-  const name = (model.name || '').toLowerCase()
-  return (
-    name.includes('image') || name.includes('dall-e') || name.includes('stable') || name.includes('midjourney') || name.includes('flux')
-  )
-}
-
-function getModelContextLength(model: any): string {
-  const name = (model.name || '').toLowerCase()
-  if (name.includes('128k') || name.includes('128k')) return '128K'
-  if (name.includes('32k')) return '32K'
-  if (name.includes('16k')) return '16K'
-  if (name.includes('8k')) return '8K'
-  if (name.includes('4k')) return '4K'
-  if (name.includes('1m') || name.includes('million')) return '1M'
-  return ''
-}
-
-function expandAllGroups(providerId: string) {
-  const provider = settings.aiModels.find((m) => m.id === providerId)
-  if (provider?.models) {
-    const groups = groupModels(provider.models)
-    const newSet = new Set(groups.map((g) => g.name))
-    expandedGroups.value[providerId] = newSet
-  }
-}
-
-function toggleAllModels(provider: any) {
-  if (!provider.models) return
-  const allEnabled = provider.models.every((m: any) => m.enabled)
-  provider.models.forEach((m: any) => (m.enabled = !allEnabled))
-  updateSettings({ aiModels: [...settings.aiModels] })
-}
-
-function _startEditApiKey(provider: any) {
-  showApiKey.value[provider.id] = true
-}
-
-function addApiKey(providerIndex: number) {
-  editingProviderIndex.value = providerIndex
-  editingKeyIndex.value = null
-  apiKeyForm.value = { key: '' }
-  showApiKeyModal.value = true
-}
-
-function editApiKey(providerIndex: number, keyIndex: number) {
-  editingProviderIndex.value = providerIndex
-  editingKeyIndex.value = keyIndex
-  apiKeyForm.value = { key: settings.aiModels[providerIndex].apiKeys[keyIndex].key }
-  showApiKeyModal.value = true
-}
-
-function saveApiKey() {
-  if (editingProviderIndex.value === null) return
-  const provider = settings.aiModels[editingProviderIndex.value]
-  if (!provider.apiKeys) provider.apiKeys = []
-
-  if (editingKeyIndex.value !== null) {
-    provider.apiKeys[editingKeyIndex.value].key = apiKeyForm.value.key
-  } else {
-    const hasEnabled = provider.apiKeys.some((k) => k.enabled)
-    provider.apiKeys.push({
-      id: 'key-' + Date.now(),
-      key: apiKeyForm.value.key,
-      enabled: !hasEnabled,
-    })
-  }
-  updateSettings({ aiModels: [...settings.aiModels] })
-  showApiKeyModal.value = false
-  showToast('密钥已保存', 'success')
-}
-
-function deleteApiKey(providerIndex: number, keyIndex: number) {
-  const provider = settings.aiModels[providerIndex]
-  const wasEnabled = provider.apiKeys[keyIndex].enabled
-  provider.apiKeys.splice(keyIndex, 1)
-  if (wasEnabled && provider.apiKeys.length > 0) {
-    provider.apiKeys[0].enabled = true
-  }
-  updateSettings({ aiModels: [...settings.aiModels] })
-  confirmDeleteApiKey.value = null
-  showToast('密钥已删除', 'success')
-}
-
-function toggleApiKeyEnabled(providerIndex: number, keyIndex: number) {
-  const provider = settings.aiModels[providerIndex]
-  const target = provider.apiKeys[keyIndex]
-  target.enabled = !target.enabled
-  updateSettings({ aiModels: [...settings.aiModels] })
-}
-
-function _getActiveApiKey(provider: any): string {
-  return provider.apiKeys?.find((k: any) => k.enabled)?.key || ''
-}
-
-const showApiKey = ref<Record<string, boolean>>({})
-const expandedSections = ref<Record<string, { apiInfo: boolean; models: boolean }>>({})
-
-function openAddModel() {
-  editingModelIndex.value = null
-  modelForm.value = {
-    id: 'custom-' + Date.now(),
-    name: '',
-    provider: 'openai',
-    baseUrl: '',
-    apiPath: '',
-    apiKeys: [],
-    model: '',
-    isDefault: false,
-    isBuiltin: false,
-    enabled: true,
-    models: [],
-    icon: '',
-  }
-  modelExtraBodyText.value = ''
-  modelExtraBodyError.value = ''
-  applyProviderPreset()
-  showModelModal.value = true
-}
-
-function openEditModel(index: number) {
-  editingModelIndex.value = index
-  const m = settings.aiModels[index]
-  modelForm.value = { ...m, models: m.models ? [...m.models] : [], apiKeys: m.apiKeys ? [...m.apiKeys] : [] }
-  modelExtraBodyText.value = objectToJsonString(m.extraBody)
-  modelExtraBodyError.value = ''
-  showModelModal.value = true
-}
-
-function applyProviderPreset() {
-  const info = getProviderInfo(modelForm.value.provider)
-  if (info) {
-    modelForm.value.baseUrl = info.defaultBaseUrl
-    modelForm.value.apiPath = info.defaultApiPath
-    modelForm.value.icon = info.icon
-  }
-}
-
-function saveModel() {
-  if (!modelForm.value.name.trim()) return
-  if (!modelForm.value.provider) {
-    showToast('请选择供应商类型', 'error')
-    return
-  }
-  // Auto-fill API path from preset if empty
-  if (!modelForm.value.apiPath.trim()) {
-    const info = getProviderInfo(modelForm.value.provider)
-    if (info) {
-      modelForm.value.apiPath = info.defaultApiPath
-    }
-  }
-  const models = [...settings.aiModels]
-  if (editingModelIndex.value !== null) {
-    models[editingModelIndex.value] = { ...modelForm.value }
-  } else {
-    if (!models.length) modelForm.value.isDefault = true
-    models.push({ ...modelForm.value })
-  }
-  updateSettings({ aiModels: models })
-  showModelModal.value = false
-  showToast(editingModelIndex.value !== null ? '供应商已更新' : '供应商已添加', 'success')
-}
-
-function _deleteModel(index: number) {
-  const models = settings.aiModels.filter((_, i) => i !== index)
-  if (models.length && !models.some((m) => m.isDefault)) {
-    models[0].isDefault = true
-  }
-  const deletedProviderId = settings.aiModels[index]?.id
-  if (settings.translationModelId === deletedProviderId || settings.translationModelId.startsWith(deletedProviderId + '::')) {
-    updateSettings({ aiModels: models, translationModelId: models.find((m) => m.isDefault)?.id || '' })
-  } else {
-    updateSettings({ aiModels: models })
-  }
-}
-
-function deleteModelFromProvider(providerIndex: number, modelId: string) {
-  const models = [...settings.aiModels]
-  const provider = { ...models[providerIndex] }
-  provider.models = (provider.models || []).filter((m) => m.id !== modelId)
-  models[providerIndex] = provider
-  const compoundKey = provider.id + '::' + modelId
-  if (settings.translationModelId === modelId || settings.translationModelId === compoundKey) {
-    updateSettings({ aiModels: models, translationModelId: '' })
-  } else {
-    updateSettings({ aiModels: models })
-  }
-  confirmDeleteModel.value = null
-}
-
-function toggleGroupModels(providerIndex: number, groupName: string) {
-  const models = [...settings.aiModels]
-  const m = { ...models[providerIndex] }
-  const groupModels = (m.models || []).filter((mm) => (mm.owned_by || '其他') === groupName)
-  const allEnabled = groupModels.every((mm) => mm.enabled)
-  const newEnabled = !allEnabled
-  m.models = (m.models || []).map((mm) => ((mm.owned_by || '其他') === groupName ? { ...mm, enabled: newEnabled } : mm))
-  models[providerIndex] = m
-  const patch: Partial<AppSettings> = { aiModels: models }
-  if (
-    !newEnabled &&
-    settings.translationModelId &&
-    groupModels.some((mm) => settings.translationModelId === mm.id || settings.translationModelId === m.id + '::' + mm.id)
-  ) {
-    patch.translationModelId = ''
-  }
-  updateSettings(patch)
-}
-
-function deleteGroupModels(providerIndex: number, groupName: string) {
-  const models = [...settings.aiModels]
-  const m = { ...models[providerIndex] }
-  const deletedIds = new Set((m.models || []).filter((mm) => (mm.owned_by || '其他') === groupName).map((mm) => mm.id))
-  const deletedCompoundKeys = new Set(
-    (m.models || []).filter((mm) => (mm.owned_by || '其他') === groupName).map((mm) => m.id + '::' + mm.id),
-  )
-  m.models = (m.models || []).filter((mm) => (mm.owned_by || '其他') !== groupName)
-  models[providerIndex] = m
-  const patch: Partial<AppSettings> = { aiModels: models }
-  if (
-    settings.translationModelId &&
-    (deletedIds.has(settings.translationModelId) || deletedCompoundKeys.has(settings.translationModelId))
-  ) {
-    patch.translationModelId = ''
-  }
-  updateSettings(patch)
-  confirmDeleteGroup.value = null
-}
-
-function deleteProvider(id: string) {
-  const provider = settings.aiModels.find((m) => m.id === id)
-  if (provider?.isBuiltin) {
-    showToast('内置供应商不能删除', 'error')
-    return
-  }
-  const models = settings.aiModels.filter((m) => m.id !== id)
-  if (models.length && !models.some((m) => m.isDefault)) {
-    models[0].isDefault = true
-  }
-  if (settings.translationModelId === id || settings.translationModelId.startsWith(id + '::')) {
-    updateSettings({ aiModels: models, translationModelId: models.find((m) => m.isDefault)?.id || '' })
-  } else {
-    updateSettings({ aiModels: models })
-  }
-  confirmDeleteProviderId.value = null
-  showToast('供应商已删除', 'success')
-}
-
-function doDeleteApiKey() {
-  const key = confirmDeleteApiKey.value
-  confirmDeleteApiKey.value = null
-  if (!key) return
-  const lastDash = key.lastIndexOf('-')
-  const providerId = key.substring(0, lastDash)
-  const ki = parseInt(key.substring(lastDash + 1))
-  const idx = settings.aiModels.findIndex((m) => m.id === providerId)
-  if (idx >= 0) deleteApiKey(idx, ki)
-}
-
-function doDeleteGroup() {
-  const key = confirmDeleteGroup.value
-  confirmDeleteGroup.value = null
-  if (!key) return
-  const lastDash = key.lastIndexOf('-')
-  const providerId = key.substring(0, lastDash)
-  const groupName = key.substring(lastDash + 1)
-  const idx = settings.aiModels.findIndex((m) => m.id === providerId)
-  if (idx >= 0) deleteGroupModels(idx, groupName)
-}
-
-function doDeleteModel() {
-  const modelId = confirmDeleteModel.value
-  confirmDeleteModel.value = null
-  if (!modelId) return
-  const sepIdx = modelId.lastIndexOf('::')
-  if (sepIdx >= 0) {
-    const providerId = modelId.substring(0, sepIdx)
-    const innerModelId = modelId.substring(sepIdx + 2)
-    const idx = settings.aiModels.findIndex((m) => m.id === providerId)
-    if (idx >= 0) deleteModelFromProvider(idx, innerModelId)
-  } else {
-    settings.aiModels.forEach((m, i) => {
-      if (m.models?.some((mm: any) => mm.id === modelId)) deleteModelFromProvider(i, modelId)
-    })
-  }
-}
-
-function _setDefaultModel(index: number) {
-  const models = settings.aiModels.map((m, i) => ({ ...m, isDefault: i === index }))
-  updateSettings({ aiModels: models })
-}
-
-function setTranslationModel(modelId: string) {
-  updateSettings({ translationModelId: modelId })
-}
-
-function _getTranslationModelName(): string {
-  if (!settings.translationModelId) {
-    return '未配置'
-  }
-  const sepIdx = settings.translationModelId.lastIndexOf('::')
-  if (sepIdx >= 0) {
-    const providerId = settings.translationModelId.substring(0, sepIdx)
-    const modelId = settings.translationModelId.substring(sepIdx + 2)
-    const provider = settings.aiModels.find((m) => m.id === providerId)
-    if (provider) {
-      const model = provider.models?.find((m) => m.id === modelId)
-      if (model) return `${model.name || model.id} (${provider.name || getProviderInfo(provider.provider)?.name})`
-    }
-    return '未找到'
-  }
-  // 兼容旧格式：按供应商 ID 查找
-  const byProvider = settings.aiModels.find((m) => m.id === settings.translationModelId)
-  if (byProvider) {
-    return `${byProvider.name || getProviderInfo(byProvider.provider)?.name} (供应商)`
-  }
-  return '未找到'
-}
-
-async function openFetchModels(index: number) {
-  let baseUrl = ''
-  let apiKey = ''
-  if (index === -1) {
-    baseUrl = modelForm.value.baseUrl
-    apiKey = modelForm.value.apiKeys?.find((k) => k.enabled)?.key || ''
-  } else {
-    const m = settings.aiModels[index]
-    if (!m) return
-    baseUrl = m.baseUrl
-    apiKey = m.apiKeys?.find((k) => k.enabled)?.key || ''
-  }
-  if (!baseUrl || !apiKey) return
-  fetchTargetIndex.value = index
-  fetchLoading.value = true
-  fetchError.value = ''
-  const existingModels = index >= 0 ? settings.aiModels[index]?.models?.filter((m) => m.enabled).map((m) => m.id) : []
-  selectedFetchIds.value = new Set(existingModels || [])
-  try {
-    const result = await fetchAvailableModels(baseUrl, apiKey)
-    if (result.success) {
-      fetchModelsResult.value = result.models
-      expandedFetchGroups.value = new Set(result.models.map((m) => m.owned_by || '其他'))
-      showFetchModal.value = true
-    } else {
-      fetchError.value = result.error || '获取失败'
-      showToast(fetchError.value, 'error')
-    }
-  } catch (err: unknown) {
-    fetchError.value = (err as any)?.message || '获取失败'
-    showToast(fetchError.value, 'error')
-  }
-  fetchLoading.value = false
-}
-
-function confirmFetchModels() {
-  if (!selectedFetchIds.value.size || fetchTargetIndex.value === null) return
-  const selectedIds = Array.from(selectedFetchIds.value)
-  if (fetchTargetIndex.value === -1) {
-    const firstSelected = fetchModelsResult.value.find((m) => m.id === selectedIds[0])
-    modelForm.value.model = firstSelected?.id || selectedIds[0]
-    if (!modelForm.value.name) modelForm.value.name = firstSelected?.name || selectedIds[0]
-    modelForm.value.models = fetchModelsResult.value
-      .filter((m) => selectedIds.includes(m.id))
-      .map((m) => ({
-        id: m.id,
-        name: m.name,
-        enabled: true,
-        owned_by: m.owned_by,
-      }))
-  } else {
-    const models = [...settings.aiModels]
-    const existing = models[fetchTargetIndex.value]
-    const selectedModels = fetchModelsResult.value
-      .filter((m) => selectedIds.includes(m.id))
-      .map((m) => ({
-        id: m.id,
-        name: m.name,
-        enabled: true,
-        owned_by: m.owned_by,
-      }))
-    models[fetchTargetIndex.value] = {
-      ...existing,
-      models: selectedModels,
-    }
-    if (!existing.model && selectedModels.length) {
-      models[fetchTargetIndex.value].model = selectedModels[0].id
-    }
-    updateSettings({ aiModels: models })
-  }
-  showFetchModal.value = false
-}
-
-async function _testModelConnection(index: number) {
-  const m = settings.aiModels[index]
-  if (!m.baseUrl || !m.apiKeys?.length || !m.model) return
-  testResult.value = null
-  try {
-    await chatCompletion(m, [{ role: 'user', content: 'Reply with exactly: OK' }], { temperature: 0, maxTokens: 8 })
-    testResult.value = { index, success: true, message: '连接成功 ✓' }
-  } catch (err: unknown) {
-    const errMsg = (err as any)?.message || '连接失败'
-    const msg = errMsg === 'AI_AUTH_ERROR' ? '认证失败，请检查 API Key' : errMsg
-    testResult.value = { index, success: false, message: msg }
-  }
-  setTimeout(() => {
-    testResult.value = null
-  }, 5000)
-}
-
-async function testSingleModel(providerIndex: number, modelId: string) {
-  const key = `${providerIndex}-${modelId}`
-  const m = settings.aiModels[providerIndex]
-  if (!m.baseUrl || !m.apiKeys?.length) return
-  modelTestResults.value = { ...modelTestResults.value, [key]: 'loading' }
-  try {
-    const testConfig = { ...m, model: modelId }
-    await chatCompletion(testConfig, [{ role: 'user', content: 'Reply with exactly: OK' }], { temperature: 0, maxTokens: 8 })
-    modelTestResults.value = { ...modelTestResults.value, [key]: { success: true, message: '可用 ✓' } }
-  } catch (err: unknown) {
-    const errMsg = (err as any)?.message || '连接失败'
-    const msg = errMsg === 'AI_AUTH_ERROR' ? '认证失败' : errMsg
-    modelTestResults.value = { ...modelTestResults.value, [key]: { success: false, message: msg } }
-  }
-  setTimeout(() => {
-    const copy = { ...modelTestResults.value }
-    delete copy[key]
-    modelTestResults.value = copy
-  }, 5000)
-}
-
-async function testAllModels(providerIndex: number) {
-  const m = settings.aiModels[providerIndex]
-  if (!m.baseUrl || !m.apiKeys?.length || !m.models?.length) return
-  for (const model of m.models) {
-    testSingleModel(providerIndex, model.id)
-  }
-}
-
-function getModelTestKey(providerIndex: number, modelId: string): string {
-  return `${providerIndex}-${modelId}`
-}
-
-function getModelTestResult(providerIndex: number, modelId: string) {
-  return modelTestResults.value[getModelTestKey(providerIndex, modelId)]
-}
-
-function isModelTestLoading(providerIndex: number, modelId: string): boolean {
-  return getModelTestResult(providerIndex, modelId) === 'loading'
-}
-
-function isModelTestSuccess(providerIndex: number, modelId: string): boolean {
-  const r = getModelTestResult(providerIndex, modelId)
-  return r !== undefined && r !== 'loading' && r.success === true
-}
-
-function isModelTestFail(providerIndex: number, modelId: string): boolean {
-  const r = getModelTestResult(providerIndex, modelId)
-  return r !== undefined && r !== 'loading' && r.success === false
-}
-
-function restoreBaseUrl(index: number) {
-  const m = settings.aiModels[index]
-  const info = getProviderInfo(m.provider)
-  if (info) {
-    const models = [...settings.aiModels]
-    models[index] = { ...m, baseUrl: info.defaultBaseUrl, apiPath: info.defaultApiPath }
-    updateSettings({ aiModels: models })
-  }
-}
-
-function toggleModelEnabled(modelIndex: number, modelId: string) {
-  const models = [...settings.aiModels]
-  const m = { ...models[modelIndex] }
-  const modelList = m.models ? [...m.models] : []
-  const idx = modelList.findIndex((item) => item.id === modelId)
-  if (idx >= 0) {
-    modelList[idx] = { ...modelList[idx], enabled: !modelList[idx].enabled }
-    m.models = modelList
-    models[modelIndex] = m
-    const patch: Partial<AppSettings> = { aiModels: models }
-    const compoundKey = m.id + '::' + modelId
-    if (!modelList[idx].enabled && (settings.translationModelId === modelId || settings.translationModelId === compoundKey)) {
-      patch.translationModelId = ''
-    }
-    updateSettings(patch)
-  }
-}
-
-function _toggleApiKeyVisibility(modelId: string) {
-  showApiKey.value = { ...showApiKey.value, [modelId]: !showApiKey.value[modelId] }
-}
-
-async function copyApiKey(apiKey: string) {
-  try {
-    await navigator.clipboard.writeText(apiKey)
-    showToast('已复制到剪贴板', 'success')
-  } catch {
-    showToast('复制失败', 'error')
-  }
-}
-
-function toggleExpandedSection(modelId: string, section: 'apiInfo' | 'models') {
-  const current = expandedSections.value[modelId] || { apiInfo: false, models: false }
-  expandedSections.value = {
-    ...expandedSections.value,
-    [modelId]: { ...current, [section]: !current[section] },
-  }
-}
-
-const enabledProviders = computed(() =>
-  settings.aiModels
-    .filter((m) => m.enabled && m.apiKeys?.some((k) => k.enabled) && m.models?.length)
-    .sort((a, b) => (a.isBuiltin === b.isBuiltin ? 0 : a.isBuiltin ? 1 : -1)),
-)
-const allEnabledProviders = computed(() => settings.aiModels.filter((m) => m.enabled && m.models?.length))
-const hasValidTranslationModel = computed(() => {
-  if (!settings.translationModelId) return false
-  const sepIdx = settings.translationModelId.lastIndexOf('::')
-  if (sepIdx >= 0) {
-    const providerId = settings.translationModelId.substring(0, sepIdx)
-    const modelId = settings.translationModelId.substring(sepIdx + 2)
-    const provider = settings.aiModels.find((m) => m.id === providerId && m.enabled)
-    if (!provider) return false
-    return provider.models?.some((m) => m.id === modelId && m.enabled) ?? false
-  }
-  const provider = settings.aiModels.find((m) => m.id === settings.translationModelId && m.enabled)
-  return !!provider
-})
-
-const translationModelItems = computed<QuickSwitcherItem[]>(() => {
-  const items: QuickSwitcherItem[] = []
-  for (const provider of allEnabledProviders.value) {
-    for (const model of (provider.models || []).filter((m) => m.enabled)) {
-      items.push({
-        id: `${provider.id}::${model.id}`,
-        label: model.name || model.id,
-        subtitle: provider.name || getProviderInfo(provider.provider)?.name || '',
-      })
-    }
-  }
-  return items
-})
-const pendingProviders = computed(() =>
-  settings.aiModels
-    .filter((m) => m.enabled && (!m.apiKeys?.some((k) => k.enabled) || !m.models?.length))
-    .sort((a, b) => (a.isBuiltin === b.isBuiltin ? 0 : a.isBuiltin ? 1 : -1)),
-)
-const disabledProviders = computed(() =>
-  settings.aiModels.filter((m) => !m.enabled).sort((a, b) => (a.isBuiltin === b.isBuiltin ? 0 : a.isBuiltin ? 1 : -1)),
-)
-
-function getModelIndex(id: string): number {
-  return settings.aiModels.findIndex((m) => m.id === id)
-}
-
-function toggleProviderEnabled(provider: ModelConfig) {
-  const models = [...settings.aiModels]
-  const idx = models.findIndex((m) => m.id === provider.id)
-  if (idx >= 0) {
-    models[idx] = { ...models[idx], enabled: !models[idx].enabled }
-    updateSettings({ aiModels: models })
-  }
-}
-
-function openIconPickerForProvider(providerId: string) {
-  editingIconProviderId.value = providerId
-  editingModelIndex.value = null
-  showIconPicker.value = true
-}
-
-function openAddModelModal(providerIndex: number) {
-  addModelTargetIndex.value = providerIndex
-  newModelName.value = ''
-  newModelCustomName.value = ''
-  showAddModelModal.value = true
-}
-
-function saveNewModel() {
-  if (!newModelName.value.trim() || addModelTargetIndex.value === null) return
-  const models = [...settings.aiModels]
-  const provider = models[addModelTargetIndex.value]
-  const modelList = provider.models ? [...provider.models] : []
-  const modelId = newModelName.value.trim()
-  const existingIndex = modelList.findIndex((m) => m.id === modelId)
-  if (existingIndex >= 0) {
-    showToast('模型已存在', 'warning')
-    return
-  }
-  modelList.push({
-    id: modelId,
-    name: newModelCustomName.value.trim() || modelId,
-    enabled: true,
-  })
-  models[addModelTargetIndex.value] = { ...provider, models: modelList }
-  updateSettings({ aiModels: models })
-  showAddModelModal.value = false
-  showToast('模型已添加', 'success')
-}
-
-interface ModelGroup {
-  name: string
-  models: Array<{ id: string; name: string; enabled: boolean; owned_by?: string; capabilities?: string[] }>
-}
-
-const expandedGroups = ref<Record<string, Set<string>>>({})
-
-function toggleGroup(providerId: string, groupName: string) {
-  const current = expandedGroups.value[providerId] || new Set<string>()
-  const newSet = new Set(current)
-  if (newSet.has(groupName)) {
-    newSet.delete(groupName)
-  } else {
-    newSet.add(groupName)
-  }
-  expandedGroups.value = { ...expandedGroups.value, [providerId]: newSet }
-}
-
-function groupModels(
-  models: Array<{ id: string; name: string; enabled: boolean; owned_by?: string; capabilities?: string[] }>,
-): ModelGroup[] {
-  const groups: Record<string, ModelGroup> = {}
-
-  for (const model of models) {
-    const groupName = model.owned_by || '其他'
-
-    if (!groups[groupName]) {
-      groups[groupName] = { name: groupName, models: [] }
-    }
-    groups[groupName].models.push(model)
-  }
-
-  // Sort groups: named groups first (alphabetically), then "其他" last
-  const sortedGroups = Object.values(groups).sort((a, b) => {
-    if (a.name === '其他') return 1
-    if (b.name === '其他') return -1
-    return a.name.localeCompare(b.name)
-  })
-
-  return sortedGroups
-}
 </script>
 
 <template>
@@ -1314,39 +627,6 @@ function groupModels(
     <aside class="settings-sidebar" :style="{ width: sidebarWidth + 'px' }">
       <div class="settings-sidebar-header">
         <h2>设置</h2>
-        <div class="settings-header-actions">
-          <button class="settings-theme-toggle" @click="toggleTheme" :title="isDarkMode ? '切换亮色模式' : '切换暗色模式'">
-            <svg
-              v-if="isDarkMode"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <circle cx="12" cy="12" r="5" />
-              <path
-                d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"
-              />
-            </svg>
-            <svg
-              v-else
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
-            </svg>
-          </button>
-        </div>
       </div>
       <nav class="settings-nav">
         <button
@@ -1366,11 +646,47 @@ function groupModels(
     <div class="settings-content">
       <!-- ===== APPEARANCE ===== -->
       <template v-if="activeSection === 'appearance'">
-        <div class="settings-scroll">
-          <h1 class="settings-page-title">显示设置</h1>
-          <p class="settings-page-desc">自定义应用的外观和视觉效果。</p>
+        <div class="page-header settings-header">
+          <div class="header-left">
+            <h2>显示设置</h2>
+            <p class="page-subtitle">自定义应用的外观和视觉效果。</p>
+          </div>
+          <div class="header-toolbar">
+            <button class="settings-theme-toggle" @click="toggleTheme" :title="isDarkMode ? '切换亮色模式' : '切换暗色模式'">
+              <svg
+                v-if="isDarkMode"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <circle cx="12" cy="12" r="5" />
+                <path
+                  d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"
+                />
+              </svg>
+              <svg
+                v-else
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
+              </svg>
+            </button>
+          </div>
+        </div>
 
-          <!-- Theme Mode -->
+        <div class="settings-scroll">
           <div class="setting-section">
             <h3 class="setting-section-title">主题模式</h3>
             <div class="setting-card">
@@ -1553,10 +869,47 @@ function groupModels(
 
       <!-- ===== GENERAL ===== -->
       <template v-if="activeSection === 'general'">
-        <div class="settings-scroll">
-          <h1 class="settings-page-title">通用设置</h1>
-          <p class="settings-page-desc">配置技能分发的默认行为和 GitHub 访问令牌。</p>
+        <div class="page-header settings-header">
+          <div class="header-left">
+            <h2>通用设置</h2>
+            <p class="page-subtitle">配置技能分发的默认行为和 GitHub 访问令牌。</p>
+          </div>
+          <div class="header-toolbar">
+            <button class="settings-theme-toggle" @click="toggleTheme" :title="isDarkMode ? '切换亮色模式' : '切换暗色模式'">
+              <svg
+                v-if="isDarkMode"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <circle cx="12" cy="12" r="5" />
+                <path
+                  d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"
+                />
+              </svg>
+              <svg
+                v-else
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
+              </svg>
+            </button>
+          </div>
+        </div>
 
+        <div class="settings-scroll">
           <div class="setting-section">
             <h3 class="setting-section-title">分发模式</h3>
             <div class="setting-card">
@@ -1666,10 +1019,47 @@ function groupModels(
 
       <!-- ===== AI 模型服务 ===== -->
       <template v-if="activeSection === 'ai'">
-        <div class="settings-scroll">
-          <h1 class="settings-page-title">模型服务</h1>
-          <p class="settings-page-desc">配置 AI 模型服务用于翻译等功能。支持多个提供商，每个提供商可配置多个模型。</p>
+        <div class="page-header settings-header">
+          <div class="header-left">
+            <h2>模型服务</h2>
+            <p class="page-subtitle">配置 AI 模型服务用于翻译等功能。支持多个提供商，每个提供商可配置多个模型。</p>
+          </div>
+          <div class="header-toolbar">
+            <button class="settings-theme-toggle" @click="toggleTheme" :title="isDarkMode ? '切换亮色模式' : '切换暗色模式'">
+              <svg
+                v-if="isDarkMode"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <circle cx="12" cy="12" r="5" />
+                <path
+                  d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"
+                />
+              </svg>
+              <svg
+                v-else
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
+              </svg>
+            </button>
+          </div>
+        </div>
 
+        <div class="settings-scroll">
           <div class="ai-model-toolbar">
             <button class="toolbar-btn primary" @click="openAddModel">+ 添加提供商</button>
           </div>
@@ -1923,9 +1313,6 @@ function groupModels(
                             <div class="model-list-item-left">
                               <span class="model-item-icon">🤖</span>
                               <span class="model-item-name">{{ model.name }}</span>
-                              <span v-if="isChatModel(model)" class="model-tag chat">对话</span>
-                              <span v-if="isImageModel(model)" class="model-tag image">绘图</span>
-                              <span v-if="getModelContextLength(model)" class="model-tag context">{{ getModelContextLength(model) }}</span>
                             </div>
                             <div class="model-list-item-right">
                               <span v-if="isModelTestLoading(getModelIndex(m.id), model.id)" class="model-test-status testing"
@@ -1939,14 +1326,6 @@ function groupModels(
                                   :checked="model.enabled"
                                   @change="toggleModelEnabled(getModelIndex(m.id), model.id)" /><span class="model-item-toggle-slider"
                               /></label>
-                              <button class="model-item-action-btn" title="设置">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                  <circle cx="12" cy="12" r="3" />
-                                  <path
-                                    d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
-                                  />
-                                </svg>
-                              </button>
                               <button
                                 class="model-item-action-btn"
                                 title="测试"
@@ -2262,9 +1641,6 @@ function groupModels(
                             <div class="model-list-item-left">
                               <span class="model-item-icon">🤖</span>
                               <span class="model-item-name">{{ model.name }}</span>
-                              <span v-if="isChatModel(model)" class="model-tag chat">对话</span>
-                              <span v-if="isImageModel(model)" class="model-tag image">绘图</span>
-                              <span v-if="getModelContextLength(model)" class="model-tag context">{{ getModelContextLength(model) }}</span>
                             </div>
                             <div class="model-list-item-right">
                               <span v-if="isModelTestLoading(getModelIndex(m.id), model.id)" class="model-test-status testing"
@@ -2278,14 +1654,6 @@ function groupModels(
                                   :checked="model.enabled"
                                   @change="toggleModelEnabled(getModelIndex(m.id), model.id)" /><span class="model-item-toggle-slider"
                               /></label>
-                              <button class="model-item-action-btn" title="设置">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                  <circle cx="12" cy="12" r="3" />
-                                  <path
-                                    d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
-                                  />
-                                </svg>
-                              </button>
                               <button
                                 class="model-item-action-btn"
                                 title="测试"
@@ -2601,9 +1969,6 @@ function groupModels(
                             <div class="model-list-item-left">
                               <span class="model-item-icon">🤖</span>
                               <span class="model-item-name">{{ model.name }}</span>
-                              <span v-if="isChatModel(model)" class="model-tag chat">对话</span>
-                              <span v-if="isImageModel(model)" class="model-tag image">绘图</span>
-                              <span v-if="getModelContextLength(model)" class="model-tag context">{{ getModelContextLength(model) }}</span>
                             </div>
                             <div class="model-list-item-right">
                               <span v-if="isModelTestLoading(getModelIndex(m.id), model.id)" class="model-test-status testing"
@@ -2617,14 +1982,6 @@ function groupModels(
                                   :checked="model.enabled"
                                   @change="toggleModelEnabled(getModelIndex(m.id), model.id)" /><span class="model-item-toggle-slider"
                               /></label>
-                              <button class="model-item-action-btn" title="设置">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                  <circle cx="12" cy="12" r="3" />
-                                  <path
-                                    d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
-                                  />
-                                </svg>
-                              </button>
                               <button
                                 class="model-item-action-btn"
                                 title="测试"
@@ -2759,7 +2116,7 @@ function groupModels(
 
       <!-- Icon Picker Modal -->
       <div v-if="showIconPicker" class="modal-overlay" style="z-index: 1100" @click.self="showIconPicker = false">
-        <div class="modal modal-sm" style="width: 420px">
+        <div class="modal modal-sm" style="width: 440px; max-height: min(85vh, 720px); display: flex; flex-direction: column">
           <div class="modal-header">
             <h3 class="modal-title">选择图标</h3>
             <button class="modal-close" @click="showIconPicker = false">
@@ -2778,8 +2135,8 @@ function groupModels(
               </svg>
             </button>
           </div>
-          <div class="modal-body" style="padding: 12px">
-            <StoreIconPicker v-model="currentIconValue" :defaultIcon="defaultProviderIcon" />
+          <div class="modal-body" style="padding: 12px; flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column">
+            <StoreIconPicker v-model="currentIconValue" :defaultIcon="defaultProviderIcon" style="flex: 1; min-height: 0" />
           </div>
         </div>
       </div>
@@ -2997,10 +2354,47 @@ function groupModels(
 
       <!-- ===== TRANSLATION SETTINGS ===== -->
       <template v-if="activeSection === 'default-model'">
-        <div class="settings-scroll">
-          <h1 class="settings-page-title">翻译设置</h1>
-          <p class="settings-page-desc">配置用于翻译等功能的默认 AI 模型。</p>
+        <div class="page-header settings-header">
+          <div class="header-left">
+            <h2>翻译设置</h2>
+            <p class="page-subtitle">配置用于翻译等功能的默认 AI 模型。</p>
+          </div>
+          <div class="header-toolbar">
+            <button class="settings-theme-toggle" @click="toggleTheme" :title="isDarkMode ? '切换亮色模式' : '切换暗色模式'">
+              <svg
+                v-if="isDarkMode"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <circle cx="12" cy="12" r="5" />
+                <path
+                  d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"
+                />
+              </svg>
+              <svg
+                v-else
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
+              </svg>
+            </button>
+          </div>
+        </div>
 
+        <div class="settings-scroll">
           <div class="setting-section">
             <h3 class="setting-section-title">翻译模型</h3>
             <div class="setting-card">
@@ -3105,13 +2499,56 @@ function groupModels(
 
       <!-- ===== AGENT ===== -->
       <template v-if="activeSection === 'agent'">
-        <div class="settings-scroll">
-          <h1 class="settings-page-title">Agent 设置</h1>
-          <p class="settings-page-desc">控制整个 Agent 平台是否启用，以及它们在 Skills 和 Rules 中的显示顺序。</p>
+        <div class="page-header settings-header">
+          <div class="header-left">
+            <h2>Agent 设置</h2>
+            <p class="page-subtitle">控制整个 Agent 平台是否启用，以及它们在 Skills 和 Rules 中的显示顺序。</p>
+          </div>
+          <div class="header-toolbar">
+            <button class="settings-theme-toggle" @click="toggleTheme" :title="isDarkMode ? '切换亮色模式' : '切换暗色模式'">
+              <svg
+                v-if="isDarkMode"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <circle cx="12" cy="12" r="5" />
+                <path
+                  d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"
+                />
+              </svg>
+              <svg
+                v-else
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
+              </svg>
+            </button>
+          </div>
+        </div>
 
+        <div class="settings-scroll">
           <div class="setting-section">
             <div class="agent-toolbar">
-              <button class="toolbar-btn reset-btn" @click="resetPlatformOrder">
+              <button class="toolbar-btn" type="button" @click="openAddPlatform">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
+                添加平台
+              </button>
+              <button class="toolbar-btn reset-btn" type="button" @click="resetPlatformOrder">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <polyline points="1 4 1 10 7 10" />
                   <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
@@ -3147,12 +2584,14 @@ function groupModels(
                   </svg>
                 </div>
                 <div class="platform-icon-wrapper">
-                  <ProviderIcon :icon="p.id" :size="32" variant="mono" />
+                  <ProviderIcon :icon="platformDisplayIcon(p)" :size="32" variant="mono" />
                 </div>
                 <div class="platform-info">
                   <div class="platform-name-row">
                     <span class="platform-name">{{ p.name }}</span>
-                    <span class="platform-builtin-tag">内置</span>
+                    <span class="platform-builtin-tag" :class="{ custom: isCustomPlatform(p) }">
+                      {{ isCustomPlatform(p) ? '自定义' : '内置' }}
+                    </span>
                     <span class="platform-status" :class="{ detected: detectAgent(p) }">
                       {{ detectAgent(p) ? '已启用' : '未检测' }}
                     </span>
@@ -3162,15 +2601,46 @@ function groupModels(
                   </div>
                 </div>
                 <div class="platform-actions">
-                  <button class="toggle-switch" :class="{ on: p.enabled }" @click="togglePlatformEnabled(p)">
+                  <button
+                    v-if="isCustomPlatform(p)"
+                    class="order-btn"
+                    type="button"
+                    title="编辑"
+                    @click.stop="openEditPlatform(p)"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M12 20h9" />
+                      <path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
+                    </svg>
+                  </button>
+                  <button
+                    v-if="isCustomPlatform(p)"
+                    class="order-btn danger"
+                    type="button"
+                    title="删除"
+                    @click.stop="requestDeletePlatform(p)"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <polyline points="3 6 5 6 21 6" />
+                      <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+                      <path d="M10 11v6M14 11v6" />
+                    </svg>
+                  </button>
+                  <button class="toggle-switch" :class="{ on: p.enabled }" type="button" @click="togglePlatformEnabled(p)">
                     <span class="toggle-thumb" />
                   </button>
-                  <button class="order-btn" :disabled="index === 0" title="上移" @click="movePlatformUp(index)">
+                  <button class="order-btn" type="button" :disabled="index === 0" title="上移" @click="movePlatformUp(index)">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                       <polyline points="18 15 12 9 6 15" />
                     </svg>
                   </button>
-                  <button class="order-btn" :disabled="index === sortedPlatforms.length - 1" title="下移" @click="movePlatformDown(index)">
+                  <button
+                    class="order-btn"
+                    type="button"
+                    :disabled="index === sortedPlatforms.length - 1"
+                    title="下移"
+                    @click="movePlatformDown(index)"
+                  >
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                       <polyline points="6 9 12 15 18 9" />
                     </svg>
@@ -3189,6 +2659,19 @@ function groupModels(
     </div>
   </div>
 
+  <AddPlatformModal
+    v-if="showAddPlatformModal"
+    :platform="editingPlatform"
+    @close="onClosePlatformModal"
+    @submit="onPlatformSubmit"
+  />
+  <ConfirmModal
+    v-if="confirmDeletePlatformId"
+    title="删除平台"
+    :message="`确定要删除自定义平台 <strong>${confirmDeletePlatformName}</strong> 吗？`"
+    @confirm="confirmDeletePlatform"
+    @cancel="confirmDeletePlatformId = null"
+  />
   <ConfirmModal
     v-if="confirmDeleteProviderId"
     title="删除供应商"
@@ -3220,2370 +2703,5 @@ function groupModels(
   <CleanupSelectModal v-if="showCleanupSelect" :dirs="unregisteredDirs" @close="showCleanupSelect = false" @deleted="onCleanupDeleted" />
 </template>
 
-<style scoped>
-.settings-layout {
-  display: flex;
-  height: 100%;
-  overflow: hidden;
-}
+<style src="../../styles/settings-page.css"></style>
 
-.settings-sidebar {
-  width: 180px;
-  border-right: 1px solid hsl(var(--border));
-  background: hsl(var(--app-ui-panel-bg));
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-  position: relative;
-}
-
-.settings-sidebar-header {
-  height: 52px;
-  display: flex;
-  align-items: center;
-  padding: 0 16px;
-  border-bottom: 1px solid hsl(var(--border));
-}
-
-.settings-header-actions {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.settings-theme-toggle {
-  width: 32px;
-  height: 32px;
-  border: 1px solid hsl(var(--border));
-  border-radius: 8px;
-  background: hsl(var(--card));
-  color: hsl(var(--muted-foreground));
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all var(--duration-base) var(--ease-standard);
-}
-
-.settings-theme-toggle:hover {
-  background: hsl(var(--accent));
-  color: hsl(var(--foreground));
-}
-
-.settings-sidebar-header h2 {
-  font-size: 15px;
-  font-weight: 600;
-  color: hsl(var(--foreground));
-}
-
-.settings-nav {
-  flex: 1;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 8px;
-}
-
-.settings-sidebar-resize {
-  position: absolute;
-  top: 0;
-  right: -3px;
-  width: 6px;
-  height: 100%;
-  cursor: col-resize;
-  z-index: 10;
-  touch-action: none;
-  transition: background var(--duration-quick) var(--ease-standard);
-}
-
-.settings-sidebar-resize:hover {
-  background: hsl(var(--primary) / 0.3);
-}
-
-.settings-nav-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 8px 12px;
-  border: none;
-  background: none;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 500;
-  color: hsl(var(--foreground) / 0.7);
-  cursor: pointer;
-  text-align: left;
-  transition: all var(--duration-base) var(--ease-standard);
-}
-
-.settings-nav-item:hover {
-  background: hsl(var(--muted));
-  color: hsl(var(--foreground));
-}
-
-.settings-nav-item.active {
-  background: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
-}
-
-.settings-nav-icon {
-  font-size: 15px;
-  width: 20px;
-  text-align: center;
-}
-
-.settings-content {
-  flex: 1;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.highlight-section {
-  animation: highlight-pulse 2s ease-out;
-}
-
-@keyframes highlight-pulse {
-  0% {
-    box-shadow: 0 0 0 4px hsl(var(--primary) / 0.4);
-  }
-  100% {
-    box-shadow: none;
-  }
-}
-
-/* Segmented Control */
-.segmented-control {
-  display: flex;
-  gap: 4px;
-  padding: 4px;
-  border-radius: 14px;
-  background: hsl(var(--app-settings-subtle-bg));
-}
-
-.segment-btn {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 8px 12px;
-  border: none;
-  border-radius: 10px;
-  background: transparent;
-  font-size: 13px;
-  font-weight: 500;
-  color: hsl(var(--foreground) / 0.7);
-  cursor: pointer;
-  transition: all var(--duration-base) var(--ease-standard);
-}
-
-.segment-btn:hover {
-  color: hsl(var(--foreground));
-}
-
-.segment-btn.active {
-  background: hsl(var(--app-settings-segment-active-bg));
-  color: hsl(var(--app-settings-segment-active-color));
-  box-shadow: hsl(var(--app-settings-segment-active-shadow));
-  font-weight: 600;
-}
-
-.segment-icon {
-  font-size: 15px;
-}
-
-/* Color Name Bar */
-.color-name-bar {
-  text-align: right;
-  font-size: 12px;
-  color: hsl(var(--muted-foreground));
-  font-variant-numeric: tabular-nums;
-  margin-bottom: 8px;
-  min-height: 18px;
-}
-
-/* Color Swatches Row */
-.color-swatches-row {
-  display: flex;
-  align-items: center;
-  width: 100%;
-  padding: 8px 4px;
-}
-
-.color-swatch-cell {
-  flex: 1;
-  display: flex;
-  justify-content: center;
-  min-width: 0;
-}
-
-.color-swatch-btn {
-  position: relative;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  border: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all var(--duration-base) var(--ease-standard);
-  flex-shrink: 0;
-}
-
-.color-swatch-btn:hover {
-  transform: scale(1.1);
-}
-
-.color-swatch-btn.active {
-  box-shadow:
-    0 0 0 2px hsl(var(--background)),
-    0 0 0 4px hsl(var(--primary));
-}
-
-.swatch-check {
-  color: #fff;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3));
-}
-
-/* Custom Color Panel — only visible when custom is selected */
-.custom-color-panel {
-  margin-top: 12px;
-  padding: 16px;
-  border-radius: 12px;
-  background: hsl(var(--muted) / 0.4);
-  border: 1px solid hsl(var(--border));
-  animation: fadeSlideIn var(--duration-base) var(--ease-standard) both;
-}
-
-@keyframes fadeSlideIn {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.custom-color-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.custom-color-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: hsl(var(--foreground));
-}
-
-.custom-color-desc {
-  font-size: 12px;
-  color: hsl(var(--muted-foreground));
-  margin-top: 2px;
-}
-
-.custom-color-inputs {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.color-picker-native {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  border: 1px solid hsl(var(--border));
-  background: none;
-  padding: 2px;
-  cursor: pointer;
-}
-
-.color-picker-native::-webkit-color-swatch-wrapper {
-  padding: 2px;
-}
-.color-picker-native::-webkit-color-swatch {
-  border-radius: 4px;
-  border: none;
-}
-
-.color-hex-native {
-  width: 110px;
-  height: 36px;
-  padding: 0 12px;
-  border: 1px solid hsl(var(--border));
-  border-radius: 8px;
-  background: hsl(var(--card));
-  color: hsl(var(--foreground));
-  font-size: 13px;
-  font-family: 'SF Mono', Consolas, monospace;
-  outline: none;
-}
-
-.color-hex-native:focus {
-  border-color: hsl(var(--ring));
-  box-shadow: 0 0 0 3px hsl(var(--ring) / 0.12);
-}
-
-/* Preview Strip (Primary / Accent / Neutral) */
-.preview-strip {
-  display: flex;
-  gap: 8px;
-  margin-top: 16px;
-}
-
-.preview-block {
-  flex: 1;
-  height: 36px;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.preview-block.primary {
-  color: #fff;
-}
-
-.preview-block.accent {
-  color: hsl(var(--foreground));
-}
-
-.preview-block.neutral {
-  background: hsl(var(--muted));
-  color: hsl(var(--muted-foreground));
-}
-
-/* Option Grid (Font Size, Motion) */
-.option-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-}
-
-.option-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: 14px 10px;
-  border: none;
-  border-radius: 12px;
-  background: hsl(var(--app-settings-subtle-bg));
-  color: hsl(var(--foreground));
-  cursor: pointer;
-  transition: all var(--duration-base) var(--ease-standard);
-}
-
-.option-btn:hover {
-  box-shadow: var(--shadow-sm);
-  transform: translateY(-2px);
-}
-
-.option-btn:active {
-  transform: translateY(0);
-}
-
-.option-btn.active {
-  background: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
-  box-shadow: 0 8px 24px hsl(var(--primary) / 0.25);
-}
-
-.option-label {
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.option-meta {
-  font-size: 11px;
-  opacity: 0.7;
-}
-
-/* Mode Grid */
-.mode-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 8px;
-  margin-top: 12px;
-}
-
-.mode-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 16px;
-  border: 2px solid hsl(var(--border));
-  border-radius: var(--radius);
-  background: transparent;
-  cursor: pointer;
-  transition: all var(--duration-base) var(--ease-standard);
-}
-
-.mode-card:hover {
-  border-color: hsl(var(--primary) / 0.4);
-}
-
-.mode-card.active {
-  border-color: hsl(var(--primary));
-  background: hsl(var(--primary) / 0.06);
-}
-
-.mode-icon {
-  font-size: 24px;
-}
-.mode-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: hsl(var(--foreground));
-}
-.mode-desc {
-  font-size: 11px;
-  color: hsl(var(--muted-foreground));
-  text-align: center;
-}
-
-/* Token */
-.token-row {
-  display: flex;
-  gap: 6px;
-  margin-top: 10px;
-}
-
-.token-input {
-  flex: 1;
-  padding: 8px 12px;
-  font-size: 12px;
-  font-family: 'SF Mono', Consolas, monospace;
-  border: 1px solid hsl(var(--border));
-  border-radius: 8px;
-  background: hsl(var(--muted));
-  color: hsl(var(--foreground));
-  outline: none;
-}
-
-.token-input:focus {
-  border-color: hsl(var(--ring));
-  box-shadow: 0 0 0 3px hsl(var(--ring) / 0.12);
-}
-
-.token-toggle {
-  padding: 8px 14px;
-  font-size: 12px;
-  font-weight: 500;
-  border: 1px solid hsl(var(--border));
-  border-radius: 8px;
-  background: hsl(var(--muted));
-  color: hsl(var(--foreground) / 0.7);
-  cursor: pointer;
-}
-
-.token-toggle:hover {
-  background: hsl(var(--accent));
-}
-
-.number-input {
-  width: 72px;
-  padding: 8px 12px;
-  font-size: 13px;
-  border: 1px solid hsl(var(--border));
-  border-radius: 8px;
-  background: hsl(var(--muted));
-  color: hsl(var(--foreground));
-  outline: none;
-  text-align: center;
-}
-
-.number-input:focus {
-  border-color: hsl(var(--ring));
-  box-shadow: 0 0 0 3px hsl(var(--ring) / 0.12);
-}
-
-.number-input.input-error {
-  border-color: hsl(var(--destructive));
-}
-
-.number-input.input-error:focus {
-  box-shadow: 0 0 0 3px hsl(var(--destructive) / 0.12);
-}
-
-.input-error-text {
-  display: block;
-  font-size: 11px;
-  color: hsl(var(--destructive));
-  margin-top: 4px;
-}
-
-.input-suffix {
-  font-size: 12px;
-  color: hsl(var(--muted-foreground));
-  margin-left: 6px;
-}
-
-.token-link {
-  display: inline-block;
-  font-size: 12px;
-  color: hsl(var(--primary));
-  text-decoration: none;
-  margin-top: 8px;
-}
-
-.token-link:hover {
-  text-decoration: underline;
-}
-
-/* Cleanup */
-/* Agent */
-.agent-toolbar {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.toolbar-btn {
-  padding: 7px 16px;
-  font-size: 12px;
-  font-weight: 500;
-  border: 1px solid hsl(var(--border));
-  border-radius: 8px;
-  background: hsl(var(--card));
-  color: hsl(var(--foreground) / 0.7);
-  cursor: pointer;
-  transition: all var(--duration-base) var(--ease-standard);
-}
-
-.toolbar-btn:hover {
-  background: hsl(var(--muted));
-  color: hsl(var(--foreground));
-}
-
-.toolbar-btn.primary {
-  background: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
-  border-color: hsl(var(--primary));
-}
-
-.agent-list {
-  background: hsl(var(--app-settings-card-bg));
-  border: 1px solid hsl(var(--app-settings-card-border));
-  border-radius: var(--radius);
-  overflow: hidden;
-}
-
-.agent-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 14px;
-}
-
-.agent-row + .agent-row {
-  border-top: 1px solid hsl(var(--border) / 0.6);
-}
-
-.agent-left {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-
-.agent-info {
-  min-width: 0;
-}
-.agent-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: hsl(var(--foreground));
-}
-.agent-path {
-  font-size: 11px;
-  color: hsl(var(--muted-foreground));
-  font-family: 'SF Mono', Consolas, monospace;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 320px;
-}
-
-.agent-status {
-  font-size: 11px;
-  font-weight: 500;
-  color: hsl(var(--muted-foreground));
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.agent-status.detected {
-  color: hsl(142 50% 45%);
-}
-
-/* Platform Order List */
-.platform-order-list {
-  background: hsl(var(--app-settings-card-bg));
-  border: 1px solid hsl(var(--app-settings-card-border));
-  border-radius: var(--radius);
-  overflow: hidden;
-}
-
-.platform-order-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  border-bottom: 1px solid hsl(var(--border) / 0.6);
-  transition: all var(--duration-base) var(--ease-standard);
-  cursor: grab;
-}
-
-.platform-order-item:last-child {
-  border-bottom: none;
-}
-
-.platform-order-item:hover {
-  background: hsl(var(--muted) / 0.3);
-}
-
-.platform-order-item.dragging {
-  opacity: 0.5;
-  background: hsl(var(--primary) / 0.1);
-}
-
-.platform-order-item.drag-over {
-  border-top: 2px solid hsl(var(--primary));
-}
-
-.platform-order-item.disabled {
-  opacity: 0.6;
-}
-
-.platform-drag-handle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  color: hsl(var(--muted-foreground) / 0.5);
-  cursor: grab;
-  flex-shrink: 0;
-}
-
-.platform-drag-handle:active {
-  cursor: grabbing;
-}
-
-.platform-icon-wrapper {
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.platform-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.platform-name-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 2px;
-}
-
-.platform-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: hsl(var(--foreground));
-}
-
-.platform-builtin-tag {
-  font-size: 10px;
-  font-weight: 500;
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: hsl(var(--muted));
-  color: hsl(var(--muted-foreground));
-}
-
-.platform-status {
-  font-size: 11px;
-  font-weight: 500;
-  color: hsl(var(--muted-foreground));
-}
-
-.platform-status.detected {
-  color: hsl(142 50% 45%);
-}
-
-.platform-path {
-  font-size: 12px;
-  color: hsl(var(--muted-foreground));
-  font-family: 'SF Mono', Consolas, monospace;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.platform-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.order-btn {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  border: 1px solid hsl(var(--border));
-  background: hsl(var(--card));
-  color: hsl(var(--muted-foreground));
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all var(--duration-base) var(--ease-standard);
-}
-
-.order-btn:hover:not(:disabled) {
-  background: hsl(var(--muted));
-  color: hsl(var(--foreground));
-}
-
-.order-btn:disabled {
-  opacity: 0.3;
-  cursor: default;
-}
-
-.reset-btn {
-  margin-left: auto;
-}
-
-/* Tags */
-.tag-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 10px;
-}
-
-.tag {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 10px;
-  font-size: 11px;
-  font-weight: 500;
-  border-radius: 8px;
-  background: hsl(var(--destructive) / 0.1);
-  color: hsl(var(--destructive));
-}
-
-.tag-remove {
-  background: none;
-  border: none;
-  color: inherit;
-  cursor: pointer;
-  padding: 0 2px;
-  font-size: 14px;
-  line-height: 1;
-  opacity: 0.7;
-}
-
-.tag-remove:hover {
-  opacity: 1;
-}
-
-.tag-input-row {
-  display: flex;
-  gap: 6px;
-}
-
-.tag-input {
-  flex: 1;
-  padding: 7px 10px;
-  font-size: 12px;
-  border: 1px solid hsl(var(--border));
-  border-radius: 8px;
-  background: hsl(var(--muted));
-  color: hsl(var(--foreground));
-  outline: none;
-}
-
-.tag-input:focus {
-  border-color: hsl(var(--ring));
-}
-
-.tag-add-btn {
-  padding: 7px 16px;
-  font-size: 12px;
-  font-weight: 500;
-  border: none;
-  border-radius: 8px;
-  background: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
-  cursor: pointer;
-}
-
-.tag-add-btn:hover {
-  opacity: 0.9;
-}
-
-/* ═══ AI Model Management ═══ */
-/* AI Model Settings */
-.ai-model-toolbar {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
-}
-
-.ai-model-list {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.ai-model-empty {
-  padding: 32px;
-  text-align: center;
-  color: hsl(var(--muted-foreground));
-  font-size: 13px;
-  background: hsl(var(--card));
-  border: 1px dashed hsl(var(--border));
-  border-radius: 12px;
-}
-
-/* Provider Card */
-.ai-model-provider-card {
-  background: hsl(var(--card));
-  border: 1px solid hsl(var(--border));
-  border-radius: 12px;
-  overflow: hidden;
-  transition: border-color var(--duration-base) var(--ease-standard);
-}
-
-.ai-model-provider-card:hover {
-  border-color: hsl(var(--primary) / 0.3);
-}
-
-.ai-model-provider-card.disabled {
-  opacity: 0.7;
-}
-
-.ai-model-provider-card.disabled:hover {
-  opacity: 1;
-}
-
-/* Provider Group */
-.provider-group {
-  margin-bottom: 16px;
-}
-
-.provider-group-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: hsl(var(--muted-foreground));
-  margin-bottom: 8px;
-  padding-left: 4px;
-}
-
-.provider-card-body {
-  border-top: 1px solid hsl(var(--border));
-  background: hsl(var(--muted) / 0.1);
-}
-
-/* Provider Header */
-.provider-card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  background: hsl(var(--muted) / 0.3);
-  border-bottom: 1px solid hsl(var(--border));
-}
-
-.provider-card-left {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.provider-card-icon {
-  font-size: 20px;
-  width: 36px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.provider-card-icon.clickable {
-  cursor: pointer;
-  border-radius: 8px;
-  transition:
-    background-color 0.2s,
-    transform 0.15s;
-}
-
-.provider-card-icon.clickable:hover {
-  background-color: hsl(var(--muted));
-  transform: scale(1.1);
-}
-
-.provider-card-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: hsl(var(--foreground));
-}
-
-.provider-pending-badge {
-  font-size: 10px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 6px;
-  background: hsl(38 92% 50% / 0.12);
-  color: hsl(38 92% 40%);
-  white-space: nowrap;
-}
-
-.ai-model-provider-card.pending {
-  border-color: hsl(38 92% 50% / 0.3);
-}
-
-.provider-edit-btn {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  border: none;
-  background: transparent;
-  color: hsl(var(--muted-foreground));
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all var(--duration-base) var(--ease-standard);
-}
-
-.provider-edit-btn:hover {
-  background: hsl(var(--muted));
-  color: hsl(var(--foreground));
-}
-
-.provider-card-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-/* Toggle Switch */
-.provider-toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-}
-
-.provider-toggle input {
-  display: none;
-}
-
-.provider-toggle-slider {
-  width: 36px;
-  height: 20px;
-  background: hsl(var(--muted));
-  border-radius: 10px;
-  position: relative;
-  transition: all var(--duration-base) var(--ease-standard);
-}
-
-.provider-toggle-slider::before {
-  content: '';
-  position: absolute;
-  left: 2px;
-  top: 2px;
-  width: 16px;
-  height: 16px;
-  background: white;
-  border-radius: 50%;
-  transition: transform var(--duration-base) var(--ease-standard);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-}
-
-.provider-toggle.on .provider-toggle-slider {
-  background: hsl(142 50% 45%);
-}
-
-.provider-toggle.on .provider-toggle-slider::before {
-  transform: translateX(16px);
-}
-
-.provider-toggle-label {
-  font-size: 11px;
-  color: hsl(var(--muted-foreground));
-}
-
-.provider-toggle.on .provider-toggle-label {
-  color: hsl(142 50% 45%);
-}
-
-.provider-delete-btn {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  border: none;
-  background: transparent;
-  color: hsl(var(--muted-foreground));
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all var(--duration-base) var(--ease-standard);
-}
-
-.provider-delete-btn:hover {
-  background: hsl(var(--destructive) / 0.1);
-  color: hsl(var(--destructive));
-}
-
-/* Provider Sections */
-.provider-section {
-  padding: 12px 16px;
-  border-bottom: 1px solid hsl(var(--border));
-}
-
-.provider-section:last-child {
-  border-bottom: none;
-}
-
-.provider-section-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 10px;
-}
-
-.provider-section-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: hsl(var(--foreground));
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.provider-section-empty {
-  padding: 12px;
-  text-align: center;
-  color: hsl(var(--muted-foreground));
-  font-size: 12px;
-  background: hsl(var(--muted) / 0.3);
-  border-radius: 6px;
-  border: 1px dashed hsl(var(--border));
-}
-
-.model-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  background: hsl(var(--muted));
-  border-radius: 9px;
-  font-size: 10px;
-  font-weight: 600;
-}
-
-.provider-section-actions {
-  display: flex;
-  gap: 4px;
-}
-
-.provider-section-btn {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  border: 1px solid hsl(var(--border));
-  background: hsl(var(--card));
-  color: hsl(var(--muted-foreground));
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all var(--duration-base) var(--ease-standard);
-}
-
-.provider-section-btn:hover:not(:disabled) {
-  background: hsl(var(--accent));
-  color: hsl(var(--foreground));
-}
-
-.provider-section-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-.provider-section-btn.success {
-  border-color: hsl(142 50% 45%);
-  color: hsl(142 50% 35%);
-  background: hsl(142 50% 45% / 0.1);
-}
-
-.provider-section-btn.error {
-  border-color: hsl(var(--destructive));
-  color: hsl(var(--destructive));
-  background: hsl(var(--destructive) / 0.1);
-}
-
-/* API Key Row */
-.provider-apikey-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.apikey-masked {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: hsl(var(--muted) / 0.3);
-  border: 1px solid hsl(var(--border));
-  border-radius: 8px;
-  font-family: 'SF Mono', Consolas, monospace;
-  font-size: 12px;
-  color: hsl(var(--muted-foreground));
-}
-
-.apikey-icon {
-  flex-shrink: 0;
-}
-
-.apikey-text {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.apikey-text-visible {
-  word-break: break-all;
-  white-space: normal;
-  font-size: 11px;
-}
-
-.apikey-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.apikey-input {
-  flex: 1;
-  border: none;
-  background: transparent;
-  font-family: 'SF Mono', Consolas, monospace;
-  font-size: 12px;
-  color: hsl(var(--foreground));
-  outline: none;
-}
-
-.apikey-actions {
-  display: flex;
-  gap: 4px;
-}
-
-.apikey-action-btn {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  border: 1px solid hsl(var(--border));
-  background: hsl(var(--card));
-  color: hsl(var(--muted-foreground));
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all var(--duration-base) var(--ease-standard);
-}
-
-.apikey-action-btn:hover {
-  background: hsl(var(--accent));
-  color: hsl(var(--foreground));
-}
-
-.apikey-action-btn.danger:hover {
-  background: hsl(var(--destructive) / 0.1);
-  color: hsl(var(--destructive));
-}
-
-/* URL Form */
-.provider-url-form {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.url-form-row {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.url-form-label {
-  font-size: 11px;
-  font-weight: 500;
-  color: hsl(var(--muted-foreground));
-}
-
-.url-form-input-group {
-  display: flex;
-  gap: 8px;
-}
-
-.url-form-input {
-  flex: 1;
-  padding: 8px 12px;
-  font-size: 13px;
-  border: 1px solid hsl(var(--border));
-  border-radius: 8px;
-  background: hsl(var(--card));
-  color: hsl(var(--foreground));
-  font-family: 'SF Mono', Consolas, monospace;
-  outline: none;
-  transition: all var(--duration-base) var(--ease-standard);
-}
-
-.url-form-input:focus {
-  border-color: hsl(var(--ring));
-  box-shadow: 0 0 0 3px hsl(var(--ring) / 0.12);
-}
-
-.url-restore-btn {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 8px 12px;
-  font-size: 12px;
-  font-weight: 500;
-  border-radius: 8px;
-  border: 1px solid hsl(var(--border));
-  background: hsl(var(--card));
-  color: hsl(var(--foreground));
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all var(--duration-base) var(--ease-standard);
-}
-
-.url-restore-btn:hover {
-  background: hsl(var(--muted));
-}
-
-.url-preview {
-  padding: 6px 10px;
-  background: hsl(var(--muted) / 0.3);
-  border-radius: 6px;
-  font-family: 'SF Mono', Consolas, monospace;
-  font-size: 11px;
-  color: hsl(var(--muted-foreground));
-  line-height: 1.5;
-}
-
-/* Model List */
-.model-list-empty {
-  padding: 20px;
-  text-align: center;
-  color: hsl(var(--muted-foreground));
-  font-size: 12px;
-  background: hsl(var(--muted) / 0.2);
-  border-radius: 8px;
-}
-
-/* Model Grouped List */
-.model-list-grouped {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.model-group {
-  background: hsl(var(--card));
-  border: 1px solid hsl(var(--border));
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.model-group-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  background: hsl(var(--muted) / 0.3);
-  cursor: pointer;
-  user-select: none;
-  transition: background var(--duration-base) var(--ease-standard);
-}
-
-.model-group-header:hover {
-  background: hsl(var(--muted) / 0.5);
-}
-
-.model-group-arrow {
-  flex-shrink: 0;
-  transition: transform var(--duration-base) var(--ease-standard);
-  color: hsl(var(--muted-foreground));
-}
-
-.model-group-arrow.expanded {
-  transform: rotate(90deg);
-}
-
-.model-group-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: hsl(var(--foreground));
-  flex: 1;
-}
-
-.model-group-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 20px;
-  height: 18px;
-  padding: 0 6px;
-  background: hsl(var(--muted));
-  border-radius: 9px;
-  font-size: 11px;
-  font-weight: 600;
-  color: hsl(var(--muted-foreground));
-}
-
-.model-group-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-left: auto;
-}
-
-.model-group-toggle {
-  position: relative;
-  display: inline-block;
-  width: 28px;
-  height: 16px;
-  cursor: pointer;
-}
-
-.model-group-toggle input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.model-group-toggle .model-item-toggle-slider {
-  position: absolute;
-  cursor: pointer;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: hsl(var(--muted));
-  border-radius: 8px;
-  transition: all var(--duration-base) var(--ease-standard);
-}
-
-.model-group-toggle .model-item-toggle-slider::before {
-  content: '';
-  position: absolute;
-  left: 2px;
-  top: 2px;
-  width: 12px;
-  height: 12px;
-  background: white;
-  border-radius: 50%;
-  transition: transform var(--duration-base) var(--ease-standard);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-}
-
-.model-group-toggle input:checked + .model-item-toggle-slider {
-  background: hsl(142 50% 45%);
-}
-
-.model-group-toggle input:checked + .model-item-toggle-slider::before {
-  transform: translateX(12px);
-}
-
-.model-group-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border: none;
-  background: transparent;
-  border-radius: 4px;
-  cursor: pointer;
-  color: hsl(var(--muted-foreground));
-  transition:
-    color var(--duration-base) var(--ease-standard),
-    background var(--duration-base) var(--ease-standard);
-}
-
-.model-group-btn:hover {
-  background: hsl(var(--destructive) / 0.1);
-  color: hsl(var(--destructive));
-}
-
-.model-group-items {
-  border-top: 1px solid hsl(var(--border));
-}
-
-.model-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.model-list-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 10px;
-  border-radius: 8px;
-  transition: background var(--duration-base) var(--ease-standard);
-}
-
-.model-list-item:hover {
-  background: hsl(var(--muted) / 0.5);
-}
-
-.model-list-item-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  flex: 1;
-}
-
-.model-item-icon {
-  font-size: 14px;
-  flex-shrink: 0;
-}
-
-.model-item-name {
-  font-size: 13px;
-  font-weight: 500;
-  color: hsl(var(--foreground));
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.model-tag {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 10px;
-  font-weight: 500;
-  flex-shrink: 0;
-}
-
-.model-tag.chat {
-  background: hsl(210 50% 50% / 0.15);
-  color: hsl(210 50% 50%);
-}
-
-.model-tag.image {
-  background: hsl(280 50% 50% / 0.15);
-  color: hsl(280 50% 50%);
-}
-
-.model-tag.context {
-  background: hsl(var(--muted));
-  color: hsl(var(--muted-foreground));
-}
-
-.tooltip-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: hsl(var(--muted));
-  color: hsl(var(--muted-foreground));
-  font-size: 10px;
-  font-weight: 600;
-  cursor: help;
-}
-
-.provider-section-add-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  border-radius: 6px;
-  border: 1px solid hsl(var(--border));
-  background: hsl(var(--card));
-  color: hsl(var(--muted-foreground));
-  font-size: 12px;
-  cursor: pointer;
-  transition: all var(--duration-base) var(--ease-standard);
-}
-
-.provider-section-add-btn:hover {
-  background: hsl(var(--accent));
-  color: hsl(var(--foreground));
-}
-
-.provider-section-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.provider-getkey-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  border-radius: 6px;
-  border: 1px solid hsl(var(--primary) / 0.3);
-  background: hsl(var(--primary) / 0.08);
-  color: hsl(var(--primary));
-  font-size: 12px;
-  font-weight: 500;
-  text-decoration: none;
-  cursor: pointer;
-  transition: all var(--duration-base) var(--ease-standard);
-}
-
-.provider-getkey-link:hover {
-  background: hsl(var(--primary) / 0.15);
-  border-color: hsl(var(--primary) / 0.5);
-}
-
-.apikey-lock {
-  flex-shrink: 0;
-}
-
-.model-item-owner {
-  font-size: 11px;
-  color: hsl(var(--muted-foreground));
-  flex-shrink: 0;
-}
-
-.model-list-item-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.model-item-toggle {
-  position: relative;
-  display: inline-block;
-  width: 32px;
-  height: 18px;
-  cursor: pointer;
-}
-
-.model-item-toggle input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.model-item-toggle-slider {
-  position: absolute;
-  cursor: pointer;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: hsl(var(--muted));
-  border-radius: 9px;
-  transition: all var(--duration-base) var(--ease-standard);
-}
-
-.model-item-toggle-slider::before {
-  content: '';
-  position: absolute;
-  left: 2px;
-  top: 2px;
-  width: 14px;
-  height: 14px;
-  background: white;
-  border-radius: 50%;
-  transition: transform var(--duration-base) var(--ease-standard);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-}
-
-.model-item-toggle input:checked + .model-item-toggle-slider {
-  background: hsl(142 50% 45%);
-}
-
-.model-item-toggle input:checked + .model-item-toggle-slider::before {
-  transform: translateX(14px);
-}
-
-.model-item-action-btn {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  border: none;
-  background: transparent;
-  color: hsl(var(--muted-foreground));
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all var(--duration-base) var(--ease-standard);
-}
-
-.model-item-action-btn:hover {
-  background: hsl(var(--accent));
-  color: hsl(var(--foreground));
-}
-
-.model-item-action-btn.danger:hover {
-  background: hsl(var(--destructive) / 0.1);
-  color: hsl(var(--destructive));
-}
-
-.model-item-action-btn.testing {
-  color: hsl(var(--muted-foreground));
-  opacity: 0.6;
-}
-
-.model-item-action-btn.test-ok {
-  color: hsl(142 71% 45%);
-}
-
-.model-item-action-btn.test-fail {
-  color: hsl(var(--destructive));
-}
-
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.spin {
-  animation: spin 1s linear infinite;
-}
-
-.model-test-status {
-  font-size: 11px;
-  font-weight: 500;
-  padding: 2px 8px;
-  border-radius: 6px;
-  white-space: nowrap;
-}
-
-.model-test-status.testing {
-  color: hsl(var(--muted-foreground));
-  background: hsl(var(--muted));
-}
-
-.model-test-status.ok {
-  color: hsl(142 71% 45%);
-  background: hsl(142 71% 45% / 0.1);
-}
-
-.model-test-status.fail {
-  color: hsl(var(--destructive));
-  background: hsl(var(--destructive) / 0.1);
-}
-
-/* Modal */
-/* Modal Base */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: hsl(0 0% 0% / 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  animation: fadeIn var(--duration-quick) var(--ease-standard);
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-.modal {
-  background: hsl(var(--card));
-  border: 1px solid hsl(var(--border));
-  border-radius: 12px;
-  box-shadow: 0 20px 60px hsl(0 0% 0% / 0.2);
-  display: flex;
-  flex-direction: column;
-  max-height: 85vh;
-  width: 520px;
-  animation: slideUp var(--duration-base) var(--ease-standard);
-}
-
-@keyframes slideUp {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.modal-sm {
-  width: 480px;
-}
-
-.modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 20px;
-  border-bottom: 1px solid hsl(var(--border));
-}
-
-.modal-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: hsl(var(--foreground));
-}
-
-.modal-close {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  border: none;
-  background: transparent;
-  color: hsl(var(--muted-foreground));
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all var(--duration-base) var(--ease-standard);
-}
-
-.modal-close:hover {
-  background: hsl(var(--muted));
-  color: hsl(var(--foreground));
-}
-
-.modal-footer {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 12px 20px;
-  border-top: 1px solid hsl(var(--border));
-  background: hsl(var(--muted) / 0.2);
-}
-
-.modal-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 8px 16px;
-  font-size: 13px;
-  font-weight: 500;
-  border-radius: 8px;
-  border: 1px solid transparent;
-  cursor: pointer;
-  transition: all var(--duration-base) var(--ease-standard);
-}
-
-.modal-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.modal-btn.cancel {
-  background: hsl(var(--card));
-  border-color: hsl(var(--border));
-  color: hsl(var(--foreground));
-}
-
-.modal-btn.cancel:hover:not(:disabled) {
-  background: hsl(var(--muted));
-}
-
-.modal-btn.secondary {
-  background: hsl(var(--card));
-  border-color: hsl(var(--border));
-  color: hsl(var(--foreground));
-}
-
-.modal-btn.secondary:hover:not(:disabled) {
-  background: hsl(var(--accent));
-  color: hsl(var(--foreground));
-}
-
-.modal-btn.confirm {
-  background: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
-}
-
-.modal-btn.confirm:hover:not(:disabled) {
-  opacity: 0.9;
-}
-
-.modal-body {
-  padding: 16px 24px;
-  flex: 1;
-  overflow-y: auto;
-}
-
-.modal-title-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 6px;
-  background: hsl(var(--muted));
-  border-radius: 10px;
-  font-size: 11px;
-  font-weight: 600;
-  margin-left: 6px;
-}
-
-.modal-error {
-  padding: 10px 14px;
-  margin-bottom: 12px;
-  background: hsl(var(--destructive) / 0.1);
-  border: 1px solid hsl(var(--destructive) / 0.2);
-  border-radius: 8px;
-  font-size: 13px;
-  color: hsl(var(--destructive));
-}
-
-.form-group {
-  margin-bottom: 14px;
-}
-
-.form-label {
-  display: block;
-  font-size: 12px;
-  font-weight: 600;
-  color: hsl(var(--foreground));
-  margin-bottom: 6px;
-}
-
-.form-required {
-  color: hsl(var(--destructive));
-  margin-left: 2px;
-}
-
-.form-input {
-  width: 100%;
-  padding: 8px 12px;
-  font-size: 13px;
-  border: 1px solid hsl(var(--border));
-  border-radius: 8px;
-  background: hsl(var(--card));
-  color: hsl(var(--foreground));
-  outline: none;
-  transition: all var(--duration-base) var(--ease-standard);
-}
-
-.form-input:focus {
-  border-color: hsl(var(--ring));
-  box-shadow: 0 0 0 3px hsl(var(--ring) / 0.12);
-}
-
-.form-input::placeholder {
-  color: hsl(var(--muted-foreground));
-}
-
-.form-select {
-  width: 100%;
-  padding: 8px 12px;
-  font-size: 13px;
-  border: 1px solid hsl(var(--border));
-  border-radius: 8px;
-  background: hsl(var(--card));
-  color: hsl(var(--foreground));
-  outline: none;
-  cursor: pointer;
-  transition: all var(--duration-base) var(--ease-standard);
-}
-
-.form-select:focus {
-  border-color: hsl(var(--ring));
-  box-shadow: 0 0 0 3px hsl(var(--ring) / 0.12);
-}
-
-/* Fetch Models Modal */
-.fetch-model-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  margin-bottom: 8px;
-  border-bottom: 1px solid hsl(var(--border));
-}
-
-.fetch-toolbar-select-all {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.fetch-toolbar-select-all input {
-  width: 16px;
-  height: 16px;
-  border-radius: 4px;
-  accent-color: hsl(var(--primary));
-  cursor: pointer;
-}
-
-.fetch-toolbar-label {
-  font-size: 12px;
-  font-weight: 500;
-  color: hsl(var(--foreground));
-  white-space: nowrap;
-}
-
-.fetch-toolbar-search {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  background: hsl(var(--muted) / 0.5);
-  border: 1px solid hsl(var(--border));
-  border-radius: 8px;
-}
-
-.fetch-toolbar-search svg {
-  color: hsl(var(--muted-foreground));
-  flex-shrink: 0;
-}
-
-.fetch-toolbar-search input {
-  flex: 1;
-  border: none;
-  background: transparent;
-  outline: none;
-  font-size: 13px;
-  color: hsl(var(--foreground));
-  min-width: 0;
-}
-
-.fetch-toolbar-search input::placeholder {
-  color: hsl(var(--muted-foreground));
-}
-
-.fetch-toolbar-btn {
-  flex-shrink: 0;
-  width: 30px;
-  height: 30px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid hsl(var(--border));
-  border-radius: 8px;
-  background: hsl(var(--card));
-  color: hsl(var(--muted-foreground));
-  cursor: pointer;
-  transition: all var(--duration-base) var(--ease-standard);
-}
-
-.fetch-toolbar-btn:hover {
-  background: hsl(var(--muted));
-  color: hsl(var(--foreground));
-}
-
-.fetch-model-list {
-  max-height: 360px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.fetch-model-group {
-  border: 1px solid hsl(var(--border));
-  border-radius: 10px;
-}
-
-.fetch-model-group-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  cursor: pointer;
-  background: hsl(var(--accent) / 0.3);
-  transition: background var(--duration-base) var(--ease-standard);
-  user-select: none;
-}
-
-.fetch-model-group-header:hover {
-  background: hsl(var(--accent) / 0.5);
-}
-
-.fetch-model-group-arrow {
-  flex-shrink: 0;
-  color: hsl(var(--muted-foreground));
-  transform-origin: center;
-}
-
-.fetch-model-group-arrow:not(.expanded) {
-  transform: rotate(-90deg);
-}
-
-.fetch-group-checkbox {
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-}
-
-.fetch-group-checkbox input {
-  width: 16px;
-  height: 16px;
-  border-radius: 4px;
-  accent-color: hsl(var(--primary));
-  cursor: pointer;
-}
-
-.fetch-group-icon {
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  font-weight: 700;
-  color: white;
-  flex-shrink: 0;
-}
-
-.fetch-model-group-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: hsl(var(--foreground));
-}
-
-.fetch-model-group-count {
-  margin-left: auto;
-  font-size: 11px;
-  font-weight: 500;
-  color: hsl(var(--muted-foreground));
-  background: hsl(var(--muted));
-  padding: 2px 8px;
-  border-radius: 6px;
-}
-
-.fetch-model-group-items {
-  padding: 4px;
-}
-
-.fetch-model-group-items .fetch-model-item {
-  padding: 6px 10px 6px 32px;
-  border-radius: 6px;
-}
-
-.fetch-model-item {
-  display: flex;
-  align-items: center;
-  padding: 8px 10px;
-  border-radius: 8px;
-  transition: background var(--duration-base) var(--ease-standard);
-}
-
-.fetch-model-item:hover {
-  background: hsl(var(--muted) / 0.5);
-}
-
-.fetch-model-item.selected {
-  background: hsl(var(--primary) / 0.08);
-}
-
-.fetch-model-checkbox {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-}
-
-.fetch-model-checkbox input {
-  width: 16px;
-  height: 16px;
-  border-radius: 4px;
-  accent-color: hsl(var(--primary));
-  cursor: pointer;
-}
-
-.fetch-item-icon {
-  width: 20px;
-  height: 20px;
-  border-radius: 5px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 10px;
-  font-weight: 700;
-  color: white;
-  flex-shrink: 0;
-}
-
-.fetch-model-id {
-  font-size: 13px;
-  font-weight: 500;
-  color: hsl(var(--foreground));
-}
-
-.modal-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 32px;
-  color: hsl(var(--muted-foreground));
-  font-size: 13px;
-}
-
-/* Default Translation Model */
-.default-model-select {
-  margin-top: 12px;
-}
-
-.current-model-info {
-  margin-top: 8px;
-  padding: 8px 12px;
-  background: hsl(var(--muted) / 0.3);
-  border-radius: 6px;
-  font-size: 12px;
-  color: hsl(var(--muted-foreground));
-}
-
-.model-info-label {
-  font-weight: 500;
-  margin-right: 6px;
-}
-
-.model-info-name {
-  color: hsl(var(--foreground));
-  font-weight: 500;
-}
-
-.model-info-placeholder {
-  color: hsl(var(--muted-foreground));
-  font-style: italic;
-}
-
-/* Model Info Card */
-.model-info-card {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.model-info-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 12px;
-  background: hsl(var(--muted) / 0.3);
-  border-radius: 8px;
-}
-
-.model-info-icon {
-  font-size: 20px;
-  width: 36px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: hsl(var(--card));
-  border-radius: 8px;
-  flex-shrink: 0;
-}
-
-.model-info-content {
-  flex: 1;
-}
-
-.model-info-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: hsl(var(--foreground));
-  margin-bottom: 4px;
-}
-
-.model-info-desc {
-  font-size: 12px;
-  color: hsl(var(--muted-foreground));
-  line-height: 1.5;
-}
-
-.icon-picker-trigger {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border: 1px solid hsl(var(--border));
-  border-radius: 8px;
-  cursor: pointer;
-  transition: border-color 0.15s;
-  background: hsl(var(--card));
-}
-.icon-picker-trigger:hover {
-  border-color: hsl(var(--ring));
-}
-
-.icon-picker-label {
-  flex: 1;
-  font-size: 13px;
-  color: hsl(var(--foreground));
-}
-
-.icon-picker-preview {
-  width: 36px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: hsl(var(--muted));
-  border-radius: 8px;
-  flex-shrink: 0;
-}
-
-.icon-picker-search {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border: 1px solid hsl(var(--border));
-  border-radius: 8px;
-  margin-bottom: 8px;
-  color: hsl(var(--muted-foreground));
-}
-
-.icon-picker-input {
-  flex: 1;
-  border: none;
-  outline: none;
-  background: transparent;
-  font-size: 13px;
-  color: hsl(var(--foreground));
-}
-.icon-picker-input::placeholder {
-  color: hsl(var(--muted-foreground));
-}
-
-.icon-picker-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
-  gap: 6px;
-  padding: 8px;
-  max-height: 360px;
-  overflow-y: auto;
-}
-
-.icon-picker-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  padding: 6px 4px;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: background 0.1s;
-}
-.icon-picker-item:hover {
-  background: hsl(var(--accent));
-}
-.icon-picker-item.active {
-  background: hsl(var(--primary) / 0.12);
-  outline: 2px solid hsl(var(--primary));
-  outline-offset: -2px;
-}
-
-.icon-picker-item-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-}
-
-.icon-picker-item-label {
-  font-size: 10px;
-  color: hsl(var(--muted-foreground));
-  text-align: center;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 52px;
-  white-space: nowrap;
-}
-
-.json-textarea {
-  width: 100%;
-  padding: 8px 12px;
-  font-size: 12px;
-  font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
-  border: 1px solid hsl(var(--border));
-  border-radius: 8px;
-  background: hsl(var(--card));
-  color: hsl(var(--foreground));
-  outline: none;
-  resize: vertical;
-  min-height: 60px;
-  transition:
-    border-color var(--duration-base) var(--ease-standard),
-    box-shadow var(--duration-base) var(--ease-standard);
-  box-sizing: border-box;
-  line-height: 1.5;
-}
-
-.json-textarea:focus {
-  border-color: hsl(var(--ring));
-  box-shadow: 0 0 0 3px hsl(var(--ring) / 0.12);
-}
-
-.json-textarea::placeholder {
-  color: hsl(var(--muted-foreground));
-}
-
-.json-error {
-  display: block;
-  font-size: 11px;
-  color: hsl(var(--destructive));
-  margin-top: 4px;
-}
-
-.setting-card-header {
-  padding: 16px 16px 8px;
-}
-</style>

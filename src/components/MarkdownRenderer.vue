@@ -132,12 +132,12 @@ const html = computed(() => renderMarkdown(props.content))
 }
 
 .markdown-body :deep(table) {
-  width: 100%;
-  border-collapse: collapse;
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
   margin: 12px 0;
   font-size: 13px;
-  display: block;
-  overflow-x: auto;
 }
 
 .markdown-body :deep(th),
@@ -149,8 +149,15 @@ const html = computed(() => renderMarkdown(props.content))
 }
 
 .markdown-body :deep(th) {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   background: hsl(var(--muted));
   font-weight: 600;
+}
+
+.markdown-body :deep(thead th) {
+  border-bottom-width: 2px;
 }
 
 .markdown-body :deep(tr:nth-child(even)) {

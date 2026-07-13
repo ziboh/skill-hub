@@ -1,6 +1,5 @@
 import { describe, test, expect, vi, afterEach } from 'vitest'
 import { mount, VueWrapper } from '@vue/test-utils'
-import {} from 'vue'
 import SkillFileEditor from '../SkillFileEditor.vue'
 import { KeyShowToast } from '../../inject-keys'
 

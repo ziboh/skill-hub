@@ -54,6 +54,12 @@ public/
 - 构建产物在 `dist/` 目录，需复制到 ZTools 插件目录测试
 - **打包 zip 文件时，保存到系统下载文件夹**：是系统下载路径，而非应用默认路径
 
+## Lint / Test 策略
+
+- **小改动默认不跑**全量 `pnpm lint` / `pnpm test`（文案、样式、单文件局部修改等）
+- **需要时再跑**：改公共逻辑、类型、路由、preload、跨模块依赖，或用户明确要求
+- 用户说「跳过 lint/test」时一律跳过
+
 ## API 测试
 
 - `api-tests/openai-api.http` — kulala.nvim 测试文件，包含 OpenAI API 多个接口

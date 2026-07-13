@@ -1,7 +1,11 @@
-import { describe, test, expect, beforeEach } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { describe, test, expect, beforeEach, vi } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
 import StoreConfigModal from '../StoreConfigModal.vue'
 import type { StoreSource } from '../../types'
+
+vi.mock('../../utils/validate-store', () => ({
+  validateStoreUrl: vi.fn().mockResolvedValue({ valid: true, message: '验证通过' }),
+}))
 
 const sampleSource: StoreSource = {
   id: 'src-1',
@@ -33,10 +37,10 @@ describe('StoreConfigModal', () => {
     expect(wrapper.text()).toContain('编辑商店')
   })
 
-  test('shows three type options', () => {
+  test('shows four type options', () => {
     const wrapper = createWrapper()
     const typeCards = wrapper.findAll('.type-card')
-    expect(typeCards.length).toBe(3)
+    expect(typeCards.length).toBe(4)
   })
 
   test('default type is git-repo', () => {
@@ -48,7 +52,7 @@ describe('StoreConfigModal', () => {
   test('switching type changes active card', async () => {
     const wrapper = createWrapper()
     const typeCards = wrapper.findAll('.type-card')
-    await typeCards[0].trigger('click')
+    await typeCards[1].trigger('click')
     expect(wrapper.find('.type-card.active').text()).toContain('Well-Known Index')
   })
 
@@ -62,7 +66,7 @@ describe('StoreConfigModal', () => {
 
   test('local-dir type hides branch/directory fields', async () => {
     const wrapper = createWrapper()
-    await wrapper.findAll('.type-card')[2].trigger('click')
+    await wrapper.findAll('.type-card')[3].trigger('click')
     expect(wrapper.find('input[placeholder="分支（可选）"]').exists()).toBe(false)
   })
 
@@ -92,6 +96,7 @@ describe('StoreConfigModal', () => {
     await wrapper.find('input[placeholder="商店名称"]').setValue('My Store')
     await wrapper.find('input[placeholder*="URL"]').setValue('https://example.com')
     await wrapper.find('.modal-btn.save').trigger('click')
+    await flushPromises()
     expect(wrapper.emitted('saved')).toBeTruthy()
     expect(wrapper.emitted('close')).toBeTruthy()
   })

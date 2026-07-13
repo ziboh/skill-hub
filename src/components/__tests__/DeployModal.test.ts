@@ -13,11 +13,12 @@ const sampleSkill: Skill = {
 
 vi.mock('../../data/platforms', () => ({
   detectPlatforms: () => [
-    { id: 'windsurf', name: 'Windsurf', detected: true, defaultPath: '/mock/windsurf' },
-    { id: 'cursor', name: 'Cursor', detected: true, defaultPath: '/mock/cursor' },
+    { id: 'windsurf', name: 'Windsurf', detected: true, enabled: true, defaultPath: '/mock/windsurf' },
+    { id: 'cursor', name: 'Cursor', detected: true, enabled: true, defaultPath: '/mock/cursor' },
   ],
   getPlatformPath: (p: { defaultPath?: string }, _mode?: string) => p.defaultPath || '',
   defaultPlatforms: [],
+  platformDisplayIcon: (p: { id: string; icon?: string }) => p.icon || p.id,
 }))
 
 function createWrapper(skill: Skill = sampleSkill) {

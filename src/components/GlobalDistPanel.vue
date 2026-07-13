@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, inject, watch } from 'vue'
 import { KeyShowToast, KeyMarkAgentSkillsDirty } from '../inject-keys'
-import { getPlatformPath } from '../data/platforms'
+import { getPlatformPath, platformDisplayIcon } from '../data/platforms'
 import { storage } from '../utils/storage'
 import { normalizePath } from '../utils/path'
 import type { Skill, InstallMode, DistributeRecord } from '../types'
@@ -15,7 +15,13 @@ import {
   resolveSkillSourceDir,
   deploySkillToGlobalPlatform,
 } from '../utils/skill-deploy'
-import { safeRemovePath } from '../utils/fs-ops'
+import {
+  findPhysicallyInstalledPlatforms,
+  uninstallPathAndRecord,
+  toastUninstallError,
+  toastSourceMissing,
+} from '../utils/skill-install-status'
+import { formatSkillLifecycleWarnings } from '../utils/skill-lifecycle'
 
 const props = defineProps<{
   skill: Skill
@@ -43,19 +49,14 @@ const platforms = computed(() => getDeployPlatforms())
 
 const physicallyInstalledPlatforms = computed(() => {
   void refreshTick.value
-  const result = new Set<string>()
-  const skillDir = getSkillFolderName(props.skill)
-  for (const p of platforms.value) {
-    const base = getPlatformPath(p, 'global') || getPlatformPath(p, 'project')
-    if (!base) continue
-    if (!window.services.pathExists(base)) continue
-    const existingSkills = window.services.scanForSkillFiles([base])
-    const exists = existingSkills.some(
-      (s) => s.dir.includes(skillDir) || (s.manifest?.name || s.name).toLowerCase() === props.skill.name.toLowerCase(),
-    )
-    if (exists) result.add(p.id)
-  }
-  return result
+  return findPhysicallyInstalledPlatforms({
+    platforms: platforms.value.map((p) => ({
+      id: p.id,
+      basePath: getPlatformPath(p, 'global') || getPlatformPath(p, 'project') || '',
+    })),
+    skillFolder: getSkillFolderName(props.skill),
+    skillName: props.skill.name,
+  })
 })
 
 const sourcePlatformIds = computed(() => {
@@ -115,15 +116,20 @@ async function uninstall() {
     return
   }
 
-  if (record.targetPath) {
-    const rm = safeRemovePath(record.targetPath)
-    if (!rm.ok) {
-      showToast(`卸载失败: ${rm.error || '请检查文件权限'}`, 'error')
-      cancelUninstall()
-      return
-    }
+  const result = uninstallPathAndRecord({
+    targetPath: record.targetPath || '',
+    skillId: props.skill.id,
+    skillName: props.skill.name,
+    platformId: pid,
+    scope: 'global',
+  })
+  if (!result.ok) {
+    showToast(toastUninstallError(result.error), 'error')
+    cancelUninstall()
+    return
   }
-  storage.removeDistributeRecord(props.skill.id, pid, 'global')
+  const uninstallWarning = formatSkillLifecycleWarnings('uninstall', result.warnings)
+  if (uninstallWarning) showToast(uninstallWarning, 'warning')
   loadInstallStatus()
   refreshTick.value++
   const stillExists = distributeRecords.value.some((r) => r.platformId === pid)
@@ -159,7 +165,7 @@ async function install() {
   installLog.value = []
   const sourceDir = resolveSkillSourceDir(props.skill)
   if (!sourceDir) {
-    showToast(`「${props.skill.name}」的源文件不存在，无法分发`, 'error')
+    showToast(toastSourceMissing(props.skill.name), 'error')
     emit('install-finished')
     return
   }
@@ -177,6 +183,8 @@ async function install() {
     const result = deploySkillToGlobalPlatform(props.skill, platform, props.installMode, sourceDir)
     if (result.ok) {
       addLog(pid, 'ok', `${props.installMode === 'symlink' ? 'Symlink' : 'Copied'}: ${result.targetDir}`)
+      const warning = formatSkillLifecycleWarnings('install', result.warnings)
+      if (warning) showToast(warning, 'warning')
       installedNames.push(platform.name)
     } else {
       addLog(pid, 'error', result.message)
@@ -326,7 +334,7 @@ loadInstallStatus()
         @click="!isInstalled(p.id) && !sourcePlatformIds.has(p.id) && !installing && togglePlatform(p.id)"
       >
         <div class="platform-card-row">
-          <ProviderIcon :icon="p.id" :size="22" variant="mono" />
+          <ProviderIcon :icon="platformDisplayIcon(p)" :size="22" variant="mono" />
           <div class="platform-card-info">
             <h4 class="platform-card-name">
               {{ p.name }}

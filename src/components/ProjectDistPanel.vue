@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, inject, watch } from 'vue'
-import { KeyShowToast, KeySelectedProject, KeyRegisteredProjects, KeySelectProject, KeyNavigateToProjectSkills } from '../inject-keys'
+import { KeyShowToast, KeyNavigateToProjectSkills } from '../inject-keys'
+import { useProjectState } from '../composables/useProjectState'
 import { storage } from '../utils/storage'
 import { normalizePath } from '../utils/path'
 import type { Skill, InstallMode, DistributeRecord, RegisteredProject } from '../types'
@@ -16,6 +17,7 @@ import {
   getProjectTargetDir,
 } from '../utils/skill-deploy'
 import { safeRemovePath } from '../utils/fs-ops'
+import { skillMatchesInstalled } from '../utils/skill-identity'
 
 const props = defineProps<{
   skill: Skill
@@ -31,9 +33,7 @@ const emit = defineEmits<{
 }>()
 
 const showToast = inject(KeyShowToast, () => {})
-const _selectedProject = inject(KeySelectedProject, ref(null))
-const registeredProjects = inject(KeyRegisteredProjects, ref([]))
-const _selectProject = inject(KeySelectProject, () => {})
+const { registeredProjects } = useProjectState()
 const navigateToProjectSkills = inject(KeyNavigateToProjectSkills, () => {})
 
 const projectList = computed(() => registeredProjects.value || [])
@@ -96,9 +96,7 @@ function getPhysicallyExistingAgentDirs(project: RegisteredProject): Set<string>
     const baseDir = window.services.pathJoin(project.rootDir, a.path)
     if (!window.services.pathExists(baseDir)) continue
     const existingSkills = window.services.scanForSkillFiles([baseDir])
-    const exists = existingSkills.some(
-      (s: any) => s.dir.includes(skillDirName.value) || (s.manifest?.name || s.name).toLowerCase() === props.skill.name.toLowerCase(),
-    )
+    const exists = existingSkills.some((s) => skillMatchesInstalled(s, skillDirName.value, props.skill.name))
     if (exists) result.add(a.path)
   }
   return result

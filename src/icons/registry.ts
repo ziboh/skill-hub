@@ -37,6 +37,25 @@ export function getIconAsset(key: string): IconAsset | undefined {
   return assets.get(resolved)
 }
 
+/** List registered icon keys, optionally filtered by namespace (`providers`, `platforms`, `store`). */
+export function listRegisteredIconKeys(ns?: string): string[] {
+  const keys: string[] = []
+  for (const key of assets.keys()) {
+    if (!ns) {
+      keys.push(key)
+      continue
+    }
+    if (key.startsWith(`${ns}:`)) keys.push(key)
+  }
+  return keys.sort((a, b) => a.localeCompare(b))
+}
+
+/** Bare ids under a namespace (e.g. platforms → cursor, claude). */
+export function listRegisteredIconIds(ns: string): string[] {
+  const prefix = `${ns}:`
+  return listRegisteredIconKeys(ns).map((k) => k.slice(prefix.length))
+}
+
 export function _resetRegistryForTest(): void {
   assets.clear()
   aliases.clear()

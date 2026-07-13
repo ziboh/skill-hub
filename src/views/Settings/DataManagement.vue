@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, inject } from 'vue'
 import { storage } from '../../utils/storage'
-import { KeyShowToast } from '../../inject-keys'
+import { KeyShowToast, KeyToggleTheme, KeyIsDarkMode } from '../../inject-keys'
 import ConfirmModal from '../../components/ConfirmModal.vue'
 import type { Skill, DistributeRecord, FailureRecord } from '../../types'
 
 const _showToast = inject(KeyShowToast, () => {})
+const toggleTheme = inject(KeyToggleTheme, () => {})
+const isDarkMode = inject(KeyIsDarkMode, ref(false))
 
 function getSizeBytes(data: any): number {
   try {
@@ -61,7 +63,7 @@ const buckets: BucketDef[] = [
   {
     key: 'downloaded_skills',
     label: '已下载技能',
-    getData: () => storage.getCachedSkills(),
+    getData: () => storage.getDownloadedSkills(),
     viewType: 'table',
     groupKey: 'source',
     groupLabel: '来源',
@@ -387,7 +389,7 @@ function doDelete(bucket: BucketDef, indices: number[]) {
   if (bucket.key === 'downloaded_skills') {
     const idsToRemove = indices.map((i) => (tableData.value[i] as Skill).id)
     const remaining = (allData as Skill[]).filter((s) => !idsToRemove.includes(s.id))
-    storage.replaceCachedSkills(remaining)
+    storage.replaceDownloadedSkills(remaining)
   } else if (bucket.key === 'distribute_records') {
     const records = allData as DistributeRecord[]
     for (const i of indices) {
@@ -476,13 +478,13 @@ function refreshSummary() {
 
 // ===== Cleanup by source =====
 function _confirmCleanupBySource(source: string) {
-  const skills = storage.getCachedSkills().filter((s) => s.source === source)
+  const skills = storage.getDownloadedSkills().filter((s) => s.source === source)
   confirmDelete.value = {
     title: `清理 ${source} 缓存`,
     message: `确定要删除所有 <strong>${source}</strong> 来源的缓存技能吗？共 <strong>${skills.length}</strong> 个。此操作不可撤销。`,
     onConfirm: () => {
-      const remaining = storage.getCachedSkills().filter((s) => s.source !== source)
-      storage.replaceCachedSkills(remaining)
+      const remaining = storage.getDownloadedSkills().filter((s) => s.source !== source)
+      storage.replaceDownloadedSkills(remaining)
       refreshSummary()
       closeModal()
     },
@@ -490,13 +492,13 @@ function _confirmCleanupBySource(source: string) {
 }
 
 function _confirmCleanupByStoreSource(storeSourceId: string) {
-  const skills = storage.getCachedSkills().filter((s) => s.storeSourceId === storeSourceId)
+  const skills = storage.getDownloadedSkills().filter((s) => s.storeSourceId === storeSourceId)
   confirmDelete.value = {
     title: `清理商店源缓存`,
     message: `确定要删除商店源 <strong>${storeSourceId}</strong> 的所有缓存技能吗？共 <strong>${skills.length}</strong> 个。此操作不可撤销。`,
     onConfirm: () => {
-      const remaining = storage.getCachedSkills().filter((s) => s.storeSourceId !== storeSourceId)
-      storage.replaceCachedSkills(remaining)
+      const remaining = storage.getDownloadedSkills().filter((s) => s.storeSourceId !== storeSourceId)
+      storage.replaceDownloadedSkills(remaining)
       refreshSummary()
       if (modalBucket.value) modalBucket.value = { ...modalBucket.value }
     },
@@ -510,7 +512,7 @@ function confirmClearAll(bucket: BucketDef) {
     message: `确定要清空所有 <strong>${label}</strong> 吗？此操作不可撤销。`,
     onConfirm: () => {
       if (bucket.key === 'downloaded_skills') {
-        storage.replaceCachedSkills([])
+        storage.replaceDownloadedSkills([])
       } else if (bucket.key === 'distribute_records') {
         const records = storage.getDistributeRecords()
         for (const r of records) storage.removeDistributeRecord(r.skillId, r.platformId)
@@ -538,10 +540,45 @@ function confirmClearAll(bucket: BucketDef) {
 </script>
 
 <template>
-  <div class="settings-scroll">
-    <h1 class="settings-page-title">数据管理</h1>
-    <p class="settings-page-desc">查看和管理本地缓存的应用数据</p>
+  <div class="page-header settings-header">
+    <div class="header-left">
+      <h2>数据管理</h2>
+      <p class="page-subtitle">查看和管理本地缓存的应用数据</p>
+    </div>
+    <div class="header-toolbar">
+      <button class="settings-theme-toggle" @click="toggleTheme" :title="isDarkMode ? '切换亮色模式' : '切换暗色模式'">
+        <svg
+          v-if="isDarkMode"
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <circle cx="12" cy="12" r="5" />
+          <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+        </svg>
+        <svg
+          v-else
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
+        </svg>
+      </button>
+    </div>
+  </div>
 
+  <div class="settings-scroll">
     <!-- Summary -->
     <div class="setting-section">
       <h3 class="setting-section-title">数据概览</h3>
@@ -655,18 +692,30 @@ function confirmClearAll(bucket: BucketDef) {
                 </div>
               </div>
 
-              <!-- Table: single scrollable table with sticky header -->
+              <!-- Table: fixed header + scrollable body -->
               <div class="dm-table-wrap">
-                <div class="dm-table-scroll">
-                  <table class="dm-table">
+                <div class="dm-table-head-wrap">
+                  <table class="dm-table dm-table-head">
+                    <colgroup>
+                      <col style="width: 36px" />
+                      <col v-for="col in tableColumnDefs" :key="col.key" :style="{ width: col.width || 'auto' }" />
+                    </colgroup>
                     <thead>
                       <tr>
                         <th class="dm-th-check" />
-                        <th v-for="col in tableColumnDefs" :key="col.key" class="dm-th" :style="{ width: col.width }">
+                        <th v-for="col in tableColumnDefs" :key="col.key" class="dm-th">
                           {{ col.label }}
                         </th>
                       </tr>
                     </thead>
+                  </table>
+                </div>
+                <div class="dm-table-scroll">
+                  <table class="dm-table">
+                    <colgroup>
+                      <col style="width: 36px" />
+                      <col v-for="col in tableColumnDefs" :key="col.key" :style="{ width: col.width || 'auto' }" />
+                    </colgroup>
                     <tbody>
                       <tr
                         v-for="(row, i) in tableData"
@@ -1042,34 +1091,37 @@ function confirmClearAll(bucket: BucketDef) {
   border-radius: 4px;
 }
 
-/* Table wrapper — border + radius, no scroll */
+/* Table wrapper — fixed header + scrollable body */
 .dm-table-wrap {
   flex: 1;
+  min-height: 0;
   margin: 12px 20px 20px;
   border: 1px solid hsl(var(--border));
   border-radius: 12px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  background: hsl(var(--card));
 }
 
-/* Scrollable body with sticky header */
+.dm-table-head-wrap {
+  flex-shrink: 0;
+  /* match dm-table-scroll scrollbar-gutter so columns stay aligned */
+  padding-right: 8px;
+  background: hsl(var(--muted));
+}
+.dm-table-head {
+  width: 100%;
+}
+
+/* Scrollable body only */
 .dm-table-scroll {
   flex: 1;
+  min-height: 0;
   overflow: auto;
-  background: hsl(var(--card));
+  scrollbar-gutter: stable;
   scrollbar-width: thin;
-  scrollbar-color: hsl(var(--muted-foreground) / 0.75) hsl(var(--border) / 0.6);
-}
-.dm-table-scroll thead {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-}
-.dm-table-scroll thead th {
-  position: sticky;
-  top: 0;
-  z-index: 2;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.55) hsl(var(--border) / 0.6);
 }
 .dm-table-scroll::-webkit-scrollbar {
   width: 8px;
@@ -1080,11 +1132,11 @@ function confirmClearAll(bucket: BucketDef) {
   border-radius: 99px;
 }
 .dm-table-scroll::-webkit-scrollbar-thumb {
-  background: hsl(var(--muted-foreground) / 0.75);
+  background: hsl(var(--muted-foreground) / 0.55);
   border-radius: 99px;
 }
 .dm-table-scroll::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground) / 0.95);
+  background: hsl(var(--muted-foreground) / 0.75);
 }
 
 /* Common table styles — shared by head and body tables */

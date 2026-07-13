@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, inject, watch } from 'vue'
 import { KeyShowToast, KeyRefreshCounts } from '../../inject-keys'
-import { defaultPlatforms, getPlatformPath } from '../../data/platforms'
+import { getAllPlatformDefinitions, findPlatformById, getPlatformPath, platformDisplayIcon } from '../../data/platforms'
 import { storage } from '../../utils/storage'
 import { normalizePath } from '../../utils/path'
-import { loadRegistry, registerSkillFromStore } from '../../utils/skill-registry'
 import SkillDetailBase from '../../components/SkillDetailBase.vue'
 import ProviderIcon from '../../components/ProviderIcon.vue'
 import ConfirmModal from '../../components/ConfirmModal.vue'
 import type { SkillScanResult, Skill } from '../../types'
-import { getSkillsRepoDir } from '../../utils/skill-path'
+import { importScanResultToMySkills } from '../../utils/skill-import'
+import { uninstallPathAndRecord } from '../../utils/skill-install-status'
+import { formatSkillLifecycleWarnings } from '../../utils/skill-lifecycle'
 
 const props = defineProps<{ skill: SkillScanResult | null; platformId: string; duplicateSkills?: SkillScanResult[] | null }>()
 const emit = defineEmits(['navigate'])
@@ -60,9 +61,11 @@ function getPlatformIdFromDir(dir: string): string {
   if (props.platformId) return props.platformId
   const normalized = dir.replace(/\\/g, '/').toLowerCase()
   if (!normalized) return '_generic'
-  for (const p of defaultPlatforms) {
-    const pp = (p.projectPath || '').replace(/\\/g, '/').toLowerCase()
+  for (const p of getAllPlatformDefinitions()) {
+    const pp = (p.projectPath || p.customProjectPath || '').replace(/\\/g, '/').toLowerCase()
     if (pp && normalized.includes(pp)) return p.id
+    const gp = (p.customPath || p.defaultPath || '').replace(/^~/, '').replace(/\\/g, '/').toLowerCase()
+    if (gp && normalized.includes(gp.replace(/\/$/, ''))) return p.id
   }
   return '_generic'
 }
@@ -124,7 +127,7 @@ const _distributeRecords = computed(() => {
 
 const platform = computed(() => {
   if (!props.platformId) return null
-  return defaultPlatforms.find((p) => p.id === props.platformId)
+  return findPlatformById(props.platformId) || null
 })
 
 // Convert active SkillScanResult to Skill type for SkillDetailBase
@@ -133,7 +136,7 @@ const skill = computed<Skill | null>(() => {
   if (!s) return null
   const manifest = s.manifest
   const id = props.platformId ? `${props.platformId}/${s.name}` : manifest?.name || s.name
-  const cachedSkills = storage.getCachedSkills()
+  const cachedSkills = storage.getDownloadedSkills()
   // 先通过ID查找，如果找不到则通过name查找（同步分发后的收藏状态）
   let downloaded = cachedSkills.find((d) => d.id === id)
   if (!downloaded) {
@@ -244,9 +247,23 @@ function uninstallSkill() {
   if (!s) return
   const targetPath = window.services.pathJoin(getSkillDir(), s.name)
   try {
-    window.services.removeFile(targetPath)
     const records = storage.getDistributeRecords().filter((r) => r.targetPath.replace(/\\/g, '/') === targetPath.replace(/\\/g, '/'))
-    for (const r of records) storage.removeDistributeRecord(r.skillId, r.platformId, r.scope)
+    if (records.length) {
+      for (const r of records) {
+        const result = uninstallPathAndRecord({
+          targetPath: r.targetPath,
+          skillId: r.skillId,
+          skillName: s.name,
+          platformId: r.platformId,
+          scope: r.scope,
+        })
+        if (!result.ok) throw new Error(result.error || '请检查文件权限')
+        const warning = formatSkillLifecycleWarnings('uninstall', result.warnings)
+        if (warning) showToast(warning, 'warning')
+      }
+    } else {
+      window.services.removeFile(targetPath)
+    }
     emit('navigate', props.platformId ? 'agent-skills' : 'project-skills', props.platformId ? { platformId: props.platformId } : undefined)
     showToast('已删除', 'success')
   } catch (err: any) {
@@ -265,37 +282,21 @@ function checkImported() {
   isInMySkills.value = false
   isSourceFile.value = false
 
-  const importId =
-    (s.manifest?.name || s.name || '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '') || s.name
-  const downloadedIds = storage.getDownloadedIds()
+  const skillDir = normalizePath(s.dir || '')
+  if (!skillDir) return
 
-  if (downloadedIds.includes(importId)) {
+  const cachedSkills = storage.getDownloadedSkills()
+  const downloadedIds = storage.getDownloadedIds()
+  const byPath = cachedSkills.find((c) => downloadedIds.includes(c.id) && normalizePath(c.path || '') === skillDir)
+  if (byPath && byPath.source === 'local') {
+    isSourceFile.value = true
     isInMySkills.value = true
-    const cached = storage.getCachedSkills().find((s) => s.id === importId)
-    if (cached && cached.source === 'local') {
-      const cachedPath = normalizePath(cached.path || '')
-      const skillDir = normalizePath(s.dir || '')
-      if (cachedPath && skillDir && cachedPath === skillDir) {
-        isSourceFile.value = true
-      }
-    }
     return
   }
 
-  const skillNameStr = (s.manifest?.name || s.name || '').toLowerCase()
-  const cached = storage.getCachedSkills().find((c) => downloadedIds.includes(c.id) && (c.name || '').toLowerCase() === skillNameStr)
-  if (cached) {
+  const hasDistribute = storage.getDistributeRecords().some((r) => normalizePath(r.targetPath) === skillDir)
+  if (hasDistribute) {
     isInMySkills.value = true
-    if (cached.source === 'local') {
-      const cachedPath = normalizePath(cached.path || '')
-      const skillDir = normalizePath(s.dir || '')
-      if (cachedPath && skillDir && cachedPath === skillDir) {
-        isSourceFile.value = true
-      }
-    }
   }
 }
 
@@ -303,46 +304,14 @@ async function importToMySkills() {
   const s = activeSkill.value
   if (!s || !skill.value) return
   importing.value = true
-  const importId =
-    (s.manifest?.name || s.name || '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '') || s.name
   try {
-    const targetDir = getSkillsRepoDir(importId)
-    window.services.mkdir(targetDir)
-    const sourceDir = getSkillDirPath.value
-    if (sourceDir) window.services.copyFile(sourceDir, targetDir)
-    const cached = storage.getCachedSkills()
-    const existIdx = cached.findIndex((c: any) => c.id === importId)
-    if (existIdx >= 0) {
-      cached[existIdx] = { ...cached[existIdx], ...skill.value, id: importId, storeSourceId: (s as any)?.storeSourceId, source: 'local' }
-    } else {
-      cached.push({ ...skill.value, id: importId, source: 'local', storeSourceId: (s as any)?.storeSourceId })
-    }
-    storage.saveCachedSkills(cached)
-    const skillFile = ['SKILL.md', 'skill.md'].find((f) => window.services.pathExists(window.services.pathJoin(targetDir, f)))
-    if (skillFile) {
-      const parsed = window.services.parseSkillFile(window.services.pathJoin(targetDir, skillFile))
-      if (parsed?.manifest) {
-        const registry = loadRegistry()
-        registerSkillFromStore(
-          registry,
-          importId,
-          {
-            name: parsed.manifest.name || skill.value.name,
-            dir: targetDir,
-            skillFile: window.services.pathJoin(targetDir, skillFile),
-            content: '',
-            manifest: parsed.manifest,
-          },
-          'local',
-          s.dir || props.platformId,
-        )
-      }
-    }
-    storage.addDownloadedId(importId)
-    storage.addSessionDownload(importId, skill.value.name, 'agent')
+    const sessionSource = props.platformId ? 'agent' : 'project'
+    importScanResultToMySkills({
+      skill: s,
+      sessionSource,
+      location: getSkillDirPath.value || s.dir || '',
+      storeSourceId: skill.value.storeSourceId || (s as any)?.storeSourceId,
+    })
     isInMySkills.value = true
     isSourceFile.value = true
     showToast(`已将 ${skill.value.name} 导入到我的 Skill`, 'success')
@@ -431,7 +400,11 @@ function selectPath(index: number) {
       <template #tab-bar-actions>
         <div v-if="duplicateCount > 1" class="dup-switcher">
           <button ref="pathBtnRef" class="dup-trigger" @click="togglePathDropdown">
-            <ProviderIcon :icon="detectedPlatformId" :size="14" variant="mono" />
+            <ProviderIcon
+              :icon="platformDisplayIcon(findPlatformById(detectedPlatformId) || { id: detectedPlatformId })"
+              :size="14"
+              variant="mono"
+            />
             <span class="dup-trigger-label">{{ getDirLabel(duplicatesForDropdown[selectedDuplicateIndex], selectedDuplicateIndex) }}</span>
             <svg
               width="10"
@@ -509,7 +482,11 @@ function selectPath(index: number) {
 
           <div class="agent-source-card" :class="{ source: isSourceFile }">
             <div class="agent-source-icon">
-              <ProviderIcon :icon="props.platformId" :size="24" variant="mono" />
+              <ProviderIcon
+                :icon="platformDisplayIcon(platform || { id: props.platformId || '_generic' })"
+                :size="24"
+                variant="mono"
+              />
             </div>
             <div class="agent-source-info">
               <div class="agent-source-name">
@@ -598,7 +575,11 @@ function selectPath(index: number) {
           :class="{ active: i === selectedDuplicateIndex }"
           @click="selectPath(i)"
         >
-          <ProviderIcon :icon="getPlatformIdFromDir(d.dir || '')" :size="16" variant="mono" />
+          <ProviderIcon
+            :icon="platformDisplayIcon(findPlatformById(getPlatformIdFromDir(d.dir || '')) || { id: getPlatformIdFromDir(d.dir || '') || '_generic' })"
+            :size="16"
+            variant="mono"
+          />
           <span class="dup-dropdown-label">{{ getDirLabel(d, i) }}</span>
           <svg
             v-if="i === selectedDuplicateIndex"

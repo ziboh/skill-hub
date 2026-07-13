@@ -14,9 +14,10 @@ Skill Hub 当前把 Cherry Studio 当作普通文件目录平台处理：将 Ski
 - Cherry Studio 特有逻辑集中在 Preload 独立模块，其他平台继续使用现有通用流程。
 - 不新增浏览器内置弹窗，错误继续通过现有分发结果和 Toast 展示。
 
-## 非目标
+## 范围边界
 
-- 本次不实现 Cherry Studio 卸载时的数据库注销。
+- Cherry Studio 卸载仅处理 Skill Hub 分发且由适配器识别的记录；内置 Skill 不允许删除。
+- 卸载时不删除 Cherry Studio Agent 本身，只清理被删除 Skill 对应的关联记录和已启用 Agent 工作区中的软链接。
 - 本次不自动为所有 Cherry Studio Agent 启用新 Skill；注册记录沿用 Cherry Studio 的默认未启用状态。
 - 不修改其他平台的目录结构和分发语义。
 
@@ -65,6 +66,15 @@ Cherry Studio 目标文件夹按其现有约束规范化：
 7. 文件操作成功后关闭数据库并返回实际目标目录。
 8. `skill-deploy.ts` 保存 Skill Hub 分发记录。
 
+### Cherry Studio 卸载
+
+1. 根据目标目录定位 Cherry Studio 数据库和 Skill 表。
+2. 内置 Skill 直接拒绝删除。
+3. 删除 Skill 与 Agent 的关联记录，再删除 Skill 注册记录和目标目录。
+4. 对已启用 Agent 的工作区，删除对应的 `.claude/skills/<folder>` 软链接。
+5. 任一步骤失败时，恢复数据库中的 Skill 记录及其 Agent 关联；恢复失败时同时返回原始错误和恢复错误。
+6. 找不到数据库时，仅删除目标目录，兼容早期只有文件目录的分发结果。
+
 ## 错误处理
 
 - 找不到数据库：失败，不复制文件。
@@ -101,6 +111,9 @@ deployPlatformSkill(options: {
 - 旧版 `agent_global_skill` 表可注册。
 - 复制失败时删除新数据库行。
 - 更新已有记录后复制失败时恢复原记录。
+- 删除 Cherry Studio Skill 时同步删除注册记录、Agent 关联和工作区软链接。
+- 内置 Skill 删除会失败且保留数据库记录和文件。
+- 删除文件失败时恢复数据库记录和 Agent 关联。
 - `skill-deploy` 使用适配器返回的实际目标目录保存分发记录。
 - 运行现有 `skill-deploy` 单元测试，确保普通平台行为不变。
 

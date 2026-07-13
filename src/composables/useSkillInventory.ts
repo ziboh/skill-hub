@@ -1,7 +1,8 @@
 import { ref, computed } from 'vue'
 import { storage } from '../utils/storage'
-import { detectPlatforms, getPlatformPath, defaultPlatforms } from '../data/platforms'
+import { detectPlatforms, getPlatformPath, getDefaultPlatformOrder } from '../data/platforms'
 import { useProjectState } from './useProjectState'
+import { normalizeSkillNameKey } from '../utils/skill-identity'
 import type { Skill, SkillScanResult } from '../types'
 
 function normalizeSkillScanResult(scan: SkillScanResult): Skill {
@@ -20,7 +21,7 @@ function normalizeSkillScanResult(scan: SkillScanResult): Skill {
 const agentSkills = ref<Record<string, SkillScanResult[]>>({})
 const agentSkillsLoaded = ref(false)
 const agentSkillsDirty = ref(false)
-const cachedSkillsVersion = ref(0)
+const downloadedSkillsVersion = ref(0)
 
 export { normalizeSkillScanResult }
 
@@ -32,14 +33,9 @@ export function useSkillInventory() {
     agentSkillsLoaded.value = true
     try {
       const allPlatforms = detectPlatforms()
-      const savedConfigs = storage.getPlatformConfigs()
-      const installedPlatforms = allPlatforms.filter((p) => {
-        if (!p.detected) return false
-        const saved = savedConfigs.find((c) => c.id === p.id)
-        return saved ? saved.enabled : p.enabled
-      })
+      const installedPlatforms = allPlatforms.filter((p) => p.detected && p.enabled !== false)
       const platformOrder = storage.getPlatformOrder()
-      const orderToUse = platformOrder.length ? platformOrder : defaultPlatforms.map((p) => p.id)
+      const orderToUse = platformOrder.length ? platformOrder : getDefaultPlatformOrder()
       const orderMap = new Map(orderToUse.map((id, idx) => [id, idx]))
       installedPlatforms.sort((a, b) => (orderMap.get(a.id) ?? Infinity) - (orderMap.get(b.id) ?? Infinity))
 
@@ -49,7 +45,8 @@ export function useSkillInventory() {
         if (dir) {
           try {
             result[p.id] = window.services.scanForSkillFiles([dir])
-          } catch {
+          } catch (e) {
+            console.warn('[useSkillInventory] scan failed for', p.id, dir, e)
             result[p.id] = []
           }
         } else {
@@ -57,8 +54,8 @@ export function useSkillInventory() {
         }
       }
       agentSkills.value = result
-    } catch {
-      /* ignore */
+    } catch (e) {
+      console.warn('[useSkillInventory] ensureAgentSkills failed:', e)
     }
   }
 
@@ -82,30 +79,32 @@ export function useSkillInventory() {
     agentSkills.value = { ...agentSkills.value, [platformId]: skills }
   }
 
-  function bumpCachedSkillsVersion() {
-    cachedSkillsVersion.value++
+  function bumpDownloadedSkillsVersion() {
+    downloadedSkillsVersion.value++
   }
 
   const allSkills = computed(() => {
-    cachedSkillsVersion.value // 建立响应式依赖
-    const cachedSkills = (storage.getCachedSkills() as Skill[]).filter((s) => storage.isDownloaded(s.id))
+    downloadedSkillsVersion.value // 建立响应式依赖
+    const cachedSkills = (storage.getDownloadedSkills() as Skill[]).filter((s) => storage.isDownloaded(s.id))
     const projectSkills = registeredProjects.value.flatMap((p) => p.skills || []) as SkillScanResult[]
     const agentList = Object.values(agentSkills.value).flat() as SkillScanResult[]
 
     const combined: Skill[] = [...cachedSkills]
-    const seenNames = new Set(cachedSkills.map((s) => s.name.toLowerCase()))
+    const seenNames = new Set(cachedSkills.map((s) => normalizeSkillNameKey(s.name)))
 
     for (const scan of projectSkills) {
       const normalized = normalizeSkillScanResult(scan)
-      if (!seenNames.has(normalized.name.toLowerCase())) {
-        seenNames.add(normalized.name.toLowerCase())
+      const key = normalizeSkillNameKey(normalized.name)
+      if (!seenNames.has(key)) {
+        seenNames.add(key)
         combined.push(normalized)
       }
     }
     for (const scan of agentList) {
       const normalized = normalizeSkillScanResult(scan)
-      if (!seenNames.has(normalized.name.toLowerCase())) {
-        seenNames.add(normalized.name.toLowerCase())
+      const key = normalizeSkillNameKey(normalized.name)
+      if (!seenNames.has(key)) {
+        seenNames.add(key)
         combined.push(normalized)
       }
     }
@@ -128,6 +127,6 @@ export function useSkillInventory() {
     markAgentSkillsDirty,
     isAgentSkillsDirty: agentSkillsDirty,
     refreshDirtyAgentSkills,
-    bumpCachedSkillsVersion,
+    bumpDownloadedSkillsVersion,
   }
 }

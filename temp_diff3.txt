@@ -1,0 +1,47 @@
+diff --git a/src/styles/settings.css b/src/styles/settings.css
+index 636ec08..3bb9b02 100644
+--- a/src/styles/settings.css
++++ b/src/styles/settings.css
+@@ -5,8 +5,31 @@
+   flex: 1;
+   overflow-y: auto;
+   overscroll-behavior: contain;
+-  padding: 24px 32px;
+-  max-width: 720px;
++  padding: 0 32px 24px;
++}
++
++.settings-header {
++  margin: 0;
++  margin-bottom: 16px;
++}
++
++.settings-theme-toggle {
++  width: 32px;
++  height: 32px;
++  border: 1px solid hsl(var(--border));
++  border-radius: 8px;
++  background: hsl(var(--card));
++  color: hsl(var(--muted-foreground));
++  cursor: pointer;
++  display: flex;
++  align-items: center;
++  justify-content: center;
++  transition: all var(--duration-base) var(--ease-standard);
++}
++
++.settings-theme-toggle:hover {
++  background: hsl(var(--accent));
++  color: hsl(var(--foreground));
+ }
+ 
+ .settings-page-title {
+@@ -23,7 +46,7 @@
+ }
+ 
+ .setting-section {
+-  margin-bottom: 24px;
++  margin-bottom: 12px;
+ }
+ 
+ .setting-section-title {

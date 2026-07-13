@@ -1,5 +1,5 @@
 import skillsShIcon from '../assets/platforms/skills-sh-favicon.ico'
-import claudeIcon from '../assets/platforms/claude.png'
+import claudeIcon from '../assets/platforms/claude.svg?url'
 import codexIcon from '../assets/platforms/codex.png'
 import { parseIcon, getIconAsset, resolveIconKey } from '../icons'
 import {

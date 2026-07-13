@@ -69,6 +69,18 @@ interface Services {
   stat: (p: string) => StatResult
 
   createSymlink: (target: string, linkPath: string) => string
+  deployPlatformSkill: (options: {
+    platformId: string
+    sourceDir: string
+    targetDir: string
+    mode: 'copy' | 'symlink'
+    skillName: string
+  }) => { handled: boolean; targetDir?: string }
+  uninstallPlatformSkill: (options: {
+    platformId: string
+    targetDir: string
+    skillName?: string
+  }) => { handled: boolean; targetDir?: string }
 
   /** HTTP(S) download; returns ArrayBuffer (zip/binary) or parsed JSON for GitHub API. */
   downloadFile: (url: string, token?: string) => Promise<ArrayBuffer | Record<string, unknown>>

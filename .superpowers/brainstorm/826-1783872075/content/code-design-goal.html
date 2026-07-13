@@ -1,0 +1,62 @@
+<h2>设计目标：图标代码架构</h2>
+<p class="subtitle">不是整理资源文件，而是统一「各种形态的图标字符串 → 怎么判定 → 怎么渲染」</p>
+
+<div class="section">
+  <div class="label">现状数据流（简图）</div>
+  <div class="mockup">
+    <div class="mockup-header">icon: string（多形态）</div>
+    <div class="mockup-body">
+      <pre style="margin:0;font-size:13px;line-height:1.5;white-space:pre-wrap">inline &lt;svg…&gt;
+data:image/…
+https://…  |  /path  |  C:\…
+store:claude
+openai / copilot / generic
+emoji / 空
+
+        │
+        ▼  分叉！
+┌───────────────────┐   ┌────────────────────┐
+│ ProviderIcon.vue  │   │ getIconRenderType  │
+│ detectIconType    │   │ isImageUrl 等      │
+└─────────┬─────────┘   └──────────┬─────────┘
+          │                        │
+          ▼                        ▼
+     统一组件渲染              各页面手写 v-if
+     （部分场景）              （Sources 等）</pre>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">这次优化，你最在意哪一点？</div>
+  <div class="options">
+    <div class="option" data-choice="single-api" onclick="toggleSelect(this)">
+      <div class="letter">A</div>
+      <div class="content">
+        <h3>单一解析 API</h3>
+        <p>所有入口共用 detect / resolve，消灭分叉逻辑</p>
+      </div>
+    </div>
+    <div class="option" data-choice="single-render" onclick="toggleSelect(this)">
+      <div class="letter">B</div>
+      <div class="content">
+        <h3>单一渲染组件</h3>
+        <p>业务侧只写 &lt;AppIcon :src /&gt;，不再手写 v-if 树</p>
+      </div>
+    </div>
+    <div class="option" data-choice="protocol" onclick="toggleSelect(this)">
+      <div class="letter">C</div>
+      <div class="content">
+        <h3>规范存储协议</h3>
+        <p>存库/配置时统一格式（provider: / store: / file: …）</p>
+      </div>
+    </div>
+    <div class="option" data-choice="all" onclick="toggleSelect(this)">
+      <div class="letter">D</div>
+      <div class="content">
+        <h3>A+B 一起，协议最小改</h3>
+        <p>解析+渲染收敛；存量字符串尽量兼容，少迁数据</p>
+      </div>
+    </div>
+  </div>
+</div>

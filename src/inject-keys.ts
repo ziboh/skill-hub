@@ -30,4 +30,6 @@ export const KeyUpdateAgentPlatformSkills: InjectionKey<(platformId: string, ski
 export const KeySelectedAgentPlatformId: InjectionKey<Ref<string>> = Symbol('selectedAgentPlatformId')
 export const KeyMarkAgentSkillsDirty: InjectionKey<() => void> = Symbol('markAgentSkillsDirty')
 export const KeyIsAgentSkillsDirty: InjectionKey<Ref<boolean>> = Symbol('isAgentSkillsDirty')
-export const KeyBumpCachedSkillsVersion: InjectionKey<() => void> = Symbol('bumpCachedSkillsVersion')
+export const KeyBumpDownloadedSkillsVersion: InjectionKey<() => void> = Symbol('bumpDownloadedSkillsVersion')
+export const KeyToggleTheme: InjectionKey<() => void> = Symbol('toggleTheme')
+export const KeyIsDarkMode: InjectionKey<Ref<boolean>> = Symbol('isDarkMode')

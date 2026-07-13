@@ -6,11 +6,6 @@ import { storage, resetStorageCaches } from '../../utils/storage'
 import { KeyShowToast } from '../../inject-keys'
 import type { Skill, DistributeRecord } from '../../types'
 
-vi.mock('../../utils/skill-registry', () => ({
-  loadRegistry: vi.fn(() => new Map()),
-  removeFromRegistry: vi.fn(),
-}))
-
 const mockSkill: Skill = {
   id: 'skill-1',
   name: 'TestSkill',
@@ -178,13 +173,5 @@ describe('ConfirmDeleteModal', () => {
     await wrapper.find('.remove-distributed-checkbox').setValue(true)
     await nextTick()
     expect(wrapper.text()).toContain('软链接')
-  })
-
-  test('calls loadRegistry and removeFromRegistry on delete', async () => {
-    const { loadRegistry, removeFromRegistry } = await import('../../utils/skill-registry')
-    wrapper = mountModal()
-    await wrapper.find('.confirm-btn.delete').trigger('click')
-    expect(loadRegistry).toHaveBeenCalledOnce()
-    expect(removeFromRegistry).toHaveBeenCalledWith(expect.any(Map), 'TestSkill')
   })
 })

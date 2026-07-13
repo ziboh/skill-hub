@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, inject } from 'vue'
-import { KeyShowToast, KeySelectedProject, KeyRefreshCounts, KeyBumpCachedSkillsVersion } from '../../inject-keys'
+import { KeyShowToast, KeyRefreshCounts, KeyBumpDownloadedSkillsVersion } from '../../inject-keys'
 import { storage } from '../../utils/storage'
 import { parseFrontmatter, extractChineseSummary } from '../../utils/frontmatter'
 import { fetchSkillDetailFromSkill } from '../../utils/skills-sh'
@@ -11,13 +11,13 @@ import GlobalDistPanel from '../../components/GlobalDistPanel.vue'
 import ProjectDistPanel from '../../components/ProjectDistPanel.vue'
 import ConfirmDeleteModal from '../../components/ConfirmDeleteModal.vue'
 import { getSkillsRepoDir } from '../../utils/skill-path'
+import { finalizeImportedSkill } from '../../utils/skill-import'
 
 const props = defineProps<{ skill: Skill | null; context?: 'my' | 'store' | 'project' | 'agent' }>()
 const emit = defineEmits(['navigate'])
 const showToast = inject(KeyShowToast, () => {})
-const _selectedProject = inject(KeySelectedProject, ref(null))
 const refreshCounts = inject(KeyRefreshCounts, () => {})
-const bumpCachedSkillsVersion = inject(KeyBumpCachedSkillsVersion, () => {})
+const bumpDownloadedSkillsVersion = inject(KeyBumpDownloadedSkillsVersion, () => {})
 
 const activeTab = ref<'preview' | 'source' | 'files'>('preview')
 const skillContent = ref('')
@@ -43,7 +43,7 @@ const isImported = computed(() => {
   // 先通过ID查找，如果找不到则通过name查找（同步分发后的状态）
   if (storage.getDownloadedIds().includes(props.skill.id)) return true
   const normalizedName = (props.skill.name || '').toLowerCase()
-  return storage.getCachedSkills().some((s) => s.name && s.name.toLowerCase() === normalizedName)
+  return storage.getDownloadedSkills().some((s) => s.name && s.name.toLowerCase() === normalizedName)
 })
 const skillDir = computed(() => {
   if (!props.skill) return ''
@@ -139,17 +139,18 @@ async function projectImportSkill() {
   try {
     const id = props.skill.id
     const targetDir = getSkillsRepoDir(id)
-    window.services.mkdir(targetDir)
     const sourceDir = (props.skill as any).skillDir
     if (sourceDir) window.services.copyFile(sourceDir, targetDir)
-    const cached = storage.getCachedSkills()
-    if (!cached.some((s) => s.id === id)) {
-      cached.push({ ...props.skill, source: 'local', storeSourceId: props.skill.storeSourceId })
-      storage.saveCachedSkills(cached)
-    }
-    storage.addDownloadedId(id)
-    storage.addSessionDownload(id, props.skill.name, 'local')
-    bumpCachedSkillsVersion()
+
+    finalizeImportedSkill({
+      skill: { ...props.skill, source: 'local', path: sourceDir || props.skill.path },
+      targetDir,
+      sourceType: 'local',
+      location: sourceDir || '',
+      sessionSource: 'local',
+      storeSourceId: props.skill.storeSourceId,
+    })
+    bumpDownloadedSkillsVersion()
     showToast(`已将 ${props.skill.name} 导入到我的 Skill`, 'success')
   } catch (err: any) {
     showToast(err.message, 'error')

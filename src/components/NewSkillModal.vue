@@ -4,11 +4,11 @@ import { KeyRefreshCounts, KeyShowToast } from '../inject-keys'
 import { storage } from '../utils/storage'
 import { parseGitHubUrl, fetchGitHubRepoTree, fetchGitHubFile, detectSkillDirectories, githubFetch } from '../utils/github'
 import { parseFrontmatter } from '../utils/frontmatter'
-import { loadRegistry, registerSkillFromStore } from '../utils/skill-registry'
 import type { Skill, SkillScanResult } from '../types'
 import { getAvatarColor } from '../utils/color'
 import { getSkillsRepoDir, skillIdSlug } from '../utils/skill-path'
 import { atomicReplaceDir } from '../utils/fs-ops'
+import { finalizeImportedSkill } from '../utils/skill-import'
 
 const emit = defineEmits(['close', 'imported', 'navigate'])
 const refreshCounts = inject(KeyRefreshCounts)
@@ -149,7 +149,7 @@ function isSkillImported(skill: Skill): boolean {
   if (isImported(skill.id)) return true
   const downloaded = new Set(storage.getDownloadedIds())
   const localPath = normalizeLocalPath(skill.sourceUrl || skill.path || '')
-  return storage.getCachedSkills().some((s) => {
+  return storage.getDownloadedSkills().some((s) => {
     if (!downloaded.has(s.id)) return false
     if (skill.source === 'local' && localPath) {
       return [s.sourceUrl, s.path].some((p) => normalizeLocalPath(p || '') === localPath)
@@ -307,34 +307,18 @@ async function importGitSkills(skills: Skill[]) {
   emit('close')
 }
 
-function finishImportedSkill(skill: Skill, targetDir: string, sourceType: 'github' | 'local-dir', location: string) {
-  const skillFile = ['SKILL.md', 'skill.md'].find((f) => window.services.pathExists(window.services.pathJoin(targetDir, f)))
-  if (skillFile) {
-    const parsed = window.services.parseSkillFile(window.services.pathJoin(targetDir, skillFile))
-    if (parsed?.manifest) {
-      if (parsed.manifest.name) skill.name = parsed.manifest.name
-      if (parsed.manifest.description) skill.description = parsed.manifest.description
-      skill.author = parsed.manifest.author || skill.author
-      skill.tags = parsed.manifest.tags || skill.tags
-      registerSkillFromStore(
-        loadRegistry(),
-        skill.id,
-        {
-          name: skill.name,
-          dir: targetDir,
-          skillFile: window.services.pathJoin(targetDir, skillFile),
-          content: parsed.content || '',
-          manifest: parsed.manifest,
-        },
-        sourceType,
-        location,
-      )
-    }
+function finishImportedSkill(skill: Skill, targetDir: string, sourceType: 'github' | 'local', location: string) {
+  // location / skill.path = original source (local dir or github relative path)
+  if (sourceType === 'local' && !skill.path) {
+    skill.path = location
   }
-  skill.path = targetDir
-  storage.saveCachedSkills([skill])
-  storage.addDownloadedId(skill.id)
-  storage.addSessionDownload(skill.id, skill.name, 'import')
+  finalizeImportedSkill({
+    skill,
+    targetDir,
+    sourceType,
+    location,
+    sessionSource: 'import',
+  })
   refreshCounts?.()
 }
 
@@ -404,7 +388,7 @@ async function importLocalSelected() {
       }
       const targetDir = getSkillsRepoDir(skill.id)
       atomicReplaceDir(skill.path || '', targetDir)
-      finishImportedSkill(skill, targetDir, 'local-dir', skill.sourceUrl || skill.path || '')
+      finishImportedSkill(skill, targetDir, 'local', skill.sourceUrl || skill.path || '')
       targetNames.push(skill.name)
     } catch (err: any) {
       showError(err.message || '导入失败')

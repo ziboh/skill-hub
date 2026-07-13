@@ -59,6 +59,11 @@ description:
     expect(result.tags).toBe('one, two, three')
   })
 
+  test('parses YAML list-style tags', () => {
+    const result = parseFrontmatter('---\ntags:\n  - search\n  - dev\n---')
+    expect(result.tags).toBe('search, dev')
+  })
+
   test('extracts description from body when not in frontmatter', () => {
     const result = parseFrontmatter('---\nname: test\n---\n\nThis is the first paragraph.')
     expect(result.description).toBe('This is the first paragraph.')

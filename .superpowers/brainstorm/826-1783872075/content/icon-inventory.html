@@ -1,0 +1,66 @@
+<h2>当前图标体系总览</h2>
+<p class="subtitle">Skill Hub 里图标来源很杂——先对齐「乱」在哪，再决定整理范围</p>
+
+<div class="section">
+  <div class="label">资产分布（约 178 个磁盘文件 + 大量内联）</div>
+  <div class="cards">
+    <div class="card">
+      <div class="card-body">
+        <h3>Provider SVG · 147</h3>
+        <p><code>src/assets/providers/*.svg</code><br>经 ProviderIcon + glob 内联渲染</p>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-body">
+        <h3>Platform 混合 · 24</h3>
+        <p>PNG / SVG / ICO 混用<br>部分同名双份，mimo.png ~888KB</p>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-body">
+        <h3>UI 内联 SVG · ~180</h3>
+        <p>~25 个 Vue 文件手写 path<br>无统一 Icon 组件 / 无图标库</p>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-body">
+        <h3>多形态字符串</h3>
+        <p>inline SVG · data-uri · URL<br>本地路径 · store: · provider 名 · emoji</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">主要痛点（可多选你最想优先处理的）</div>
+  <div class="options" data-multiselect>
+    <div class="option" data-choice="detect" onclick="toggleSelect(this)">
+      <div class="letter">1</div>
+      <div class="content">
+        <h3>类型检测分叉</h3>
+        <p>ProviderIcon vs getIconRenderType 对同一字符串行为不一致</p>
+      </div>
+    </div>
+    <div class="option" data-choice="datauri" onclick="toggleSelect(this)">
+      <div class="letter">2</div>
+      <div class="content">
+        <h3>data: 被丢弃</h3>
+        <p>isImageUrl 排除 data URI → 内置 skill 图标易落回字母头像</p>
+      </div>
+    </div>
+    <div class="option" data-choice="platforms" onclick="toggleSelect(this)">
+      <div class="letter">3</div>
+      <div class="content">
+        <h3>平台资源不齐</h3>
+        <p>PNG/SVG 双份、体积失控、命名别名硬编码</p>
+      </div>
+    </div>
+    <div class="option" data-choice="ui-inline" onclick="toggleSelect(this)">
+      <div class="letter">4</div>
+      <div class="content">
+        <h3>UI 图标复制粘贴</h3>
+        <p>关闭/勾选/警告等 SVG 在各 Modal 重复</p>
+      </div>
+    </div>
+  </div>
+</div>

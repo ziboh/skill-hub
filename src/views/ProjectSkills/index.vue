@@ -2,7 +2,6 @@
 import { inject, ref, computed, unref, onDeactivated, watch } from 'vue'
 import {
   KeyShowToast,
-  KeySelectedProject,
   KeyScanProject,
   KeyProjectScanning,
   KeySelectProject,
@@ -17,36 +16,36 @@ import { useTheme } from '../../composables/useTheme'
 import { useProjectState } from '../../composables/useProjectState'
 import { useBatchSelection } from '../../composables/useBatchSelection'
 import { normalizePath } from '../../utils/path'
-import type { Skill, SkillScanResult } from '../../types'
-import { defaultPlatforms, getPlatformPath } from '../../data/platforms'
+import type { Skill, SkillScanResult, PlatformInfo } from '../../types'
+import { getAllPlatformDefinitions, findPlatformById, getPlatformPath } from '../../data/platforms'
 import SkillCard from '../../components/SkillCard.vue'
 import DeployModal from '../../components/DeployModal.vue'
 import QuickSwitcher from '../../components/QuickSwitcher.vue'
 import ConfirmModal from '../../components/ConfirmModal.vue'
+import ConfirmUninstallSkillModal from '../../components/ConfirmUninstallSkillModal.vue'
 import { getAvatarColor } from '../../utils/color'
 import { cacheVersion as translationCacheVersion } from '../../composables/useTranslationQueue'
 import { getSkillsRepoDir } from '../../utils/skill-path'
 import { safeRemovePath } from '../../utils/fs-ops'
 import { importScanResultToMySkills } from '../../utils/skill-import'
+import { normalizeSkillNameKey, getSkillDisplayName } from '../../utils/skill-identity'
 
 const emit = defineEmits(['navigate', 'edit-project', 'delete-project'])
 
-const selectedProject = inject(KeySelectedProject, ref(null))
 const scanProject = inject(KeyScanProject, () => {})
 const projectScanning = inject(KeyProjectScanning, ref(false))
 const showToast = inject(KeyShowToast, () => {})
-const { registeredProjects } = useProjectState()
+const { registeredProjects, selectedProject } = useProjectState()
 const selectProject = inject(KeySelectProject, () => {})
 const openAddProjectModal = inject(KeyOpenAddProjectModal, () => {})
-const detectedPlatforms = inject(KeyDetectedPlatforms, ref([]) as any)
+const detectedPlatforms = inject(KeyDetectedPlatforms, ref<PlatformInfo[]>([]))
 const refreshCounts = inject(KeyRefreshCounts, () => {})
 
 const importing = ref<Record<string, boolean>>({})
 const confirmDeleteProjectId = ref<string | null>(null)
 const confirmDeleteProjectName = ref('')
 
-const confirmUninstallSkillDir = ref<string | null>(null)
-const confirmUninstallSkillName = ref('')
+const confirmUninstallSkill = ref<any>(null)
 const uninstalling = ref(false)
 
 const showBatchRemoveConfirm = ref(false)
@@ -191,7 +190,7 @@ interface MergedSkill extends SkillScanResult {
 function mergeDuplicateSkills(skills: SkillScanResult[]): MergedSkill[] {
   const groups = new Map<string, SkillScanResult[]>()
   for (const s of skills) {
-    const key = (s.manifest?.name || s.name || '').toLowerCase()
+    const key = normalizeSkillNameKey(getSkillDisplayName(s))
     if (!key) {
       const fallback = `__unamed__${s.dir}`
       groups.set(fallback, [s])
@@ -222,10 +221,9 @@ function getSkillPlatformIds(skill: MergedSkill): string[] {
   const ids = new Set<string>()
   for (const dir of dirs) {
     const normalized = dir.replace(/\\/g, '/').toLowerCase()
-    for (const p of defaultPlatforms) {
-      if (p.projectPath && normalized.includes(p.projectPath.replace(/\\/g, '/').toLowerCase())) {
-        ids.add(p.id)
-      }
+    for (const p of getAllPlatformDefinitions()) {
+      const pp = (p.projectPath || p.customProjectPath || '').replace(/\\/g, '/').toLowerCase()
+      if (pp && normalized.includes(pp)) ids.add(p.id)
     }
     if (normalized.includes('.agents/skills')) {
       ids.add('_generic')
@@ -289,15 +287,17 @@ async function importSkill(skill: SkillScanResult) {
   importing.value[id] = false
 }
 
-async function uninstallSkillFromProject(skill: SkillScanResult) {
+async function uninstallSkillFromProject(skills: SkillScanResult[]) {
   uninstalling.value = true
-  try {
+  let okCount = 0
+  let failCount = 0
+
+  for (const skill of skills) {
     const dir = skill.dir
     const rm = safeRemovePath(dir)
     if (!rm.ok) {
-      showToast(`卸载失败: ${rm.error || '请检查文件权限'}`, 'error')
-      uninstalling.value = false
-      return
+      failCount++
+      continue
     }
 
     const projectDistributes = storage
@@ -309,18 +309,30 @@ async function uninstallSkillFromProject(skill: SkillScanResult) {
 
     if (selectedProject.value) {
       selectedProject.value.skills = selectedProject.value.skills.filter((s: SkillScanResult) => s.dir !== dir)
-      storage.updateRegisteredProject(selectedProject.value.id, {
-        skills: selectedProject.value.skills,
-      })
     }
 
-    refreshDownloaded()
-    refreshCounts()
-    showToast(`已卸载「${skill.manifest?.name || skill.name}」`, 'success')
-    confirmUninstallSkillDir.value = null
-  } catch (err: any) {
-    showToast('卸载失败: ' + (err.message || '未知错误'), 'error')
+    okCount++
   }
+
+  if (selectedProject.value && okCount > 0) {
+    storage.updateRegisteredProject(selectedProject.value.id, {
+      skills: selectedProject.value.skills,
+    })
+  }
+
+  refreshDownloaded()
+  refreshCounts()
+
+  if (failCount && okCount) {
+    showToast(`${okCount} 个已删除，${failCount} 个删除失败`, 'warning')
+  } else if (failCount && !okCount) {
+    showToast(`删除失败（${failCount} 个），请检查文件权限`, 'error')
+  } else {
+    const name = skills[0]?.manifest?.name || skills[0]?.name || 'Skill'
+    showToast(skills.length > 1 ? `已删除 ${okCount} 个副本` : `已删除「${name}」`, 'success')
+  }
+
+  confirmUninstallSkill.value = null
   uninstalling.value = false
 }
 
@@ -426,7 +438,7 @@ const agentFilterCount = computed(() => {
 const agentLabel = computed(() => {
   if (!agentFilter.value) return ''
   if (agentFilter.value === '_generic') return '通用'
-  const p = defaultPlatforms.find((p) => p.id === agentFilter.value)
+  const p = findPlatformById(agentFilter.value)
   return p?.name || agentFilter.value
 })
 
@@ -443,15 +455,7 @@ const filteredProjectSkills = computed(() => {
   }
   return mergeDuplicateSkills(skills)
 })
-const {
-  batchMode,
-  selectedIds,
-  isAllSelected,
-  toggleBatchMode,
-  toggleSelect,
-  toggleSelectAll,
-  exitBatchMode,
-} = useBatchSelection({
+const { batchMode, selectedIds, isAllSelected, toggleBatchMode, toggleSelect, toggleSelectAll, exitBatchMode } = useBatchSelection({
   getItems: () => filteredProjectSkills.value,
   getKey: (s: any) => s.dir,
 })
@@ -459,7 +463,6 @@ const {
 onDeactivated(() => {
   exitBatchMode()
 })
-
 
 // === Deploy modal ===
 const showDeployModal = ref(false)
@@ -512,11 +515,11 @@ const filteredMySkills = computed(() => {
 
 const projectSkillNames = computed(() => {
   if (!selectedProject.value?.skills) return new Set<string>()
-  return new Set(selectedProject.value.skills.map((s: SkillScanResult) => (s.manifest?.name || s.name).toLowerCase()))
+  return new Set(selectedProject.value.skills.map((s: SkillScanResult) => normalizeSkillNameKey(getSkillDisplayName(s))))
 })
 
 function isAlreadyInProject(skill: Skill): boolean {
-  return projectSkillNames.value.has(skill.name.toLowerCase())
+  return projectSkillNames.value.has(normalizeSkillNameKey(skill.name))
 }
 
 function toggleImportSelect(skill: Skill) {
@@ -971,7 +974,7 @@ async function confirmImportFromMy() {
           :class="{ active: agentFilter === pid }"
           @click="((agentFilter = agentFilter === pid ? '' : pid), (showAgentDropdown = false))"
         >
-          {{ defaultPlatforms.find((p) => p.id === pid)?.name || pid }}
+          {{ findPlatformById(pid)?.name || pid }}
           <span class="dropdown-count">{{ cnt }}</span>
         </button>
       </div>
@@ -1130,12 +1133,7 @@ async function confirmImportFromMy() {
                   <line x1="12" y1="15" x2="12" y2="3" />
                 </svg>
               </button>
-              <button
-                class="card-action-btn danger"
-                :disabled="uninstalling"
-                title="卸载"
-                @click.stop="((confirmUninstallSkillDir = skill.dir), (confirmUninstallSkillName = skill.manifest?.name || skill.name))"
-              >
+              <button class="card-action-btn danger" :disabled="uninstalling" title="删除" @click.stop="confirmUninstallSkill = skill">
                 <svg
                   width="14"
                   height="14"
@@ -1354,13 +1352,12 @@ async function confirmImportFromMy() {
       @deployed="onDeployed"
     />
 
-    <ConfirmModal
-      v-if="confirmUninstallSkillDir"
-      title="卸载 Skill"
-      :message="`确定要卸载 <strong>${confirmUninstallSkillName}</strong> 吗？将删除项目目录中的文件及分发记录。`"
-      confirm-text="卸载"
-      @confirm="uninstallSkillFromProject({ dir: confirmUninstallSkillDir!, manifest: { name: confirmUninstallSkillName } } as any)"
-      @cancel="confirmUninstallSkillDir = null"
+    <ConfirmUninstallSkillModal
+      v-if="confirmUninstallSkill"
+      :skill-name="confirmUninstallSkill.manifest?.name || confirmUninstallSkill.name"
+      :skills="confirmUninstallSkill.allSkills || [confirmUninstallSkill]"
+      @confirm="uninstallSkillFromProject"
+      @cancel="confirmUninstallSkill = null"
     />
     <ConfirmModal
       v-if="confirmDeleteProjectId"

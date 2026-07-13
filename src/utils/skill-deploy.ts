@@ -2,6 +2,7 @@ import { detectPlatforms, getPlatformPath } from '../data/platforms'
 import { storage } from './storage'
 import { normalizePath } from './path'
 import { getSkillsRepoDir } from './skill-path'
+import { runSkillLifecycleHooks, type SkillLifecycleContext, type SkillLifecycleResult } from './skill-lifecycle'
 import type { Skill, InstallMode, PlatformInfo, DistributeRecord } from '../types'
 
 export type DeployScope = 'global' | 'project'
@@ -26,23 +27,26 @@ export interface DeployTargetResult {
   platformId: string
   message: string
   error?: string
+  warnings?: string[]
 }
 
-/** Platforms that are detected and have a path, merged with saved configs. */
+/** Platforms that are detected, enabled, and have a path (configs already merged in detectPlatforms). */
 export function getDeployPlatforms(): PlatformInfo[] {
-  const saved = storage.getPlatformConfigs()
-  return detectPlatforms()
-    .filter((p) => p.detected && (p.defaultPath || p.projectPath))
-    .map((p) => {
-      const cfg = saved.find((s) => s.id === p.id)
-      return cfg ? { ...p, customPath: cfg.customPath, customProjectPath: cfg.customProjectPath } : p
-    })
+  return detectPlatforms().filter(
+    (p) => p.detected && p.enabled !== false && (p.defaultPath || p.customPath || p.projectPath || p.customProjectPath),
+  )
 }
 
 /** Folder name under platform/project skills dir. */
 export function getSkillFolderName(skill: Pick<Skill, 'name' | 'path'>): string {
   if (skill.path && skill.path !== '.') {
-    return normalizePath(skill.path).split('/').pop() || skill.name
+    const p = normalizePath(skill.path)
+    // Absolute path = local source dir → use skill name as folder
+    if (/^[a-zA-Z]:\//.test(p) || p.startsWith('/')) {
+      return skill.name
+    }
+    // Relative path = repo path (e.g. skills/foo) → last segment
+    return p.split('/').pop() || skill.name
   }
   return skill.name
 }
@@ -66,6 +70,61 @@ export function hasSkillMd(dir: string): boolean {
   return files.some((f) => f.name === 'SKILL.md' || f.name === 'skill.md')
 }
 
+function toLifecycleResult(result: DeployTargetResult, skillId: string): SkillLifecycleResult {
+  return {
+    ok: result.ok,
+    operation: 'install',
+    skillId,
+    platformId: result.platformId,
+    targetPath: result.targetDir,
+    error: result.error,
+    warnings: result.warnings,
+  }
+}
+
+function recordDeployFailure(skill: Skill, error: string, details?: string): void {
+  storage.addFailureRecord({
+    type: 'distribution',
+    skillId: skill.id,
+    skillName: skill.name,
+    error,
+    details,
+  })
+}
+
+function finalizeInstall(opts: DeployTargetOptions, result: DeployTargetResult): DeployTargetResult {
+  const context: SkillLifecycleContext = {
+    operation: 'install',
+    phase: 'after',
+    skillId: opts.skill.id,
+    skillName: opts.skill.name,
+    platformId: opts.platformId,
+    targetPath: result.targetDir,
+    sourceDir: opts.sourceDir,
+    mode: opts.mode,
+    scope: opts.scope,
+    result: toLifecycleResult(result, opts.skill.id),
+  }
+  const warnings = runSkillLifecycleHooks('afterInstall', context)
+  if (!warnings.length) return result
+
+  result.warnings = [...(result.warnings || []), ...warnings]
+  result.message = `${result.message}（生命周期钩子警告：${warnings.join('；')}）`
+  recordDeployFailure(opts.skill, '安装后生命周期钩子执行失败', warnings.join('；'))
+  return result
+}
+
+function failInstall(opts: DeployTargetOptions, targetDir: string, error: string, details?: string): DeployTargetResult {
+  recordDeployFailure(opts.skill, error, details)
+  return finalizeInstall(opts, {
+    ok: false,
+    targetDir,
+    platformId: opts.platformId,
+    message: error,
+    error,
+  })
+}
+
 export function getGlobalPlatformBase(platform: PlatformInfo): string {
   return getPlatformPath(platform, 'global') || getPlatformPath(platform, 'project') || ''
 }
@@ -84,6 +143,7 @@ export function getProjectTargetDir(projectRoot: string, agentPath: string, skil
  */
 export function deploySkillToTarget(opts: DeployTargetOptions): DeployTargetResult {
   const { skill, sourceDir, targetDir, platformId, mode, scope } = opts
+  let installedTargetDir = targetDir
 
   if (opts.skipIfRecorded) {
     const exists = storage.getDistributeRecords().some((r) => r.skillId === skill.id && r.platformId === platformId && r.scope === scope)
@@ -94,44 +154,56 @@ export function deploySkillToTarget(opts: DeployTargetOptions): DeployTargetResu
 
   if (!sourceDir || !window.services.pathExists(sourceDir)) {
     const error = '源文件不存在'
-    storage.addFailureRecord({
-      type: 'distribution',
-      skillId: skill.id,
-      skillName: skill.name,
-      error,
-    })
-    return { ok: false, targetDir, platformId, message: error, error }
+    return failInstall(opts, targetDir, error)
   }
 
   if (!hasSkillMd(sourceDir)) {
     const error = '源目录中未找到 SKILL.md'
-    storage.addFailureRecord({
-      type: 'distribution',
+    return failInstall(opts, targetDir, error)
+  }
+
+  const beforeErrors = runSkillLifecycleHooks(
+    'beforeInstall',
+    {
+      operation: 'install',
+      phase: 'before',
       skillId: skill.id,
       skillName: skill.name,
-      error,
-    })
-    return { ok: false, targetDir, platformId, message: error, error }
+      platformId,
+      targetPath: targetDir,
+      sourceDir,
+      mode,
+      scope,
+    },
+    true,
+  )
+  if (beforeErrors.length) {
+    return failInstall(opts, targetDir, `安装前生命周期钩子失败：${beforeErrors.join('；')}`, '安装前钩子阻止了分发')
   }
 
   try {
-    window.services.mkdir(targetDir)
-    if (mode === 'symlink') {
-      window.services.createSymlink(sourceDir, targetDir)
+    const platformResult = window.services.deployPlatformSkill?.({
+      platformId,
+      sourceDir,
+      targetDir,
+      mode,
+      skillName: skill.name,
+    })
+    if (platformResult?.handled) {
+      installedTargetDir = platformResult.targetDir || targetDir
     } else {
-      window.services.copyFile(sourceDir, targetDir)
+      // Do not mkdir(targetDir): empty dest blocks Windows rename and causes EIO.
+      // copyFile / createSymlink already create the parent directory.
+      if (mode === 'symlink') {
+        window.services.createSymlink(sourceDir, targetDir)
+      } else {
+        window.services.copyFile(sourceDir, targetDir)
+      }
     }
 
-    if (opts.verifySkillMd && !hasSkillMd(targetDir)) {
-      const error = `目标目录为空，拷贝未生效 → ${targetDir}`
-      storage.addFailureRecord({
-        type: 'distribution',
-        skillId: skill.id,
-        skillName: skill.name,
-        error,
-        details: `分发到 ${platformId} 失败`,
-      })
-      return { ok: false, targetDir, platformId, message: error, error }
+    if (opts.verifySkillMd && !hasSkillMd(installedTargetDir)) {
+      const error = `目标目录为空，拷贝未生效 → ${installedTargetDir}`
+      return failInstall(opts, installedTargetDir, error, `分发到 ${platformId} 失败`)
     }
 
     const record: DistributeRecord = {
@@ -139,24 +211,17 @@ export function deploySkillToTarget(opts: DeployTargetOptions): DeployTargetResu
       platformId,
       mode,
       scope,
-      targetPath: targetDir,
+      targetPath: installedTargetDir,
       sourceDir,
       distributedAt: new Date().toISOString(),
     }
     storage.saveDistributeRecord(record)
 
     const message = mode === 'symlink' ? '已链接' : '已复制'
-    return { ok: true, targetDir, platformId, message }
+    return finalizeInstall(opts, { ok: true, targetDir: installedTargetDir, platformId, message })
   } catch (err) {
     const error = err instanceof Error ? err.message : '未知错误'
-    storage.addFailureRecord({
-      type: 'distribution',
-      skillId: skill.id,
-      skillName: skill.name,
-      error,
-      details: `分发到 ${platformId} 失败`,
-    })
-    return { ok: false, targetDir, platformId, message: error, error }
+    return failInstall(opts, installedTargetDir, error, `分发到 ${platformId} 失败`)
   }
 }
 

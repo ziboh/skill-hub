@@ -7,6 +7,7 @@ import { detectPlatforms } from '../../data/platforms'
 vi.mock('../../data/platforms', () => ({
   detectPlatforms: vi.fn(() => []),
   getPlatformPath: vi.fn((p: { defaultPath?: string }) => p.defaultPath || ''),
+  platformDisplayIcon: (p: { id: string; icon?: string }) => p.icon || p.id,
 }))
 
 vi.mock('../../utils/storage', () => ({

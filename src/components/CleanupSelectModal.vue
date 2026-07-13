@@ -28,7 +28,9 @@ function init() {
       const content = window.services.readFileText(skillFilePath)
       const match = content?.match(/^name:\s*(.+)/m)
       if (match) name = match[1].trim()
-    } catch {}
+    } catch (e) {
+      console.warn('[CleanupSelectModal] read skill name failed:', skillFilePath, e)
+    }
     result.push({ path: dir, name })
   }
   skills.value = result
@@ -69,7 +71,9 @@ function deleteSelected() {
     }
     try {
       window.services.removeEmptyAncestors?.(path)
-    } catch {}
+    } catch (e) {
+      console.warn('[CleanupSelectModal] removeEmptyAncestors failed:', path, e)
+    }
     deleted++
   }
   if (failed && deleted) {
@@ -118,7 +122,7 @@ function deleteSelected() {
       </div>
 
       <div class="cleanup-body">
-        <p class="cleanup-desc">以下技能文件夹在 <code>skills-repo</code> 中但未在注册表中登记，请选择要删除的项：</p>
+        <p class="cleanup-desc">以下技能文件夹在 <code>skills-repo</code> 中但未出现在已下载技能中，请选择要删除的项：</p>
 
         <div class="cleanup-select-header">
           <span class="cleanup-select-label">共 {{ skills.length }} 个文件夹</span>

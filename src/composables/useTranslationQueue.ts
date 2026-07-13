@@ -29,14 +29,18 @@ function loadQueue(): TranslationQueueItem[] {
   try {
     const raw = window.ztools.dbStorage.getItem(QUEUE_KEY)
     if (raw) return JSON.parse(raw) as TranslationQueueItem[]
-  } catch {}
+  } catch (e) {
+    console.warn('[useTranslationQueue] loadQueue failed:', e)
+  }
   return []
 }
 
 function saveQueue(items: TranslationQueueItem[]): void {
   try {
     window.ztools.dbStorage.setItem(QUEUE_KEY, JSON.stringify(items))
-  } catch {}
+  } catch (e) {
+    console.warn('[useTranslationQueue] saveQueue failed:', e)
+  }
 }
 
 const queue = ref<TranslationQueueItem[]>([])
@@ -257,7 +261,7 @@ function recordTranslationFailure(item: TranslationQueueItem, e: unknown, skillN
 async function processQueueItem(item: TranslationQueueItem, model: ModelConfig | null): Promise<'done' | 'retry' | 'skip'> {
   if (!model) return 'skip'
 
-  const cachedSkills = storage.getCachedSkills()
+  const cachedSkills = storage.getDownloadedSkills()
   const skill = findSkillByHash(cachedSkills, item.hash)
   if (!skill && !item.text) return 'skip'
 
@@ -269,12 +273,15 @@ async function processQueueItem(item: TranslationQueueItem, model: ModelConfig |
       const descText = skill?.description || item.text
       if (!descText || isChineseContent(descText)) return 'done'
       const translatedDesc = await translateDescription(descText, model)
+      // cancelled while in flight — do not write cache
+      if (!queue.value.some((i) => i.hash === item.hash && i.type === item.type)) return 'done'
       storage.saveDescTranslationByHash(item.hash, translatedDesc, skill?.name || item.skillName)
     } else {
       if (storage.getTranslationByHash(item.hash)?.translatedContent) return 'done'
       const contentText = skill ? readSkillContent(skill) : item.text || ''
       if (!contentText || isChineseContent(contentText)) return 'done'
       const translatedContent = await translateContent(contentText, model, 'full')
+      if (!queue.value.some((i) => i.hash === item.hash && i.type === item.type)) return 'done'
       storage.saveTranslationByHash(item.hash, {
         sourceContent: contentText,
         translatedContent,
@@ -284,6 +291,8 @@ async function processQueueItem(item: TranslationQueueItem, model: ModelConfig |
     }
     return 'done'
   } catch (e) {
+    // cancelled: swallow failure side-effects
+    if (!queue.value.some((i) => i.hash === item.hash && i.type === item.type)) return 'done'
     item.lastError = e instanceof Error ? e.message : String(e)
     recordTranslationFailure(item, e, skill?.name)
     return 'retry'

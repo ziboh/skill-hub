@@ -29,7 +29,7 @@ import {
   KeySelectedAgentPlatformId,
   KeyMarkAgentSkillsDirty,
   KeyIsAgentSkillsDirty,
-  KeyBumpCachedSkillsVersion,
+  KeyBumpDownloadedSkillsVersion,
 } from './inject-keys'
 
 const SkillStore = defineAsyncComponent(() => import('./views/SkillStore/index.vue'))
@@ -50,9 +50,11 @@ import { applyTheme } from './utils/theme'
 import { useSettings } from './composables/useSettings'
 import { useSkillInventory, normalizeSkillScanResult } from './composables/useSkillInventory'
 import { useTranslationQueue } from './composables/useTranslationQueue'
-import { detectPlatforms, defaultPlatforms } from './data/platforms'
+import { detectPlatforms, getDefaultPlatformOrder } from './data/platforms'
 import { syncAllowedWriteRoots } from './utils/write-roots'
-import type { Skill, PlatformInfo, ModelConfig } from './types'
+import { dedupeByNameKey } from './utils/skill-identity'
+import { createLeadingTrailingScheduler } from './utils/schedule'
+import type { Skill, PlatformInfo, ModelConfig, SkillScanResult } from './types'
 
 const { settings } = useSettings()
 
@@ -77,7 +79,8 @@ const {
   updateAgentPlatformSkills,
   markAgentSkillsDirty,
   isAgentSkillsDirty,
-  bumpCachedSkillsVersion,
+  refreshDirtyAgentSkills,
+  bumpDownloadedSkillsVersion,
 } = useSkillInventory()
 
 const {
@@ -96,8 +99,11 @@ const {
 
 function navigate(code: string, params?: any) {
   routerNavigate(code as RouteName, params)
-  if (code === 'agent-skills') refreshCounts()
-  refreshMySkills()
+  if (code === 'agent-skills' || code === 'my' || code === 'records') {
+    scheduleRefreshCounts()
+  } else {
+    refreshMySkills()
+  }
   if (code === 'project-skills') {
     if (selectedProject.value) {
       scanProject(selectedProject.value)
@@ -144,22 +150,18 @@ provide(KeySelectedAgentPlatformId, selectedAgentPlatformId)
 provide(KeyUpdateAgentPlatformSkills, updateAgentPlatformSkills)
 provide(KeyMarkAgentSkillsDirty, markAgentSkillsDirty)
 provide(KeyIsAgentSkillsDirty, isAgentSkillsDirty)
-provide(KeyBumpCachedSkillsVersion, bumpCachedSkillsVersion)
+provide(KeyBumpDownloadedSkillsVersion, bumpDownloadedSkillsVersion)
 provide(KeyScanProject, scanProject)
 provide(KeyProjectScanning, projectScanning)
 
-function refreshCounts() {
+function refreshCountsNow() {
+  refreshDirtyAgentSkills()
   downloadedCount.value = storage.getDownloadedIds().length
   try {
     const allPlatforms = detectPlatforms()
-    const savedConfigs = storage.getPlatformConfigs()
-    const installedPlatforms = allPlatforms.filter((p) => {
-      if (!p.detected) return false
-      const savedConfig = savedConfigs.find((c) => c.id === p.id)
-      return savedConfig ? savedConfig.enabled : p.enabled
-    })
+    const installedPlatforms = allPlatforms.filter((p) => p.detected && p.enabled !== false)
     const platformOrder = storage.getPlatformOrder()
-    const orderToUse = platformOrder.length ? platformOrder : defaultPlatforms.map((p) => p.id)
+    const orderToUse = platformOrder.length ? platformOrder : getDefaultPlatformOrder()
     const orderMap = new Map(orderToUse.map((id, idx) => [id, idx]))
     installedPlatforms.sort((a, b) => (orderMap.get(a.id) ?? Infinity) - (orderMap.get(b.id) ?? Infinity))
     agentCount.value = installedPlatforms.length
@@ -173,12 +175,19 @@ function refreshCounts() {
       projects: registeredProjects.value,
       platforms: allPlatforms,
     })
-  } catch {
+  } catch (e) {
+    console.warn('[App] refreshCounts failed:', e)
     agentCount.value = 0
     detectedPlatforms.value = []
   }
   refreshMySkills()
   refreshKey.value++
+}
+
+const scheduleRefreshCounts = createLeadingTrailingScheduler(refreshCountsNow, 200)
+/** Immediate for inject callers that expect sync UI (deploy/delete); still coalesces bursts via schedule. */
+function refreshCounts() {
+  scheduleRefreshCounts()
 }
 
 provide(KeyRefreshCounts, refreshCounts)
@@ -205,7 +214,7 @@ const navItems = computed(() => [
 let mqCleanup: (() => void) | null = null
 
 onMounted(() => {
-  storage.cleanStaleCachedSkills()
+  storage.cleanStaleDownloadedSkills()
   storage.migrateFavorites()
   storage.updateChineseTags()
   syncAllowedWriteRoots({ projects: registeredProjects.value })
@@ -243,7 +252,9 @@ onMounted(() => {
         if (model) {
           try {
             resumeAll(model)
-          } catch {}
+          } catch (e) {
+            console.warn('[App] resume translation failed:', e)
+          }
         }
       }
     }
@@ -266,13 +277,14 @@ onMounted(() => {
 
 onUnmounted(() => {
   mqCleanup?.()
+  scheduleRefreshCounts.cancel()
 })
 
 const filterCategory = ref('all')
 const filterSource = ref('')
 
 function refreshMySkills() {
-  bumpCachedSkillsVersion()
+  bumpDownloadedSkillsVersion()
 }
 provide(KeyFilterCategory, filterCategory)
 provide(KeyFilterSource, filterSource)
@@ -291,13 +303,7 @@ const allAvailableSkills = computed<Skill[]>(() => inventoryAllSkills.value as S
 
 const allProjectsSkills = computed<Skill[]>(() => {
   const all = registeredProjects.value.flatMap((p) => (p.skills || []).map((s) => normalizeSkillScanResult(s)))
-  const seen = new Set<string>()
-  return all.filter((s) => {
-    const key = s.name.toLowerCase()
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
+  return dedupeByNameKey(all, (s) => s.name)
 })
 
 const currentAgentPlatform = computed(() => {
@@ -309,36 +315,20 @@ const currentAgentPlatform = computed(() => {
 const currentAgentPlatformSkills = computed<Skill[]>(() => {
   if (route.value !== 'agent-skills' || !selectedAgentPlatformId.value) return []
   const all = (inventoryAgentSkills.value[selectedAgentPlatformId.value] || []).map((s) => normalizeSkillScanResult(s))
-  const seen = new Set<string>()
-  return all.filter((s) => {
-    const key = s.name.toLowerCase()
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
+  return dedupeByNameKey(all, (s) => s.name)
 })
 
 const currentPageSkills = computed<Skill[]>(() => {
   if (route.value === 'my') {
-    return storage.getCachedSkills().filter((s) => storage.isDownloaded(s.id))
+    return storage.getDownloadedSkills().filter((s) => storage.isDownloaded(s.id))
   } else if (route.value === 'project-skills') {
-    const all = ((selectedProject.value?.skills || []) as any[]).map((s) => normalizeSkillScanResult(s))
-    const seen = new Set<string>()
-    return all.filter((s) => {
-      const key = s.name.toLowerCase()
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
+    const all = (selectedProject.value?.skills || []).map((s: SkillScanResult) => normalizeSkillScanResult(s))
+    return dedupeByNameKey(all, (s) => s.name)
   } else if (route.value === 'agent-skills') {
-    const all = (Object.values(inventoryAgentSkills.value).flat() as any[]).map((s) => normalizeSkillScanResult(s))
-    const seen = new Set<string>()
-    return all.filter((s) => {
-      const key = s.name.toLowerCase()
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
+    const all = Object.values(inventoryAgentSkills.value)
+      .flat()
+      .map((s) => normalizeSkillScanResult(s))
+    return dedupeByNameKey(all, (s) => s.name)
   }
   return []
 })

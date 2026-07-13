@@ -18,7 +18,16 @@ export async function resolveIcon(value: IconValue): Promise<ResolvedIcon> {
   if (value.kind === 'src') return { mode: 'img', src: value.value }
   if (value.kind === 'local') {
     try {
-      const dataUri = (window as any)?.services?.readFileAsDataUri?.(value.value)
+      const svc = (window as any)?.services
+      const filePath = value.value
+      // Prefer inline SVG so mono/theme CSS can style fills
+      if (/\.svg$/i.test(filePath) && typeof svc?.readFile === 'function') {
+        const svg = svc.readFile(filePath)
+        if (typeof svg === 'string' && svg.trim().startsWith('<svg')) {
+          return { mode: 'svg', svg: injectSvgIds(svg.trim()) }
+        }
+      }
+      const dataUri = svc?.readFileAsDataUri?.(filePath)
       if (dataUri) return { mode: 'img', src: dataUri }
     } catch {
       /* ignore */

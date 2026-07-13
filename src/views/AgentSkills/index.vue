@@ -10,7 +10,13 @@ import {
   KeySelectedAgentPlatformId,
   KeyIsAgentSkillsDirty,
 } from '../../inject-keys'
-import { detectPlatforms, getPlatformPath, defaultPlatforms } from '../../data/platforms'
+import {
+  detectPlatforms,
+  getPlatformPath,
+  getDefaultPlatformOrder,
+  platformDisplayIcon,
+  findPlatformById,
+} from '../../data/platforms'
 import { storage } from '../../utils/storage'
 import { isChineseContent } from '../../utils/translate'
 import { useSettings } from '../../composables/useSettings'
@@ -24,6 +30,8 @@ import DeployModal from '../../components/DeployModal.vue'
 import { cacheVersion as translationCacheVersion } from '../../composables/useTranslationQueue'
 import { getSkillsRepoDir } from '../../utils/skill-path'
 import { safeRemovePath } from '../../utils/fs-ops'
+import { uninstallPathAndRecord } from '../../utils/skill-install-status'
+import { formatSkillLifecycleWarnings } from '../../utils/skill-lifecycle'
 
 const props = defineProps<{ initialPlatformId?: string }>()
 const emit = defineEmits(['navigate'])
@@ -56,7 +64,7 @@ function getSkillId(skill: SkillScanResult): string {
 
 function findCachedSkill(skill: any): Skill | null {
   const id = getSkillId(skill)
-  const cached = storage.getCachedSkills()
+  const cached = storage.getDownloadedSkills()
   const downloadedSet = storage.getDownloadedSet()
   const found = cached.find((s) => s.id === id && downloadedSet.has(s.id))
   if (found) return found
@@ -147,20 +155,27 @@ const platformItems = computed(() =>
   })),
 )
 
-onMounted(() => {
-  storage.cleanStaleCachedSkills()
-  const allPlatforms = detectPlatforms()
-  const savedConfigs = storage.getPlatformConfigs()
-  const installedPlatforms = allPlatforms.filter((p) => {
-    if (!p.detected) return false
-    const savedConfig = savedConfigs.find((c) => c.id === p.id)
-    return savedConfig ? savedConfig.enabled : p.enabled
-  })
+function platformIconForSwitcher(item: { id: string } | null | undefined): string {
+  if (!item?.id) return '_generic'
+  const full =
+    findPlatformById(item.id) ||
+    detectedPlatforms.value.find((p) => p.id === item.id) ||
+    unref(allPlatforms).find((p: any) => p.id === item.id)
+  return platformDisplayIcon(full || { id: item.id })
+}
+
+function loadDetectedPlatforms(): PlatformInfo[] {
+  const installedPlatforms = detectPlatforms().filter((p) => p.detected && p.enabled !== false)
   const platformOrder = storage.getPlatformOrder()
-  const orderToUse = platformOrder.length ? platformOrder : defaultPlatforms.map((p) => p.id)
+  const orderToUse = platformOrder.length ? platformOrder : getDefaultPlatformOrder()
   const orderMap = new Map(orderToUse.map((id, idx) => [id, idx]))
   installedPlatforms.sort((a, b) => (orderMap.get(a.id) ?? Infinity) - (orderMap.get(b.id) ?? Infinity))
-  detectedPlatforms.value = installedPlatforms
+  return installedPlatforms
+}
+
+onMounted(() => {
+  storage.cleanStaleDownloadedSkills()
+  detectedPlatforms.value = loadDetectedPlatforms()
   const savedState = storage.getPageState('agent-skills')
   if (savedState?.platformId && detectedPlatforms.value.some((p) => p.id === savedState.platformId))
     selectedId.value = savedState.platformId
@@ -170,18 +185,7 @@ onMounted(() => {
 })
 
 onActivated(() => {
-  const allPlatforms = detectPlatforms()
-  const savedConfigs = storage.getPlatformConfigs()
-  const installedPlatforms = allPlatforms.filter((p) => {
-    if (!p.detected) return false
-    const savedConfig = savedConfigs.find((c) => c.id === p.id)
-    return savedConfig ? savedConfig.enabled : p.enabled
-  })
-  const platformOrder = storage.getPlatformOrder()
-  const orderToUse = platformOrder.length ? platformOrder : defaultPlatforms.map((p) => p.id)
-  const orderMap = new Map(orderToUse.map((id, idx) => [id, idx]))
-  installedPlatforms.sort((a, b) => (orderMap.get(a.id) ?? Infinity) - (orderMap.get(b.id) ?? Infinity))
-  detectedPlatforms.value = installedPlatforms
+  detectedPlatforms.value = loadDetectedPlatforms()
 
   if (isAgentSkillsDirty.value) {
     isAgentSkillsDirty.value = false
@@ -328,6 +332,17 @@ function openFolder(skill: any) {
   } catch {}
 }
 
+function openPlatformFolder() {
+  const p = selectedPlatform.value
+  if (!p) return
+  const dir = getPlatformPath(p, 'global') || getPlatformPath(p, 'project')
+  if (dir) {
+    try {
+      window.services.openFolder(dir)
+    } catch {}
+  }
+}
+
 function skillToSkill(skill: any): Skill {
   const cached = findCachedSkill(skill)
   if (cached) return { ...cached, skillDir: skill.dir || '', readme: skill.content || cached.readme || '' } as any
@@ -366,7 +381,7 @@ async function importSkillToMy(skill: any) {
     const targetDir = getSkillsRepoDir(id)
     window.services.mkdir(targetDir)
     window.services.copyFile(skill.dir, targetDir)
-    const cached = storage.getCachedSkills()
+    const cached = storage.getDownloadedSkills()
     if (!cached.some((s) => s.id === id)) {
       const manifest = skill.manifest || { name: id, description: '', author: '', tags: [] }
       cached.push({
@@ -378,7 +393,7 @@ async function importSkillToMy(skill: any) {
         source: 'local',
         path: skill.dir || '',
       })
-      storage.saveCachedSkills(cached)
+      storage.saveDownloadedSkills(cached)
     }
     storage.addDownloadedId(id)
     storage.addSessionDownload(id, skill.manifest?.name || skill.name, 'agent')
@@ -400,17 +415,30 @@ function executeUninstallByScope() {
     return
   }
 
-  const rm = safeRemovePath(dir)
-  if (!rm.ok) {
-    showToast(`删除失败: ${rm.error || '请检查文件权限'}`, 'error')
-    return
-  }
-
   const records = storage.getDistributeRecords().filter((r) => r.targetPath.replace(/\\/g, '/') === dir.replace(/\\/g, '/'))
-  for (const r of records) {
-    const scope = r.scope || 'global'
-    if (!selected.includes(scope)) continue
-    storage.removeDistributeRecord(r.skillId, r.platformId, r.scope)
+  const selectedRecords = records.filter((r) => selected.includes(r.scope || 'global'))
+  if (selectedRecords.length) {
+    for (const r of selectedRecords) {
+      const result = uninstallPathAndRecord({
+        targetPath: r.targetPath,
+        skillId: r.skillId,
+        skillName: uninstallScopeSkillName.value || r.skillId,
+        platformId: r.platformId,
+        scope: r.scope,
+      })
+      if (!result.ok) {
+        showToast(`删除失败: ${result.error || '请检查文件权限'}`, 'error')
+        return
+      }
+      const warning = formatSkillLifecycleWarnings('uninstall', result.warnings)
+      if (warning) showToast(warning, 'warning')
+    }
+  } else {
+    const rm = safeRemovePath(dir)
+    if (!rm.ok) {
+      showToast(`删除失败: ${rm.error || '请检查文件权限'}`, 'error')
+      return
+    }
   }
 
   refreshCurrent()
@@ -432,10 +460,28 @@ function uninstallSkill(skill: any) {
     return
   }
 
-  const rm = safeRemovePath(dir)
-  if (!rm.ok) {
-    showToast(`删除失败: ${rm.error || '请检查文件权限'}`, 'error')
-    return
+  if (allRecords.length) {
+    for (const r of allRecords) {
+      const result = uninstallPathAndRecord({
+        targetPath: r.targetPath,
+        skillId: r.skillId,
+        skillName: skill.manifest?.name || skill.name,
+        platformId: r.platformId,
+        scope: r.scope,
+      })
+      if (!result.ok) {
+        showToast(`删除失败: ${result.error || '请检查文件权限'}`, 'error')
+        return
+      }
+      const warning = formatSkillLifecycleWarnings('uninstall', result.warnings)
+      if (warning) showToast(warning, 'warning')
+    }
+  } else {
+    const rm = safeRemovePath(dir)
+    if (!rm.ok) {
+      showToast(`删除失败: ${rm.error || '请检查文件权限'}`, 'error')
+      return
+    }
   }
   refreshCurrent()
   for (const r of allRecords) storage.removeDistributeRecord(r.skillId, r.platformId, r.scope)
@@ -493,14 +539,28 @@ function executeBatchDelete() {
   let failCount = 0
   let okCount = 0
   for (const dir of selectedIds.value) {
-    const rm = safeRemovePath(dir)
-    if (!rm.ok) {
-      failCount++
-      continue
-    }
-    okCount++
+    const selectedSkill = filteredSkills.value.find((s) => s.dir === dir)
     const records = storage.getDistributeRecords().filter((r) => r.targetPath.replace(/\\/g, '/') === dir.replace(/\\/g, '/'))
-    for (const r of records) storage.removeDistributeRecord(r.skillId, r.platformId, r.scope)
+    let failed = false
+    if (records.length) {
+      for (const r of records) {
+        const result = uninstallPathAndRecord({
+          targetPath: r.targetPath,
+          skillId: r.skillId,
+          skillName: selectedSkill?.manifest?.name || selectedSkill?.name || r.skillId,
+          platformId: r.platformId,
+          scope: r.scope,
+        })
+        if (!result.ok) failed = true
+        const warning = formatSkillLifecycleWarnings('uninstall', result.warnings)
+        if (warning) showToast(warning, 'warning')
+      }
+    } else {
+      const rm = safeRemovePath(dir)
+      if (!rm.ok) failed = true
+    }
+    if (failed) failCount++
+    else okCount++
   }
   if (failCount > 0 && okCount > 0) {
     showToast(`${okCount} 个已删除，${failCount} 个失败`, 'warning')
@@ -528,7 +588,7 @@ const filteredMySkills = computed(() => {
 })
 
 function openImportModal() {
-  allCachedSkills.value = storage.getCachedSkills()
+  allCachedSkills.value = storage.getDownloadedSkills()
   selectedImportIds.value = new Set()
   importSearch.value = ''
   refreshPlatformSkillsForImport()
@@ -806,12 +866,33 @@ function confirmImportFromMy() {
         @select="selectPlatform(detectedPlatforms.find((p) => p.id === $event)!)"
       >
         <template #trigger-prefix="{ item }">
-          <ProviderIcon v-if="item" :icon="item.id" :size="22" variant="mono" />
+          <ProviderIcon v-if="item" :icon="platformIconForSwitcher(item)" :size="22" variant="mono" />
         </template>
         <template #item-prefix="{ item }">
-          <ProviderIcon :icon="item.id" :size="18" variant="mono" />
+          <ProviderIcon :icon="platformIconForSwitcher(item)" :size="18" variant="mono" />
         </template>
       </QuickSwitcher>
+      <div class="as-filter-actions">
+        <button
+          class="toolbar-icon-btn"
+          title="打开文件夹"
+          :disabled="!selectedPlatform"
+          @click="openPlatformFolder"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+          </svg>
+        </button>
+      </div>
     </div>
 
     <div class="filter-tabs">
@@ -1285,13 +1366,20 @@ function confirmImportFromMy() {
 .as-filter-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   padding: 14px 28px 0;
   flex-wrap: wrap;
 }
 
 .as-filter-row .quick-switcher {
   width: 240px;
+  flex-shrink: 0;
+}
+
+.as-filter-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   flex-shrink: 0;
 }
 

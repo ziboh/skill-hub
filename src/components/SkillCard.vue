@@ -2,6 +2,7 @@
 import { computed, ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { getAvatarColor } from '../utils/color'
 import ProviderIcon from './ProviderIcon.vue'
+import { findPlatformById, platformDisplayIcon } from '../data/platforms'
 
 const props = withDefaults(
   defineProps<{
@@ -57,6 +58,10 @@ const avatarColor = computed(() => getAvatarColor(props.name))
 const avatarLetter = computed(() => props.name?.charAt(0)?.toUpperCase() || '?')
 
 const hasTwoRows = computed(() => props.installedPlatforms.length > iconRowCount.value)
+
+function platformIconKey(platformId: string): string {
+  return platformDisplayIcon(findPlatformById(platformId) || { id: platformId })
+}
 
 const iconsContainerRef = ref<HTMLElement | null>(null)
 const iconRowCount = ref(6)
@@ -122,10 +127,22 @@ watch(
         :class="{ 'two-rows': hasTwoRows }"
       >
         <div class="icons-row icons-row-first">
-          <ProviderIcon v-for="p in installedPlatforms.slice(0, iconRowCount)" :key="'pi-' + p" :icon="p" :size="16" variant="mono" />
+          <ProviderIcon
+            v-for="p in installedPlatforms.slice(0, iconRowCount)"
+            :key="'pi-' + p"
+            :icon="platformIconKey(p)"
+            :size="16"
+            variant="mono"
+          />
         </div>
         <div v-if="installedPlatforms.length > iconRowCount" class="icons-row icons-row-second">
-          <ProviderIcon v-for="p in installedPlatforms.slice(iconRowCount)" :key="'pi-' + p" :icon="p" :size="16" variant="mono" />
+          <ProviderIcon
+            v-for="p in installedPlatforms.slice(iconRowCount)"
+            :key="'pi-' + p"
+            :icon="platformIconKey(p)"
+            :size="16"
+            variant="mono"
+          />
         </div>
       </div>
       <div class="card-top-right">

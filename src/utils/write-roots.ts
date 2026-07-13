@@ -16,7 +16,9 @@ export function collectWriteRoots(opts?: { projects?: RegisteredProject[]; platf
   try {
     const ud = typeof window !== 'undefined' ? window.ztools?.getPath?.('userData') : null
     if (ud) add(ud)
-  } catch {}
+  } catch (e) {
+    console.warn('[write-roots] getPath userData failed:', e)
+  }
 
   try {
     const home = typeof window !== 'undefined' ? window.services?.homeDir?.() : null
@@ -24,7 +26,9 @@ export function collectWriteRoots(opts?: { projects?: RegisteredProject[]; platf
       add(`${home}/.cache/skill-hub`)
       add(`${home}\\.cache\\skill-hub`)
     }
-  } catch {}
+  } catch (e) {
+    console.warn('[write-roots] homeDir failed:', e)
+  }
 
   const projects = opts?.projects ?? storage.getRegisteredProjects()
   for (const p of projects) {
@@ -37,32 +41,30 @@ export function collectWriteRoots(opts?: { projects?: RegisteredProject[]; platf
     (() => {
       try {
         return detectPlatforms()
-      } catch {
+      } catch (e) {
+        console.warn('[write-roots] detectPlatforms failed:', e)
         return defaultPlatforms
       }
     })()
 
-  const savedConfigs = storage.getPlatformConfigs()
   for (const p of platforms) {
-    const cfg = savedConfigs.find((c) => c.id === p.id)
-    const merged: PlatformInfo = cfg
-      ? { ...p, customPath: cfg.customPath, customProjectPath: cfg.customProjectPath, enabled: cfg.enabled ?? p.enabled }
-      : p
-    add(getPlatformPath(merged, 'global'))
+    add(getPlatformPath(p, 'global'))
     // Platform root (parent of skills) — deploy may mkdir intermediate dirs
-    if (merged.rootDir) {
+    if (p.rootDir) {
       try {
         const svc = typeof window !== 'undefined' ? window.services : null
         const osKey = svc?.isWindows?.() ? 'win32' : svc?.isMacOS?.() ? 'darwin' : 'linux'
-        const root = merged.rootDir[osKey as 'darwin' | 'win32' | 'linux'] || merged.rootDir.linux
+        const root = p.rootDir[osKey as 'darwin' | 'win32' | 'linux'] || p.rootDir.linux
         if (root) {
           const expanded = root.replace(/^~/, svc?.homeDir?.() || '~')
           add(expanded)
         }
-      } catch {}
+      } catch (e) {
+        console.warn('[write-roots] expand platform root failed:', p.id, e)
+      }
     }
-    if (merged.customPath) add(merged.customPath.replace(/^~/, window.services?.homeDir?.() || '~'))
-    if (merged.defaultPath) add(merged.defaultPath.replace(/^~/, window.services?.homeDir?.() || '~'))
+    if (p.customPath) add(p.customPath.replace(/^~/, window.services?.homeDir?.() || '~'))
+    if (p.defaultPath) add(p.defaultPath.replace(/^~/, window.services?.homeDir?.() || '~'))
   }
 
   return [...roots]

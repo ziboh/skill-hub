@@ -6,6 +6,7 @@ import type { Skill, InstallMode } from '../types'
 import ProviderIcon from './ProviderIcon.vue'
 import { getAvatarColor } from '../utils/color'
 import { getDeployPlatforms, resolveSkillSourceDir, deploySkillToGlobalPlatform } from '../utils/skill-deploy'
+import { platformDisplayIcon } from '../data/platforms'
 
 const props = defineProps<{
   skills: Skill[]
@@ -196,7 +197,7 @@ async function deploy() {
               @click="!deploying && togglePlatform(p.id)"
             >
               <div class="deploy-platform-icon">
-                <ProviderIcon :icon="p.id" :size="28" variant="mono" />
+                <ProviderIcon :icon="platformDisplayIcon(p)" :size="28" variant="mono" />
               </div>
               <div class="deploy-platform-info">
                 <span class="deploy-platform-name">{{ p.name }}</span>

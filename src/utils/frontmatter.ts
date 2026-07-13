@@ -132,7 +132,29 @@ export function parseFrontmatter(text: string): Record<string, string> {
         const { blockLines, nextI } = collectBlockLines(lines, i + 1)
         i = nextI - 1
         val = style === '>' ? processFoldedBlock(blockLines, chomp) : processLiteralBlock(blockLines)
-      } else if (val === '' || val === '""' || val === "''") {
+      } else if (val === '' || val === '""' || val === "''" || val === '[]') {
+        // YAML list form for tags:
+        // tags:
+        //   - foo
+        //   - bar
+        if (key === 'tags' && i + 1 < lines.length && /^\s*-\s+/.test(lines[i + 1])) {
+          const listTags: string[] = []
+          let j = i + 1
+          while (j < lines.length) {
+            const item = lines[j].match(/^\s*-\s+(.+)$/)
+            if (!item) break
+            let t = item[1].trim()
+            const q = tryParseQuotedValue(t)
+            if (q !== null) t = q
+            if (t) listTags.push(t)
+            j++
+          }
+          if (listTags.length) {
+            fm[key] = listTags.join(', ')
+            i = j
+            continue
+          }
+        }
         if (i + 1 < lines.length && (lines[i + 1].startsWith(' ') || lines[i + 1].startsWith('\t'))) {
           const { blockLines, nextI } = collectIndentedLines(lines, i + 1)
           i = nextI - 1

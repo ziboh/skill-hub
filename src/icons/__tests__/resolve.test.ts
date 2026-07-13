@@ -69,6 +69,18 @@ describe('resolveIcon', () => {
     expect(r).toEqual({ mode: 'img', src: 'data:image/png;base64,xx' })
   })
 
+  test('local svg uses readFile for inline svg', async () => {
+    const g = globalThis as any
+    if (!g.window) g.window = {}
+    g.window.services = {
+      readFile: (p: string) => (p.endsWith('.svg') ? '<svg id="x"></svg>' : ''),
+      readFileAsDataUri: () => null,
+    }
+    const r = await resolveIcon(parseIcon('C:\\tmp\\icon.svg'))
+    expect(r.mode).toBe('svg')
+    if (r.mode === 'svg') expect(r.svg).toContain('<svg')
+  })
+
   test('unknown key empty', async () => {
     expect(await resolveIcon(parseIcon('no-such-icon'))).toEqual({ mode: 'empty' })
   })

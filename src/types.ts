@@ -42,6 +42,10 @@ export interface PlatformInfo {
   enabled: boolean
   detected: boolean
   notes?: string
+  /** User-defined platform (not in defaultPlatforms) */
+  isCustom?: boolean
+  /** Icon key / path / URL for ProviderIcon; falls back to id */
+  icon?: string
 }
 
 export interface DistributeRecord {

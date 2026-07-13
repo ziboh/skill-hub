@@ -2,18 +2,26 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import ProviderIcon from './ProviderIcon.vue'
 import { AVAILABLE_ICONS } from '../data/ai-providers'
+import { listRegisteredIconIds } from '../icons'
+import { defaultPlatforms } from '../data/platforms'
 
 import { storage } from '../utils/storage'
 import type { UserIconEntry } from '../types'
+
+/** Which built-in icon set the library tab shows. */
+export type IconLibraryPreset = 'providers' | 'platforms' | 'all'
 
 const props = withDefaults(
   defineProps<{
     modelValue?: string
     defaultIcon?: string
+    /** providers = AI 供应商；platforms = Agent 平台；all = 两者 */
+    library?: IconLibraryPreset
   }>(),
   {
     modelValue: '',
     defaultIcon: '',
+    library: 'providers',
   },
 )
 
@@ -27,13 +35,105 @@ const searchQuery = ref('')
 const urlInput = ref('')
 const userIcons = ref<UserIconEntry[]>([])
 
-const filteredIcons = computed(() => {
-  const q = searchQuery.value.toLowerCase().trim()
-  if (!q) return AVAILABLE_ICONS
-  return AVAILABLE_ICONS.filter((name) => name.includes(q))
+const platformNameById = computed(() => {
+  const map = new Map<string, string>()
+  for (const p of defaultPlatforms) map.set(p.id, p.name)
+  map.set('kilo-light', 'Kilo')
+  map.set('codebuddy-light', 'CodeBuddy')
+  map.set('skills-sh', 'skills.sh')
+  map.set('qoderwork', 'Qoder Work')
+  return map
 })
 
-const previewIcon = computed(() => props.modelValue || props.defaultIcon || 'store:git-repo')
+/** Keys that represent the "default" tile — never list again in the grid. */
+const DEFAULT_ICON_ALIASES = new Set(['', '_generic', 'generic', 'platforms:generic', 'platforms:_generic'])
+
+function bareIconId(name: string): string {
+  if (!name) return ''
+  if (name.includes(':')) return name.split(':').pop() || name
+  return name
+}
+
+function isDefaultLibraryIcon(name: string): boolean {
+  if (DEFAULT_ICON_ALIASES.has(name)) return true
+  const bare = bareIconId(name)
+  if (bare === 'generic' || bare === '_generic') return true
+  const def = props.defaultIcon || ''
+  if (!def) return false
+  return name === def || bareIconId(name) === bareIconId(def)
+}
+
+/** Resolved key used only for preview of the default tile. */
+const resolvedDefaultIcon = computed(() => {
+  if (props.defaultIcon) return props.defaultIcon
+  if (props.library === 'platforms') return '_generic'
+  return 'store:git-repo'
+})
+
+/** Platform asset ids from registry + stable aliases used as platform.id (no default/generic). */
+const platformLibraryIds = computed(() => {
+  const ids = listRegisteredIconIds('platforms').filter((id) => id !== 'skills-sh-favicon')
+  const out = new Set<string>()
+  for (const id of ids) {
+    if (id === 'generic' || id === '_generic') continue
+    if (id.endsWith('-light')) {
+      out.add(id.replace(/-light$/, ''))
+      continue
+    }
+    out.add(id)
+  }
+  for (const id of ['kilo', 'codebuddy', 'trae-cn']) out.add(id)
+  return [...out].filter((id) => !isDefaultLibraryIcon(id)).sort((a, b) => a.localeCompare(b))
+})
+
+const libraryIcons = computed(() => {
+  let list: string[]
+  if (props.library === 'platforms') list = platformLibraryIds.value
+  else if (props.library === 'all') list = [...new Set([...AVAILABLE_ICONS, ...platformLibraryIds.value])]
+  else list = [...AVAILABLE_ICONS]
+  // Never show the default icon again under another name
+  return list.filter((name) => !isDefaultLibraryIcon(name))
+})
+
+const filteredIcons = computed(() => {
+  const q = searchQuery.value.toLowerCase().trim()
+  if (!q) return libraryIcons.value
+  return libraryIcons.value.filter((name) => {
+    const label = iconLabel(name).toLowerCase()
+    return name.toLowerCase().includes(q) || label.includes(q)
+  })
+})
+
+function iconLabel(name: string): string {
+  if (props.library === 'platforms' || name.startsWith('platforms:')) {
+    const bare = bareIconId(name)
+    return platformNameById.value.get(bare) || bare
+  }
+  return name
+}
+
+const previewIcon = computed(() => props.modelValue || resolvedDefaultIcon.value)
+
+const librarySearchPlaceholder = computed(() => {
+  if (props.library === 'platforms') return '搜索 Agent 平台图标...'
+  if (props.library === 'all') return '搜索图标...'
+  return '搜索图标...'
+})
+
+/** Store-type shortcuts; skip any that equal the current default. */
+const storeShortcutIcons = computed(() => {
+  if (props.library === 'platforms') return [] as { id: string; label: string }[]
+  const all = [
+    { id: 'store:git-repo', label: 'Git' },
+    { id: 'store:marketplace-json', label: 'Market' },
+    { id: 'store:well-known-index', label: 'Well-Known' },
+    { id: 'store:local-dir', label: 'Folder' },
+    { id: 'store:claude', label: 'Claude' },
+    { id: 'store:codex', label: 'Codex' },
+    { id: 'store:skills-sh', label: 'skills.sh' },
+  ]
+  return all.filter((s) => !isDefaultLibraryIcon(s.id))
+})
 
 function loadUserIcons() {
   userIcons.value = storage.getUserIcons()
@@ -171,81 +271,40 @@ function clearIcon() {
             <circle cx="11" cy="11" r="8" />
             <path d="M21 21l-4.35-4.35" />
           </svg>
-          <input v-model="searchQuery" type="text" class="sip-search-input" placeholder="搜索图标..." />
+          <input v-model="searchQuery" type="text" class="sip-search-input" :placeholder="librarySearchPlaceholder" />
         </div>
         <div class="sip-grid">
-          <div class="sip-grid-item" :class="{ active: !modelValue }" title="默认（根据类型自动选择）" @click="selectDefault">
-            <ProviderIcon :icon="defaultIcon || 'store:git-repo'" :size="24" />
+          <!-- 始终第一项：默认（清空自定义 = 使用 defaultIcon） -->
+          <div
+            class="sip-grid-item"
+            :class="{ active: !modelValue }"
+            title="默认"
+            @click="selectDefault"
+          >
+            <ProviderIcon :icon="resolvedDefaultIcon" :size="24" />
             <span class="sip-grid-label">默认</span>
           </div>
           <div
+            v-for="s in storeShortcutIcons"
+            :key="s.id"
             class="sip-grid-item"
-            :class="{ active: modelValue === 'store:git-repo' }"
-            title="Git 仓库"
-            @click="selectIcon('store:git-repo')"
+            :class="{ active: modelValue === s.id }"
+            :title="s.label"
+            @click="selectIcon(s.id)"
           >
-            <ProviderIcon icon="store:git-repo" :size="24" />
-            <span class="sip-grid-label">Git</span>
-          </div>
-          <div
-            class="sip-grid-item"
-            :class="{ active: modelValue === 'store:marketplace-json' }"
-            title="Marketplace"
-            @click="selectIcon('store:marketplace-json')"
-          >
-            <ProviderIcon icon="store:marketplace-json" :size="24" />
-            <span class="sip-grid-label">Market</span>
-          </div>
-          <div
-            class="sip-grid-item"
-            :class="{ active: modelValue === 'store:well-known-index' }"
-            title="Well-Known"
-            @click="selectIcon('store:well-known-index')"
-          >
-            <ProviderIcon icon="store:well-known-index" :size="24" />
-            <span class="sip-grid-label">Well-Known</span>
-          </div>
-          <div
-            class="sip-grid-item"
-            :class="{ active: modelValue === 'store:local-dir' }"
-            title="本地目录"
-            @click="selectIcon('store:local-dir')"
-          >
-            <ProviderIcon icon="store:local-dir" :size="24" />
-            <span class="sip-grid-label">Folder</span>
-          </div>
-          <div
-            class="sip-grid-item"
-            :class="{ active: modelValue === 'store:claude' }"
-            title="Claude Code"
-            @click="selectIcon('store:claude')"
-          >
-            <ProviderIcon icon="store:claude" :size="24" />
-            <span class="sip-grid-label">Claude</span>
-          </div>
-          <div class="sip-grid-item" :class="{ active: modelValue === 'store:codex' }" title="Codex" @click="selectIcon('store:codex')">
-            <ProviderIcon icon="store:codex" :size="24" />
-            <span class="sip-grid-label">Codex</span>
-          </div>
-          <div
-            class="sip-grid-item"
-            :class="{ active: modelValue === 'store:skills-sh' }"
-            title="skills.sh"
-            @click="selectIcon('store:skills-sh')"
-          >
-            <ProviderIcon icon="store:skills-sh" :size="24" />
-            <span class="sip-grid-label">skills.sh</span>
+            <ProviderIcon :icon="s.id" :size="24" />
+            <span class="sip-grid-label">{{ s.label }}</span>
           </div>
           <div
             v-for="name in filteredIcons"
             :key="name"
             class="sip-grid-item"
-            :class="{ active: modelValue === name }"
-            :title="name"
+            :class="{ active: modelValue === name || modelValue === `platforms:${name}` }"
+            :title="iconLabel(name)"
             @click="selectIcon(name)"
           >
             <ProviderIcon :icon="name" :size="24" />
-            <span class="sip-grid-label">{{ name }}</span>
+            <span class="sip-grid-label">{{ iconLabel(name) }}</span>
           </div>
         </div>
       </template>
@@ -307,6 +366,10 @@ function clearIcon() {
 
 <style scoped>
 .store-icon-picker {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 100%;
   border: 1px solid hsl(var(--border));
   border-radius: 10px;
   background: hsl(var(--muted));
@@ -318,6 +381,7 @@ function clearIcon() {
   align-items: center;
   justify-content: space-between;
   padding: 10px 14px;
+  flex-shrink: 0;
 }
 
 .sip-label {
@@ -359,6 +423,7 @@ function clearIcon() {
   padding: 12px 14px;
   border-top: 1px solid hsl(var(--border) / 0.5);
   border-bottom: 1px solid hsl(var(--border) / 0.5);
+  flex-shrink: 0;
 }
 
 .sip-preview-icon {
@@ -383,6 +448,7 @@ function clearIcon() {
   display: flex;
   gap: 2px;
   padding: 8px 10px 0;
+  flex-shrink: 0;
 }
 
 .sip-tab {
@@ -411,7 +477,12 @@ function clearIcon() {
 }
 
 .sip-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
   padding: 10px;
+  overflow: hidden;
 }
 
 .sip-search {
@@ -424,6 +495,7 @@ function clearIcon() {
   margin-bottom: 8px;
   color: hsl(var(--muted-foreground));
   background: hsl(var(--card));
+  flex-shrink: 0;
 }
 
 .sip-search-input {
@@ -443,9 +515,14 @@ function clearIcon() {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
   gap: 4px;
-  max-height: 260px;
+  flex: 1;
+  min-height: 160px;
+  max-height: min(320px, 50vh);
   overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
   padding: 4px;
+  -webkit-overflow-scrolling: touch;
 }
 
 .sip-grid-item {

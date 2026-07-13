@@ -140,8 +140,8 @@ function _isSkillInQueue(skill: Skill): boolean {
   return !!(fh && isInQueue(fh, 'content')) || !!(fh && isInQueue(fh, 'desc'))
 }
 
-function hasTranslatingItem(hash: string) {
-  return queue.value.some((i) => i.hash === hash && i.status === 'translating')
+function hasTranslatingItem(hash: string, type: 'content' | 'desc') {
+  return queue.value.some((i) => i.hash === hash && i.type === type && i.status === 'translating')
 }
 
 const translationModel = computed((): ModelConfig | null => {
@@ -169,7 +169,7 @@ const translationModel = computed((): ModelConfig | null => {
 const filteredSkills = computed(() => {
   let source: Skill[]
   if (translateScope.value === 'all') {
-    source = props.allSkills || storage.getCachedSkills().filter((s) => storage.isDownloaded(s.id))
+    source = props.allSkills || storage.getDownloadedSkills().filter((s) => storage.isDownloaded(s.id))
   } else if (translateScope.value === 'project' && isProjectPage.value) {
     source = props.allProjectSkills || []
   } else if (translateScope.value === 'current' && isProjectPage.value) {
@@ -179,7 +179,7 @@ const filteredSkills = computed(() => {
   } else if (translateScope.value === 'agent' && isAgentPage.value) {
     source = props.agentPlatformSkills || []
   } else {
-    source = props.currentSkills || storage.getCachedSkills().filter((s) => storage.isDownloaded(s.id))
+    source = props.currentSkills || storage.getDownloadedSkills().filter((s) => storage.isDownloaded(s.id))
   }
   const seen = new Set<string>()
   return source.filter((skill) => {
@@ -241,7 +241,7 @@ watch(filteredSkills, _recalcStatusCounts)
 
 const pendingCount = computed(() => statusCounts.value.pending)
 
-function translateSkill(skill: Skill) {
+function translateSkill(skill: Skill, force = false) {
   if (!translationModel.value) return
 
   const types: ('desc' | 'content')[] = []
@@ -252,8 +252,12 @@ function translateSkill(skill: Skill) {
     const fh = getFileHash(skill)
     if (!fh) continue
     if (isInQueue(fh, type)) continue
-    if (type === 'desc' && getDescTranslation(skill)) continue
-    if (type === 'content' && storage.getTranslationByHash(fh)) continue
+    if (force) {
+      storage.removeTranslationByHash(fh, type)
+    } else {
+      if (type === 'desc' && getDescTranslation(skill)) continue
+      if (type === 'content' && storage.getTranslationByHash(fh)?.translatedContent) continue
+    }
 
     const text = type === 'content' ? (getSkillContent(skill) ?? undefined) : skill.description
     addTranslation(fh, type, skill.name, text)
@@ -280,7 +284,7 @@ async function translateAll() {
       if (translateType.value === 'content' || translateType.value === 'both') {
         if (fh && !isInQueue(fh, 'content')) {
           const cached = storage.getTranslationByHash(fh)
-          if (!cached && !isChineseContent(getSkillContent(skill) || '')) {
+          if (!cached?.translatedContent && !isChineseContent(getSkillContent(skill) || '')) {
             addTranslation(fh, 'content', skill.name, getSkillContent(skill) ?? undefined)
           }
         }
@@ -327,7 +331,8 @@ function getTranslationStatus(skill: Skill): 'pending' | 'translating' | 'queued
   const needDesc = translateType.value === 'desc' || translateType.value === 'both'
   const needContent = translateType.value === 'content' || translateType.value === 'both'
 
-  if ((needContent && fh && hasTranslatingItem(fh)) || (needDesc && fh && hasTranslatingItem(fh))) return 'translating'
+  if ((needContent && fh && hasTranslatingItem(fh, 'content')) || (needDesc && fh && hasTranslatingItem(fh, 'desc')))
+    return 'translating'
   if ((needContent && fh && isInQueue(fh, 'content')) || (needDesc && fh && isInQueue(fh, 'desc'))) return 'queued'
 
   const cv = cacheVersion.value
@@ -357,7 +362,8 @@ function getTranslationStatusWithCache(
   const needDesc = translateType.value === 'desc' || translateType.value === 'both'
   const needContent = translateType.value === 'content' || translateType.value === 'both'
 
-  if ((needContent && fh && hasTranslatingItem(fh)) || (needDesc && fh && hasTranslatingItem(fh))) return 'translating'
+  if ((needContent && fh && hasTranslatingItem(fh, 'content')) || (needDesc && fh && hasTranslatingItem(fh, 'desc')))
+    return 'translating'
   if ((needContent && fh && isInQueue(fh, 'content')) || (needDesc && fh && isInQueue(fh, 'desc'))) return 'queued'
 
   const contentValid = fh ? translationCache[fh]?.translatedContent : null
@@ -682,7 +688,7 @@ function getStatusLabel(status: string) {
                 class="translate-btn retranslate-btn"
                 :disabled="!translationModel"
                 title="重新翻译"
-                @click="translateSkill(skill)"
+                @click="translateSkill(skill, true)"
               >
                 <svg
                   width="14"

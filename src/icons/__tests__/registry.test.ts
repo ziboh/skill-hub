@@ -4,6 +4,8 @@ import {
   registerAlias,
   getIconAsset,
   resolveIconKey,
+  listRegisteredIconIds,
+  listRegisteredIconKeys,
   _resetRegistryForTest,
 } from '../registry'
 
@@ -43,5 +45,12 @@ describe('registry', () => {
   test('unknown key returns undefined', () => {
     expect(getIconAsset('nope')).toBeUndefined()
     expect(resolveIconKey('nope')).toBeUndefined()
+  })
+
+  test('listRegisteredIconIds filters by namespace', () => {
+    registerIcon('platforms', 'cursor', { type: 'src', src: '/c.png' })
+    registerIcon('providers', 'openai', { type: 'src', src: '/o.svg' })
+    expect(listRegisteredIconIds('platforms')).toEqual(['cursor'])
+    expect(listRegisteredIconKeys('providers')).toEqual(['providers:openai'])
   })
 })

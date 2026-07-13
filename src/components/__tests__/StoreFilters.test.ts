@@ -39,10 +39,12 @@ describe('StoreFilters', () => {
     expect(wrapper.text()).toContain('全部')
   })
 
-  test('hides category tabs for skills-sh when not searching', () => {
+  test('renders leaderboard tabs instead of category tabs for skills-sh', () => {
     const wrapper = createWrapper({ activePresetId: 'skills-sh', searchActive: false })
-    // leaderboard filters render instead of category tabs content "全部" with tab-count
-    expect(wrapper.findAll('.tab-btn').length).toBeGreaterThan(0)
+    const tabs = wrapper.findAll('.filter-tabs .tab-btn')
+
+    expect(tabs.map((tab) => tab.text().trim())).toEqual(['全部', '趋势', '热门'])
+    expect(wrapper.find('.tab-count').exists()).toBe(false)
   })
 
   test('emits update:searchQuery on input', async () => {

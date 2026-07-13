@@ -16,13 +16,27 @@ const builtinRules: ParseRule[] = [
   {
     id: 'url',
     order: 300,
-    test: (raw) => raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('/'),
+    // Remote URLs + Vite/public root-relative assets (e.g. /assets/xxx.png)
+    // Do NOT treat real Unix home paths as browser src — those go to local below.
+    test: (raw) => {
+      if (raw.startsWith('http://') || raw.startsWith('https://')) return true
+      if (!raw.startsWith('/')) return false
+      // Real filesystem abs paths (user-imported icons on macOS/Linux)
+      if (/^\/(Users|home|var|tmp|private|opt|root|etc)\b/i.test(raw)) return false
+      return true
+    },
     parse: (raw) => ({ kind: 'src', value: raw }),
   },
   {
     id: 'local',
     order: 400,
-    test: (raw) => /^[A-Za-z]:[\\/]/.test(raw) || raw.startsWith('\\\\'),
+    // Windows drive, UNC, home-relative, Unix abs FS paths, or relative image paths
+    test: (raw) =>
+      /^[A-Za-z]:[\\/]/.test(raw) ||
+      raw.startsWith('\\\\') ||
+      raw.startsWith('~/') ||
+      /^\/(Users|home|var|tmp|private|opt|root|etc)\b/i.test(raw) ||
+      (/^\.{0,2}[\\/]/.test(raw) && /\.(svg|png|jpe?g|gif|ico|webp)$/i.test(raw)),
     parse: (raw) => ({ kind: 'local', value: raw }),
   },
   {

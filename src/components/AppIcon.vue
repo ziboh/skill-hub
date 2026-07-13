@@ -97,15 +97,17 @@ watch(
 }
 
 .pi-mono {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  color: hsl(var(--foreground));
 }
 
 .pi-mono :deep(svg) {
   width: 100%;
   height: 100%;
+  display: block;
 }
 
 .pi-mono-img {
@@ -148,5 +150,13 @@ watch(
 [data-theme='dark'] .pi-mono :deep(svg [stroke='#222222']),
 [data-theme='dark'] .pi-mono :deep(svg [stroke='#24292F']) {
   stroke: hsl(var(--foreground));
+}
+
+/* generic.svg uses fill="#1296db" — keep visible in mono */
+.pi-mono :deep(svg),
+.pi-avatar-icon :deep(svg) {
+  max-width: 100%;
+  max-height: 100%;
+  overflow: visible;
 }
 </style>

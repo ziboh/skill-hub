@@ -5,23 +5,6 @@ beforeEach(() => {
   window.ztools.dbStorage.clear()
 })
 
-function _resetToDefaults() {
-  const { updateSettings } = useSettings()
-  updateSettings({
-    themeMode: 'auto',
-    themeColor: 'blue',
-    fontSize: 'medium',
-    motionPreference: 'standard',
-    compactMode: false,
-    defaultInstallMode: 'copy',
-    githubToken: '',
-    theme: 'auto',
-    aiModels: [],
-    translationModelId: '',
-    autoTranslate: false,
-  })
-}
-
 describe('useSettings', () => {
   test('settings has default values', () => {
     const { settings } = useSettings()

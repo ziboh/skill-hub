@@ -25,7 +25,7 @@ import {
   ICON_SHEETS,
 } from './skill-builtin-assets'
 import skillsShIcon from '../assets/platforms/skills-sh-favicon.ico'
-import claudeIcon from '../assets/platforms/claude.png'
+import claudeCodeIcon from '../assets/platforms/claude.svg?raw'
 import codexIcon from '../assets/platforms/codex.png'
 
 const providerModules = import.meta.glob<string>('/src/assets/providers/*.svg', {
@@ -78,12 +78,13 @@ for (const path of Object.keys(platformPngModules)) {
 }
 
 // Explicit store/platform presets (stable ids used by STORE_ICONS)
+// platforms:claude = Claude Code product icon (not Anthropic/company mark)
 registerIcon('platforms', 'skills-sh', { type: 'src', src: skillsShIcon })
-registerIcon('platforms', 'claude', { type: 'src', src: claudeIcon })
+registerIcon('platforms', 'claude', { type: 'inline-svg', svg: claudeCodeIcon })
 registerIcon('platforms', 'codex', { type: 'src', src: codexIcon })
 
 registerIcon('store', 'skills-sh', { type: 'src', src: skillsShIcon })
-registerIcon('store', 'claude', { type: 'src', src: claudeIcon })
+registerIcon('store', 'claude', { type: 'inline-svg', svg: claudeCodeIcon })
 registerIcon('store', 'codex', { type: 'src', src: codexIcon })
 
 const storeDefaults: Record<string, string> = {
@@ -101,6 +102,7 @@ for (const [id, svg] of Object.entries(storeDefaults)) {
 
 // Aliases match ProviderIcon ICON_ALIAS; namespaces follow actual asset locations
 registerAlias('_generic', 'platforms:generic')
+registerAlias('generic', 'platforms:generic')
 registerAlias('siliconcloud', 'providers:silicon')
 registerAlias('chatglm', 'providers:zhipu')
 registerAlias('kilo', 'platforms:kilo-light')

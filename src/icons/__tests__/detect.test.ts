@@ -22,13 +22,18 @@ describe('parseIcon', () => {
     expect(parseIcon('data:image/png;base64,xx').kind).toBe('src')
     expect(parseIcon('https://a.com/i.png')).toEqual({ kind: 'src', value: 'https://a.com/i.png' })
     expect(parseIcon('http://a.com/i.png').kind).toBe('src')
-    expect(parseIcon('/app-icon.png')).toEqual({ kind: 'src', value: '/app-icon.png' })
+    // Vite / public assets
+    expect(parseIcon('/assets/claude.svg')).toEqual({ kind: 'src', value: '/assets/claude.svg' })
+    expect(parseIcon('/src/assets/platforms/codex.png').kind).toBe('src')
   })
 
-  test('windows and unc local paths', () => {
+  test('windows, unc, posix and image-ext local paths', () => {
     expect(parseIcon('C:\\Users\\a\\icon.png')).toEqual({ kind: 'local', value: 'C:\\Users\\a\\icon.png' })
     expect(parseIcon('D:/icons/a.png').kind).toBe('local')
     expect(parseIcon('\\\\server\\share\\a.png').kind).toBe('local')
+    expect(parseIcon('/home/user/icon.png').kind).toBe('local')
+    expect(parseIcon('/Users/a/Library/icon.png').kind).toBe('local')
+    expect(parseIcon('~/icons/a.svg').kind).toBe('local')
   })
 
   test('bare keys and store: prefix are key', () => {

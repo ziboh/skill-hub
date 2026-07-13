@@ -34,6 +34,7 @@ const {
 const { downloadFile } = require('./lib/github-http')
 const { extractBufferZip } = require('./lib/zip')
 const { scanForSkills, scanForSkillFiles, parseSkillFile } = require('./lib/scan')
+const { deployPlatformSkill, uninstallPlatformSkill } = require('./lib/platform-deploy')
 const {
   getLatestCommitSha,
   getRemoteSkillTree,
@@ -90,6 +91,8 @@ window.services = {
   scanForSkills,
   scanForSkillFiles,
   parseSkillFile,
+  deployPlatformSkill,
+  uninstallPlatformSkill,
   getLatestCommitSha,
   getRemoteSkillTree,
   saveSkillMeta,

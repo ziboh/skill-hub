@@ -1,7 +1,6 @@
-import { describe, test, expect, vi, afterEach } from 'vitest'
+import { describe, test, expect, vi, afterEach, beforeEach } from 'vitest'
 import { mount, VueWrapper } from '@vue/test-utils'
 import SkillDetailModal from '../SkillDetailModal.vue'
-import {} from 'vue'
 import { storage } from '../../utils/storage'
 import { KeyShowToast, KeyRefreshCounts } from '../../inject-keys'
 
@@ -81,6 +80,11 @@ function createSkill(overrides = {}) {
 describe('SkillDetailModal', () => {
   let wrapper: VueWrapper
 
+  beforeEach(() => {
+    vi.mocked(storage.getDownloadedIds).mockReturnValue([])
+    vi.mocked(storage.getFavoriteIds).mockReturnValue([])
+  })
+
   afterEach(() => {
     wrapper?.unmount()
     vi.clearAllMocks()
@@ -155,10 +159,16 @@ describe('SkillDetailModal', () => {
     expect(wrapper.find('.copy-md-btn').exists()).toBe(true)
   })
 
-  test('toggle favorite button exists', () => {
+  test('toggles favorite for a downloaded skill', async () => {
+    vi.mocked(storage.getDownloadedIds).mockReturnValue(['test/skill'])
     wrapper = mountModal()
-    const favBtn = wrapper.find('.toolbar-icon-btn')
+    const favBtn = wrapper.find('button[title="收藏"]')
+
     expect(favBtn.exists()).toBe(true)
+    await favBtn.trigger('click')
+
+    expect(storage.toggleFavorite).toHaveBeenCalledWith('test/skill', expect.objectContaining({ name: 'Test Skill', source: 'github' }))
+    expect(favBtn.attributes('title')).toBe('取消收藏')
   })
 
   test('renders source and category tags', () => {

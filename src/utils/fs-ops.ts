@@ -69,8 +69,9 @@ export function atomicReplaceDir(sourceDir: string, targetDir: string): void {
   }
   try {
     if (svc.pathExists(targetDir)) svc.removeFile(targetDir)
-  } catch {}
-  svc.mkdir(targetDir)
+  } catch (e) {
+    console.warn('[fs-ops] remove before replace failed:', targetDir, e)
+  }
   svc.copyFile(sourceDir, targetDir)
 }
 
@@ -82,7 +83,9 @@ export function atomicWriteDir(targetDir: string, files: Map<string, string> | R
   }
   try {
     if (svc.pathExists(targetDir)) svc.removeFile(targetDir)
-  } catch {}
+  } catch (e) {
+    console.warn('[fs-ops] remove before writeDir failed:', targetDir, e)
+  }
   svc.mkdir(targetDir)
   for (const [rel, content] of iterFiles(files)) {
     if (rel == null || rel === '') continue
