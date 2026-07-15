@@ -1,6 +1,7 @@
 import type { Skill, SkillScanResult, SkillSource } from '../types'
 import { storage } from './storage'
 import { getSkillsRepoDir } from './skill-path'
+import { getSkillSourceId } from './skill-identity'
 
 export interface FinalizeImportedSkillOptions {
   skill: Skill
@@ -87,6 +88,26 @@ export function finalizeImportedSkill(opts: FinalizeImportedSkillOptions): Skill
 
   if (skill.repo && skill.name) {
     skill.canonicalId = `${skill.repo}/${skill.name}`
+  }
+
+  if (skill.repo) {
+    skill.sourceId = getSkillSourceId({
+      id: skill.id,
+      repo: skill.repo,
+      path: skill.path,
+      source: skill.source,
+      repositoryProvider: skill.repositoryProvider || (skill.source === 'gitee' ? 'gitee' : skill.source === 'github' ? 'github' : undefined),
+      sourceUrl: skill.sourceUrl,
+    })
+  }
+
+  if (skillFile) {
+    const parsed = window.services.parseSkillFile(window.services.pathJoin(targetDir, skillFile))
+    const content = parsed?.content
+    if (typeof content === 'string' && content.trim()) {
+      const normalizedContent = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim()
+      skill.contentHash = window.services.hashContent(normalizedContent)
+    }
   }
 
   // path = source path, never skills-repo targetDir

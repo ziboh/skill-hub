@@ -23,6 +23,14 @@ export interface Skill {
   userTags?: string[]
   storeSourceId?: string
   canonicalId?: string
+  /** 具体平台、仓库和路径组成的唯一身份。 */
+  sourceId?: string
+  /** 已确认镜像共用的逻辑仓库身份。 */
+  repositoryId?: string
+  /** 规范化 SKILL.md 内容哈希，跨平台判断的最强身份。 */
+  contentHash?: string
+  /** 由索引或解析器提供并持久化的已确认身份。 */
+  identityId?: string
   branch?: string
   repositoryProvider?: 'github' | 'gitee'
   manifestFile?: string

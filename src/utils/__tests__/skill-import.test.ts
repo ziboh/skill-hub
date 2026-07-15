@@ -152,6 +152,8 @@ describe('finalizeImportedSkill sourceType', () => {
     })
 
     expect(result.canonicalId).toBe('vercel-labs/agent-skills/My Skill')
+    expect(result.sourceId).toBe('github:vercel-labs/agent-skills:skills/react-best-practices')
+    expect(result.contentHash).toBe('# My Skill')
     expect(storage.getDownloadedSkills().find((skill) => skill.id === 'vercel-labs/agent-skills/react-best-practices')?.canonicalId).toBe(
       'vercel-labs/agent-skills/My Skill',
     )

@@ -3,6 +3,8 @@ import {
   normalizeSkillNameKey,
   getSkillDisplayName,
   getSkillIdentityKey,
+  getSkillSourceId,
+  getConfirmedSkillId,
   skillsShareIdentity,
   dedupeByNameKey,
   skillMatchesInstalled,
@@ -36,6 +38,91 @@ describe('getSkillDisplayName', () => {
 })
 
 describe('canonical skill identity', () => {
+  test('creates different source ids for GitHub and Gitee mirrors', () => {
+    expect(
+      getSkillSourceId({ repositoryProvider: 'github', repo: 'Acme/Skills', path: 'skills/demo' }),
+    ).toBe('github:acme/skills:skills/demo')
+    expect(
+      getSkillSourceId({ repositoryProvider: 'gitee', repo: 'Acme/Skills', path: 'skills/demo' }),
+    ).toBe('gitee:acme/skills:skills/demo')
+  })
+
+  test('does not treat same-named GitHub and Gitee skills as the same without proof', () => {
+    expect(
+      skillsShareIdentity(
+        {
+          id: 'github/acme/skills/demo',
+          repo: 'acme/skills',
+          path: 'skills/demo',
+          repositoryProvider: 'github',
+          canonicalId: 'acme/skills/Demo',
+        },
+        {
+          id: 'gitee/acme/skills/demo',
+          repo: 'acme/skills',
+          path: 'skills/demo',
+          repositoryProvider: 'gitee',
+          canonicalId: 'acme/skills/Demo',
+        },
+      ),
+    ).toBe(false)
+  })
+
+  test('uses normalized content hash as the confirmed cross-source skill id', () => {
+    const githubSkill = {
+      id: 'github/acme/skills/demo',
+      repositoryProvider: 'github' as const,
+      repo: 'acme/skills',
+      path: 'skills/demo',
+      contentHash: 'ABC123',
+    }
+    const giteeSkill = {
+      id: 'gitee/acme/skills/demo',
+      repositoryProvider: 'gitee' as const,
+      repo: 'acme/skills',
+      path: 'skills/demo',
+      contentHash: 'abc123',
+    }
+
+    expect(getConfirmedSkillId(githubSkill)).toBe('content:abc123')
+    expect(skillsShareIdentity(githubSkill, giteeSkill)).toBe(true)
+  })
+
+  test('uses an explicit logical repository id when mirrored paths differ', () => {
+    const githubSkill = {
+      id: 'github/acme/skills/demo',
+      repositoryProvider: 'github' as const,
+      repositoryId: 'acme/skills',
+      path: 'skills/demo',
+    }
+    const giteeSkill = {
+      id: 'gitee/acme/skills/demo-cn',
+      repositoryProvider: 'gitee' as const,
+      repositoryId: 'acme/skills',
+      path: 'skills/demo-cn',
+    }
+
+    expect(getConfirmedSkillId(githubSkill)).toBe('repository:acme/skills:skills/demo')
+    expect(skillsShareIdentity(githubSkill, giteeSkill)).toBe(false)
+  })
+
+  test('matches confirmed mirrors through the same logical repository and path', () => {
+    const githubSkill = {
+      id: 'github/acme/skills/demo',
+      repositoryProvider: 'github' as const,
+      repositoryId: 'acme/skills',
+      path: 'skills/demo',
+    }
+    const giteeSkill = {
+      id: 'gitee/acme/skills/demo',
+      repositoryProvider: 'gitee' as const,
+      repositoryId: 'acme/skills',
+      path: 'skills/demo',
+    }
+
+    expect(skillsShareIdentity(githubSkill, giteeSkill)).toBe(true)
+  })
+
   test('matches source-specific ids through canonicalId', () => {
     const githubSkill = {
       id: 'vercel-labs/agent-skills/react-best-practices',

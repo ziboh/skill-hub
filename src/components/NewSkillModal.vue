@@ -95,7 +95,7 @@ async function scanGit() {
               .filter(Boolean)
           : []
         skills.push({
-          id: `${info.owner}/${info.repo}/${dirName}`,
+          id: info.provider === 'gitee' ? `gitee/${info.owner}/${info.repo}/${dirName}` : `${info.owner}/${info.repo}/${dirName}`,
           canonicalId: `${info.owner}/${info.repo}/${fm.name || dirName}`,
           name: fm.name || dirName,
           description: fm.description || '',
@@ -105,6 +105,7 @@ async function scanGit() {
           sourceUrl: getRepositoryUrl(info),
           repo: `${info.owner}/${info.repo}`,
           repositoryProvider: info.provider,
+          sourceId: `${info.provider}:${info.owner}/${info.repo}/${sd.dir}`,
           path: sd.dir,
           readme: content,
           branch,
@@ -138,7 +139,7 @@ async function importGitDirect() {
   const idPart = skillIdPart(path, info.repo)
   await importGitSkills([
     {
-      id: `${info.owner}/${info.repo}/${idPart}`,
+      id: info.provider === 'gitee' ? `gitee/${info.owner}/${info.repo}/${idPart}` : `${info.owner}/${info.repo}/${idPart}`,
       name: idPart,
       description: '',
       author: '',
@@ -147,6 +148,7 @@ async function importGitDirect() {
       sourceUrl: getRepositoryUrl(info),
       repo: `${info.owner}/${info.repo}`,
       repositoryProvider: info.provider,
+      sourceId: `${info.provider}:${info.owner}/${info.repo}/${path}`,
       path,
       branch,
     },
@@ -167,7 +169,17 @@ function isSkillImported(skill: Skill): boolean {
   const localPath = normalizeLocalPath(skill.sourceUrl || skill.path || '')
   return storage.getDownloadedSkills().some((s) => {
     if (!downloaded.has(s.id)) return false
-    if (skill.source === 'github') return skillsShareIdentity(skill, s)
+    if (skill.source === 'github') {
+      if (skillsShareIdentity(skill, s)) return true
+      // Backward compatibility for records saved before provider-aware ids.
+      if (!s.repositoryProvider && !s.sourceId && !s.repositoryId && !s.contentHash && skill.repo) {
+        const legacyId = normalizeLocalPath(s.id)
+        const repoKey = normalizeLocalPath(skill.repo)
+        const nameKey = normalizeLocalPath(skill.name)
+        return legacyId.startsWith(repoKey + '/') && (legacyId.endsWith('/' + nameKey) || normalizeLocalPath(s.name) === nameKey)
+      }
+      return false
+    }
     if (skill.source === 'local' && localPath) {
       return [s.sourceUrl, s.path].some((p) => normalizeLocalPath(p || '') === localPath)
     }

@@ -437,7 +437,7 @@ export function useStoreSkills(opts: {
       githubManifestMap.clear()
       const skeletons: Skill[] = skillDirs.map((sd) => {
         const dirName = sd.dir === '.' ? info.repo : sd.dir.split('/').pop() || sd.dir
-        const id = `${repoKey}/${dirName}`
+        const id = info.provider === 'gitee' ? `gitee/${repoKey}/${dirName}` : `${repoKey}/${dirName}`
         githubManifestMap.set(id, sd.manifestFile)
         const prev = descPool[id]
         const builtinCategory = lookupBuiltinCategory(repoKey, dirName)
@@ -452,6 +452,7 @@ export function useStoreSkills(opts: {
           sourceUrl: getRepositoryUrl(info),
           repo: repoKey,
           repositoryProvider: info.provider,
+          sourceId: `${info.provider}:${repoKey.toLowerCase()}:${sd.dir.toLowerCase()}`,
           path: sd.dir,
           category: prev?.category || builtinCategory || inferCategory(dirName, ''),
           iconUrl: lookupBuiltinIcon(repoKey, dirName),
