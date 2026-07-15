@@ -11,6 +11,12 @@ const skill = {
 }
 
 describe('StoreSkillCard', () => {
+  test('下载事件向父级透传原始点击事件', async () => {
+    const wrapper = mount(StoreSkillCard, { props: { skill }, global: { stubs: { ProviderIcon: true, UiIcon: true } } })
+    await wrapper.find('button:not([title])').trigger('click')
+    expect(wrapper.emitted('download')?.[0]?.[0]).toBeInstanceOf(MouseEvent)
+  })
+
   test('可用部分已下载的 Skill 显示前往我的 Skill 而不是删除', async () => {
     const wrapper = mount(StoreSkillCard, {
       props: { skill, isDownloaded: true },

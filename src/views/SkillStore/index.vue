@@ -20,6 +20,7 @@ import { useTheme } from '../../composables/useTheme'
 import { useStoreSkills } from '../../composables/useStoreSkills'
 import { useStoreDownload } from '../../composables/useStoreDownload'
 import { withTimeout } from '../../utils/with-timeout'
+import { animateStoreCardTransfer } from '../../utils/store-card-motion'
 
 const props = defineProps<{ storeId: string }>()
 const emit = defineEmits(['navigate'])
@@ -122,6 +123,31 @@ const {
 function confirmMatchedDelete(skill: Skill) {
   confirmDelete(getDownloadedSkill(skill) || skill)
 }
+
+function findRenderedSkillCard(container: Element | null, skillId: string): HTMLElement | null {
+  if (!container) return null
+  return Array.from(container.querySelectorAll<HTMLElement>('[data-skill-id]')).find((card) => card.dataset.skillId === skillId) || null
+}
+
+const pendingCardTransfers = new Map<string, { source: HTMLElement; rect: DOMRect }>()
+function downloadWithMotion(skill: Skill, event: Event) {
+  const source = (event.currentTarget as HTMLElement | null)?.closest<HTMLElement>('[data-skill-id]') || null
+  if (source) pendingCardTransfers.set(skill.id, { source, rect: source.getBoundingClientRect() })
+  downloadSkill(skill)
+}
+
+watch(downloadedIds, async (ids) => {
+  const completedIds = [...pendingCardTransfers.keys()].filter((id) => ids.includes(id))
+  if (!completedIds.length) return
+  await nextTick()
+  for (const id of completedIds) {
+    const transfer = pendingCardTransfers.get(id)
+    pendingCardTransfers.delete(id)
+    if (!transfer) continue
+    const target = findRenderedSkillCard(storeScrollRef.value?.querySelector('[data-store-section="imported"]') || null, id)
+    if (target) void animateStoreCardTransfer(transfer.source, target, transfer.rect)
+  }
+})
 
 let scrollObserver: IntersectionObserver | null = null
 let initialActivation = true
@@ -797,7 +823,7 @@ function confirmDeleteStore() {
             <h3>已导入</h3>
             <span class="section-count">{{ importedSkills.length }}</span>
           </div>
-          <div class="skill-grid" :class="viewMode">
+          <div class="skill-grid" :class="viewMode" data-store-section="imported">
             <StoreSkillCard
               v-for="skill in visibleImportedSkills"
               :key="skill.id"
@@ -853,7 +879,7 @@ function confirmDeleteStore() {
               <h3>可用</h3>
               <span class="section-count">{{ availableSkillsAll.length }}</span>
             </div>
-            <div class="skill-grid" :class="viewMode">
+            <div class="skill-grid" :class="viewMode" data-store-section="available">
               <StoreSkillCard
                 v-for="skill in availableSkills"
                 :key="skill.id"
@@ -868,7 +894,7 @@ function confirmDeleteStore() {
                 :skill-url="getSkillUrl(skill)"
                 @click="onCardClick(skill)"
                 @locate="locateInMySkills(skill)"
-                @download="downloadSkill(skill)"
+                @download="downloadWithMotion(skill, $event)"
                 @delete="confirmMatchedDelete(skill)"
               />
             </div>

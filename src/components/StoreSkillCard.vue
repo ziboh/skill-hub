@@ -37,7 +37,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   (e: 'click'): void
-  (e: 'download'): void
+  (e: 'download', event: MouseEvent): void
   (e: 'delete'): void
   (e: 'locate'): void
 }>()
@@ -133,7 +133,7 @@ const showChineseTag = computed(() => props.showLanguageTags && isChineseContent
         v-else-if="!isDownloaded"
         class="card-action-btn"
         :disabled="isDownloading"
-        @click.stop="emit('download')"
+        @click.stop="emit('download', $event)"
       >
         <svg
           v-if="isDownloading"

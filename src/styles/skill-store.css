@@ -377,6 +377,7 @@
 
 .section {
   margin-bottom: 20px;
+  animation: store-section-in 240ms var(--ease-standard) both;
 }
 .section-header {
   display: flex;
@@ -429,6 +430,18 @@
 .skill-grid.list {
   grid-template-columns: 1fr;
   gap: 10px;
+}
+
+.store-card-flight { overflow: hidden; box-shadow: var(--shadow-lg); transform-origin: top left; }
+.store-card-arrived { animation: store-card-arrived 620ms cubic-bezier(0.22, 1, 0.36, 1); }
+@keyframes store-section-in { from { opacity: 0; transform: translateY(6px); } }
+@keyframes store-card-arrived {
+  0% { transform: scale(0.98); box-shadow: 0 0 0 0 hsl(var(--primary) / 0.36); }
+  45% { transform: scale(1.01); box-shadow: 0 0 0 4px hsl(var(--primary) / 0.18); }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 hsl(var(--primary) / 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .section, .store-card-arrived, .spinner, .spin { animation-duration: 1ms !important; animation-iteration-count: 1 !important; }
 }
 
 .loading {
