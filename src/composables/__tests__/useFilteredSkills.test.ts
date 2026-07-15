@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest'
-import { useFilteredSkills } from '../useFilteredSkills'
+import { filterSkillsBySource, useFilteredSkills } from '../useFilteredSkills'
 import type { Skill } from '../../types'
 
 function makeSkill(overrides: Partial<Skill> & { name: string }): Skill {
@@ -76,6 +76,13 @@ describe('useFilteredSkills', () => {
       getSourceLabel: (s) => (s.source === 'github' ? 'GitHub' : 'Local'),
     })
     expect(filteredSkills.value).toHaveLength(0)
+  })
+
+  test('filters skills into a source scope', () => {
+    const githubSkill = { ...skills[0], source: 'github' }
+    const scoped = filterSkillsBySource([githubSkill, skills[1]], 'GitHub', (skill) => (skill.source === 'github' ? 'GitHub' : 'Local'))
+
+    expect(scoped).toEqual([githubSkill])
   })
 
   test('filters by tag', () => {

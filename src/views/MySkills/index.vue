@@ -5,7 +5,7 @@ import type { MySkillsSortMode, Skill } from '../../types'
 import {} from '../../data/platforms'
 import { useSettings } from '../../composables/useSettings'
 import { useTheme } from '../../composables/useTheme'
-import { useFilteredSkills, SKILL_CATEGORIES, CATEGORY_ICONS } from '../../composables/useFilteredSkills'
+import { filterSkillsBySource, useFilteredSkills, SKILL_CATEGORIES, CATEGORY_ICONS } from '../../composables/useFilteredSkills'
 import { MY_SKILLS_SORT_OPTIONS, getSortLabel } from '../../utils/skill-sort'
 import { useBatchSelection } from '../../composables/useBatchSelection'
 import DeployModal from '../../components/DeployModal.vue'
@@ -117,23 +117,25 @@ const distributedSkillIds = computed(() => storage.getDistributedSkillSet())
 
 const downloadedSkills = computed(() => allSkills.value.filter((s) => storage.isDownloaded(s.id)))
 
-const downloadedSkillStats = computed(() => {
-  const list = downloadedSkills.value
+const totalDownloaded = computed(() => downloadedSkills.value.length)
+
+const sourceScopedSkills = computed(() => filterSkillsBySource(downloadedSkills.value, filterSource.value, getSourceLabel))
+const sourceScopedSkillStats = computed(() => {
   const distSet = distributedSkillIds.value
   let favCount = 0
   let distCount = 0
   let pendCount = 0
-  for (const s of list) {
-    if (s.isFavorited) favCount++
-    if (distSet.has(s.id)) distCount++
+  for (const skill of sourceScopedSkills.value) {
+    if (skill.isFavorited) favCount++
+    if (distSet.has(skill.id)) distCount++
     else pendCount++
   }
-  return { total: list.length, favCount, distCount, pendCount }
+  return { total: sourceScopedSkills.value.length, favCount, distCount, pendCount }
 })
-const totalDownloaded = computed(() => downloadedSkillStats.value.total)
-const totalFavorites = computed(() => downloadedSkillStats.value.favCount)
-const totalDistributed = computed(() => downloadedSkillStats.value.distCount)
-const totalPending = computed(() => downloadedSkillStats.value.pendCount)
+const sourceScopedTotal = computed(() => sourceScopedSkillStats.value.total)
+const totalFavorites = computed(() => sourceScopedSkillStats.value.favCount)
+const totalDistributed = computed(() => sourceScopedSkillStats.value.distCount)
+const totalPending = computed(() => sourceScopedSkillStats.value.pendCount)
 
 const sourceCounts = computed(() => {
   const map = new Map<string, { count: number; icon: string }>()
@@ -351,9 +353,7 @@ const { batchMode, selectedIds, isAllSelected, toggleBatchMode, toggleSelect, to
 const totalSources = computed(() => sourceCounts.value.reduce((sum, s) => sum + s.count, 0))
 
 const sourceFilterCount = computed(() => {
-  if (!filterSource.value) return totalDownloaded.value
-  const entry = sourceCounts.value.find((s) => s.label === filterSource.value)
-  return entry ? entry.count : 0
+  return sourceScopedTotal.value
 })
 
 const emptyMessage = computed(() => {
@@ -579,7 +579,7 @@ function batchSyncToPlatform() {
             <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
           </svg>
           全部 Skill
-          <span class="tab-count">{{ totalDownloaded }}</span>
+          <span class="tab-count">{{ sourceScopedTotal }}</span>
         </button>
         <button
           class="tab-btn"

@@ -5,6 +5,10 @@ import { sortSkills } from '../utils/skill-sort'
 
 export { SKILL_CATEGORIES, CATEGORY_ICONS, type SkillCategory }
 
+export function filterSkillsBySource(skills: Skill[], source: string, getSourceLabel: (skill: Skill) => string): Skill[] {
+  return source ? skills.filter((skill) => getSourceLabel(skill) === source) : skills
+}
+
 function matchCategoryFromTag(tag: string): SkillCategory | null {
   const t = tag.trim()
   if (!t) return null
@@ -39,7 +43,7 @@ export function useFilteredSkills(opts: {
   sortMode?: () => MySkillsSortMode
 }) {
   function applyBaseFilters(list: Skill[]) {
-    if (opts.filterSource()) list = list.filter((s) => opts.getSourceLabel(s) === opts.filterSource())
+    list = filterSkillsBySource(list, opts.filterSource(), opts.getSourceLabel)
     switch (opts.filterCategory()) {
       case 'favorites':
         list = list.filter((s) => s.isFavorited)
