@@ -18,6 +18,8 @@ import { isWellKnownSkill, downloadSkillFromWebsite, downloadDirectFromStore, ty
 import { atomicReplaceDir, atomicWriteDir } from '../utils/fs-ops'
 import { getSkillsRepoDir, skillIdSlug } from '../utils/skill-path'
 import { finalizeImportedSkill, resolveImportSourceType } from '../utils/skill-import'
+import { parseRepositoryUrl } from '../utils/repository'
+import { downloadGiteeSkillCompat } from '../utils/gitee'
 
 const props = defineProps<{ skill: Skill }>()
 const emit = defineEmits(['close', 'imported'])
@@ -387,6 +389,47 @@ async function handleImport() {
     // GitHub 技能
     if (!props.skill.repo) {
       showToast({ type: 'error', message: '该技能没有关联的 GitHub 仓库，无法导入' })
+      importing.value = false
+      return
+    }
+    const repository = parseRepositoryUrl(props.skill.sourceUrl || '') || {
+      provider: props.skill.repositoryProvider || (props.skill.source === 'gitee' ? 'gitee' : 'github'),
+      defaultBranch: props.skill.source === 'gitee' ? 'main' : 'main',
+    }
+    if (repository.provider === 'gitee') {
+      const targetDir = getSkillsRepoDir(props.skill.id)
+      const ok = await downloadGiteeSkillCompat(
+        props.skill.repo,
+        props.skill.path || props.skill.id,
+        targetDir,
+        storage.getSettings().giteeToken || undefined,
+        props.skill.branch || repository.defaultBranch,
+      )
+      if (!ok) {
+        showToast({ type: 'error', message: '未找到技能文件' })
+        importing.value = false
+        return
+      }
+      if (typeof window.services.saveGiteeSkillMetaAfterDownload === 'function') {
+        await window.services.saveGiteeSkillMetaAfterDownload(
+          props.skill.repo,
+          props.skill.branch || repository.defaultBranch,
+          storage.getSettings().giteeToken || undefined,
+          targetDir,
+        )
+      }
+      finalizeImportedSkill({
+        skill: { ...props.skill, source: 'gitee', repositoryProvider: 'gitee' },
+        targetDir,
+        sourceType: 'gitee',
+        location: props.skill.repo,
+        sessionSource: 'marketplace',
+        storeSourceId: props.skill.storeSourceId,
+      })
+      refreshCounts?.()
+      bumpDownloadedSkillsVersion()
+      emit('imported')
+      showToast({ type: 'success', message: `已导入 ${props.skill.name}` })
       importing.value = false
       return
     }

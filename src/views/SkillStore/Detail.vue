@@ -13,6 +13,7 @@ import ConfirmDeleteModal from '../../components/ConfirmDeleteModal.vue'
 import ConfirmModal from '../../components/ConfirmModal.vue'
 import { getSkillsRepoDir } from '../../utils/skill-path'
 import { finalizeImportedSkill } from '../../utils/skill-import'
+import { parseRepositoryUrl } from '../../utils/repository'
 
 const props = defineProps<{ skill: Skill | null; context?: 'my' | 'store' | 'project' | 'agent' }>()
 const emit = defineEmits(['navigate'])
@@ -77,14 +78,17 @@ async function checkForUpdate() {
   updateStatus.value = 'checking'
   updateMessage.value = ''
   try {
-    const token = storage.getSettings().githubToken || undefined
-    const result = await window.services.checkSkillUpdateFull(
-      props.skill.repo,
-      props.skill.path || '',
-      token,
-      props.skill.branch,
-      props.skill.id,
-    )
+    const repository = parseRepositoryUrl(props.skill.sourceUrl || '') || {
+      provider: props.skill.repositoryProvider || (props.skill.source === 'gitee' ? 'gitee' : 'github'),
+    }
+    const token =
+      repository.provider === 'gitee'
+        ? storage.getSettings().giteeToken || undefined
+        : storage.getSettings().githubToken || undefined
+    const result =
+      repository.provider === 'gitee'
+        ? await window.services.checkGiteeSkillUpdateFull(props.skill.repo, props.skill.path || '', token, props.skill.branch || 'main', props.skill.id)
+        : await window.services.checkSkillUpdateFull(props.skill.repo, props.skill.path || '', token, props.skill.branch, props.skill.id)
     if (!result) {
       updateStatus.value = 'error'
       updateMessage.value = '检查失败'
@@ -116,9 +120,18 @@ async function updateSkill() {
   updateStatus.value = 'updating'
   updateMessage.value = ''
   try {
-    const token = storage.getSettings().githubToken || undefined
     const targetDir = getSkillsRepoDir(props.skill!.id)
-    const ok = await window.services.updateSkillFromGitHub(props.skill.repo, props.skill.path || '', targetDir, token, props.skill.branch)
+    const repository = parseRepositoryUrl(props.skill.sourceUrl || '') || {
+      provider: props.skill.repositoryProvider || (props.skill.source === 'gitee' ? 'gitee' : 'github'),
+    }
+    const token =
+      repository.provider === 'gitee'
+        ? storage.getSettings().giteeToken || undefined
+        : storage.getSettings().githubToken || undefined
+    const ok =
+      repository.provider === 'gitee'
+        ? await window.services.updateSkillFromGitee(props.skill.repo, props.skill.path || '', targetDir, token, props.skill.branch || 'main')
+        : await window.services.updateSkillFromGitHub(props.skill.repo, props.skill.path || '', targetDir, token, props.skill.branch)
     if (ok) {
       updateAvailable.value = false
       updateStatus.value = 'done'

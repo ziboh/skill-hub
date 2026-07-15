@@ -125,6 +125,7 @@ export function resolveImportSourceType(source?: SkillSource): SkillSource {
   if (source === 'skills-sh') return 'skills-sh'
   if (source === 'marketplace-json') return 'marketplace-json'
   if (source === 'well-known-index') return 'well-known-index'
+  if (source === 'gitee') return 'gitee'
   if (source === 'git-repo' || source === 'github') return 'github'
   if (source === 'local-dir') return 'local'
   return 'local'

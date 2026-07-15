@@ -232,8 +232,16 @@ watch(
     <h3 class="card-name">
       {{ name }}
     </h3>
-    <p v-if="loadingDescription && !shortDescription && !description" class="card-desc">
-      <span class="desc-shimmer" />
+    <p
+      v-if="loadingDescription && !shortDescription && !description"
+      class="card-desc card-desc-loading"
+      role="status"
+      aria-label="正在加载描述"
+    >
+      <span class="desc-loader" aria-hidden="true">
+        <span class="desc-loader__line desc-loader__line--wide" />
+        <span class="desc-loader__line desc-loader__line--short" />
+      </span>
     </p>
     <p v-else-if="descriptionError && !shortDescription && !description" class="card-desc card-desc-error">
       <svg
@@ -599,9 +607,35 @@ watch(
 }
 
 :deep(.card-action-btn.download:disabled) {
-  background: hsl(var(--muted));
-  color: hsl(var(--muted-foreground));
+  opacity: 1;
+  background: hsl(var(--primary) / 0.82);
+  color: hsl(var(--primary-foreground));
   cursor: default;
+}
+
+:deep(.card-action-btn.download.is-downloading) {
+  animation: download-button-pulse 1.2s ease-in-out infinite;
+}
+
+:deep(.card-action-btn.download.is-downloading .spin) {
+  animation: download-icon-spin 0.7s linear infinite;
+  transform-origin: center;
+}
+
+@keyframes download-icon-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes download-button-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 hsl(var(--primary) / 0.18);
+  }
+  50% {
+    box-shadow: 0 0 0 4px hsl(var(--primary) / 0.08);
+  }
 }
 
 .card-name {
@@ -643,22 +677,100 @@ watch(
   text-decoration: underline;
 }
 
-@keyframes shimmer {
-  0% {
-    background-position: 200% 0;
-  }
+@keyframes desc-loader-breathe {
+  0%,
   100% {
-    background-position: -200% 0;
+    opacity: 0.68;
+  }
+  50% {
+    opacity: 0.96;
   }
 }
 
-.desc-shimmer {
+@keyframes desc-loader-line-sweep {
+  0% {
+    transform: translateX(-150%);
+    opacity: 0;
+  }
+  18% {
+    opacity: 0.78;
+  }
+  42% {
+    opacity: 0.3;
+  }
+  100% {
+    transform: translateX(500%);
+    opacity: 0;
+  }
+}
+
+.card-desc-loading {
   display: block;
-  height: 12px;
-  width: 100%;
-  border-radius: 4px;
-  background: linear-gradient(90deg, hsl(var(--border)) 25%, hsl(var(--muted)) 50%, hsl(var(--border)) 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s ease-in-out infinite;
+  overflow: hidden;
+}
+
+.desc-loader {
+  display: grid;
+  gap: 7px;
+  overflow: hidden;
+  position: relative;
+  padding: 4px 0 5px;
+}
+
+.desc-loader__line {
+  position: relative;
+  overflow: hidden;
+  display: block;
+  height: 9px;
+  border: 1px solid hsl(var(--border) / 0.72);
+  border-radius: 999px;
+  background: linear-gradient(180deg, hsl(var(--background) / 0.28), hsl(var(--muted) / 0.82) 55%, hsl(var(--border) / 0.7));
+  animation: desc-loader-breathe 2.8s ease-in-out infinite;
+  box-shadow:
+    inset 0 1px 0 hsl(var(--background) / 0.52),
+    inset 0 -1px 0 hsl(var(--foreground) / 0.04);
+}
+
+.desc-loader__line::before {
+  content: '';
+  position: absolute;
+  inset: 1px 0 auto;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, hsl(var(--background) / 0.48), transparent);
+  opacity: 0.8;
+}
+
+.desc-loader__line::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  left: -28%;
+  width: 24%;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, hsl(var(--background) / 0.72) 50%, transparent);
+  filter: blur(1.5px);
+  animation: desc-loader-line-sweep 2.6s var(--ease-standard) infinite;
+}
+
+.desc-loader__line--wide {
+  width: 92%;
+}
+
+.desc-loader__line--short {
+  width: 64%;
+  animation-delay: -1.1s;
+}
+
+.desc-loader__line--short::after {
+  animation-delay: -1.3s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .desc-loader__line,
+  .desc-loader__line::after {
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+  }
 }
 </style>

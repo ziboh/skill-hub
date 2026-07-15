@@ -3,6 +3,7 @@ import { ref, onMounted, onActivated, onDeactivated, watch, inject, onUnmounted,
 import { KeyRefreshCounts, KeyShowToast, KeyBumpDownloadedSkillsVersion } from '../../inject-keys'
 import { storage } from '../../utils/storage'
 import { fetchGitHubFile, setGitHubResponseCacheEnabled } from '../../utils/github'
+import { fetchGiteeFile } from '../../utils/gitee'
 import { parseFrontmatter } from '../../utils/frontmatter'
 import * as skillsSh from '../../utils/skills-sh'
 import type { Skill, StoreSource } from '../../types'
@@ -401,11 +402,18 @@ function setupGitHubDescriptionObserver() {
           if (!githubRepoInfo.value) {
             continue
           }
-          const { owner, repo, branch } = githubRepoInfo.value
+          const repoInfo = githubRepoInfo.value
+          const { owner, repo, branch } = repoInfo
           requestContext = githubRepoInfo.value
-          const tk = storage.getSettings().githubToken || undefined
+          const tk =
+            repoInfo.provider === 'gitee'
+              ? storage.getSettings().giteeToken || undefined
+              : storage.getSettings().githubToken || undefined
           const content = await withTimeout(
-            (signal) => fetchGitHubFile(owner, repo, manifestFile, branch, tk, signal),
+            (signal) =>
+              repoInfo.provider === 'gitee'
+                ? fetchGiteeFile(repoInfo.owner, repoInfo.repo, manifestFile, repoInfo.branch, tk)
+                : fetchGitHubFile(repoInfo.owner, repoInfo.repo, manifestFile, repoInfo.branch, tk, signal),
             20000,
           )
           const currentSkill =
@@ -459,16 +467,23 @@ async function retryDescription(skillId: string) {
   if (!skill) return
   const manifestFile = githubManifestMap.get(skillId)
   if (!manifestFile) return
-  const { owner, repo, branch } = githubRepoInfo.value
+  const repoInfo = githubRepoInfo.value
+  const { owner, repo, branch } = repoInfo
   const requestContext = githubRepoInfo.value
-  const tk = storage.getSettings().githubToken || undefined
+  const tk =
+    repoInfo.provider === 'gitee'
+      ? storage.getSettings().giteeToken || undefined
+      : storage.getSettings().githubToken || undefined
 
   failedDescIds.value = new Set([...failedDescIds.value].filter((id) => id !== skillId))
   const requestToken = beginGitHubDescriptionRequest(skillId)
 
   try {
     const content = await withTimeout(
-      (signal) => fetchGitHubFile(owner, repo, manifestFile, branch, tk, signal),
+      (signal) =>
+        repoInfo.provider === 'gitee'
+          ? fetchGiteeFile(repoInfo.owner, repoInfo.repo, manifestFile, repoInfo.branch, tk)
+          : fetchGitHubFile(repoInfo.owner, repoInfo.repo, manifestFile, repoInfo.branch, tk, signal),
       20000,
     )
     const currentSkill =
@@ -762,7 +777,7 @@ function confirmDeleteStore() {
               :skill-url="getSkillUrl(skill)"
               @click="onCardClick(skill)"
               @locate="locateInMySkills(skill)"
-              @download="downloadSkill(skill)"
+              @download="downloadWithMotion(skill, $event)"
               @delete="confirmMatchedDelete(skill)"
             />
           </div>
@@ -810,7 +825,7 @@ function confirmDeleteStore() {
               :skill-url="getSkillUrl(skill)"
               @click="onCardClick(skill)"
               @locate="locateInMySkills(skill)"
-              @download="downloadSkill(skill)"
+              @download="downloadWithMotion(skill, $event)"
               @delete="confirmMatchedDelete(skill)"
             />
           </div>

@@ -22,4 +22,22 @@ describe('SkillCard 样式约束', () => {
     expect(wrapper.text()).toContain('索引暂未返回描述')
     expect(wrapper.text()).not.toContain('暂无描述')
   })
+
+  test('描述加载态让高光限制在每条骨架线内部', () => {
+    const wrapper = mount(SkillCard, {
+      props: {
+        name: 'Demo',
+        description: '',
+        loadingDescription: true,
+      },
+      global: { stubs: { ProviderIcon: true, UiIcon: true } },
+    })
+
+    expect(wrapper.find('.desc-loader').exists()).toBe(true)
+    expect(wrapper.findAll('.desc-loader__line')).toHaveLength(2)
+    expect(wrapper.find('.desc-loader__sheen').exists()).toBe(false)
+    expect(SkillCardSource).toContain('.desc-loader__line::after')
+    expect(SkillCardSource).toContain('@keyframes desc-loader-line-sweep')
+    expect(wrapper.find('.card-desc-loading').attributes('aria-label')).toBe('正在加载描述')
+  })
 })

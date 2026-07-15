@@ -73,7 +73,7 @@ const showChineseTag = computed(() => props.showLanguageTags && isChineseContent
     @click="emit('click')"
   >
     <template #actions>
-      <a v-if="skillUrl" :href="skillUrl" target="_blank" class="card-action-btn" title="打开链接" @click.stop>
+      <a v-if="skillUrl" :href="skillUrl" target="_blank" class="card-action-btn store-action-btn" title="打开链接" @click.stop>
         <svg
           width="14"
           height="14"
@@ -91,7 +91,7 @@ const showChineseTag = computed(() => props.showLanguageTags && isChineseContent
       </a>
       <button
         v-if="mode === 'imported' || isDownloaded"
-        class="card-action-btn"
+        class="card-action-btn store-action-btn"
         title="前往我的 Skill"
         @click.stop="emit('locate')"
       >
@@ -111,7 +111,7 @@ const showChineseTag = computed(() => props.showLanguageTags && isChineseContent
       </button>
       <button
         v-if="mode === 'imported'"
-        class="card-action-btn danger"
+        class="card-action-btn store-action-btn danger"
         title="删除"
         @click.stop="emit('delete')"
       >
@@ -131,7 +131,8 @@ const showChineseTag = computed(() => props.showLanguageTags && isChineseContent
       </button>
       <button
         v-else-if="!isDownloaded"
-        class="card-action-btn"
+        class="card-action-btn store-action-btn download"
+        :class="{ 'is-downloading': isDownloading }"
         :disabled="isDownloading"
         @click.stop="emit('download', $event)"
       >

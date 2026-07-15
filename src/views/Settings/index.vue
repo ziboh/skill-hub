@@ -958,16 +958,17 @@ function getPlatformOsPath(platform: PlatformInfo): string {
             </div>
           </div>
 
-          <!-- GitHub -->
+          <!-- GitHub / Gitee -->
           <div id="github-token-section" class="setting-section">
-            <h3 class="setting-section-title">GitHub 访问令牌</h3>
+            <h3 class="setting-section-title">GitHub / Gitee 访问令牌</h3>
             <div class="setting-card">
               <div class="setting-row">
                 <div class="setting-row-info">
                   <div class="setting-row-label">访问令牌</div>
-                  <div class="setting-row-desc">将速率限制从 60 次/小时提高到 5000 次/小时。仅需 repo 读取权限。</div>
+                  <div class="setting-row-desc">分别配置 GitHub 和 Gitee 的访问令牌，用于访问私有仓库和提高 API 请求额度。</div>
                 </div>
               </div>
+              <div class="token-provider-label">GitHub Token</div>
               <div class="token-row">
                 <input
                   v-model="settings.githubToken"
@@ -982,6 +983,22 @@ function getPlatformOsPath(platform: PlatformInfo): string {
               </div>
               <a class="token-link" href="https://github.com/settings/tokens/new?scopes=repo&description=skill-hub" target="_blank">
                 创建个人访问令牌 →
+              </a>
+              <div class="token-provider-label">Gitee Token</div>
+              <div class="token-row">
+                <input
+                  v-model="settings.giteeToken"
+                  :type="showToken ? 'text' : 'password'"
+                  class="token-input"
+                  placeholder="Gitee Token"
+                  @change="updateSettings({ giteeToken: settings.giteeToken })"
+                />
+                <button class="token-toggle" @click="showToken = !showToken">
+                  {{ showToken ? '隐藏' : '显示' }}
+                </button>
+              </div>
+              <a class="token-link" href="https://gitee.com/profile/personal_access_tokens" target="_blank">
+                创建 Gitee 个人访问令牌 →
               </a>
             </div>
           </div>

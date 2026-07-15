@@ -34,4 +34,10 @@ describe('设置存储迁移', () => {
     expect(persisted).not.toHaveProperty('theme')
     expect(persisted).not.toHaveProperty('legacyUnknownSetting')
   })
+
+  test('默认提供独立的 Gitee 访问令牌字段', () => {
+    const settings = storage.getSettings() as Record<string, unknown>
+    expect(settings.githubToken).toBe('')
+    expect(settings.giteeToken).toBe('')
+  })
 })

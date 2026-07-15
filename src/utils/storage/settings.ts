@@ -23,6 +23,7 @@ function createDefaultSettings(): AppSettings {
   return {
     defaultInstallMode: 'copy',
     githubToken: '',
+    giteeToken: '',
     storeCacheEnabled: true,
     themeMode: 'auto',
     themeColor: 'blue',

@@ -2,7 +2,9 @@
 import { ref, inject, computed } from 'vue'
 import { KeyRefreshCounts, KeyShowToast } from '../inject-keys'
 import { storage } from '../utils/storage'
-import { parseGitHubUrl, fetchGitHubRepoTree, fetchGitHubFile, detectSkillDirectories, githubFetch } from '../utils/github'
+import { fetchGitHubRepoTree, fetchGitHubFile, detectSkillDirectories, githubFetch } from '../utils/github'
+import { downloadGiteeSkillCompat, fetchGiteeRepoTree, fetchGiteeFile } from '../utils/gitee'
+import { getRepositoryUrl, parseRepositoryUrl } from '../utils/repository'
 import { parseFrontmatter } from '../utils/frontmatter'
 import type { Skill, SkillScanResult } from '../types'
 import { getAvatarColor } from '../utils/color'
@@ -24,13 +26,14 @@ const gitSkillPath = ref('')
 const scanning = ref(false)
 const scanError = ref('')
 const scannedSkills = ref<Skill[]>([])
+const scannedGiteeTree = ref<import('../utils/gitee').GiteeTreeItem[] | null>(null)
 const sortedGitHubSkills = computed(() => sortProcessedSkillsLast(scannedSkills.value, isSkillImported))
 const selectedIds = ref<Set<string>>(new Set())
 const importing = ref(false)
 const localRoot = ref('')
 
 const methods: { id: string; icon: UiIconName; title: string; desc: string }[] = [
-  { id: 'git', icon: 'package', title: '从 GitHub 导入', desc: '输入仓库和 skill 名称，或扫描后选择' },
+  { id: 'git', icon: 'package', title: '从 GitHub 导入', desc: '支持 GitHub、Gitee，输入仓库和 skill 名称或扫描选择' },
   { id: 'local', icon: 'folder', title: '从本地导入', desc: '选择文件夹，自动识别单个或多个技能' },
 ]
 
@@ -45,6 +48,7 @@ function clearError() {
 
 function chooseMethod(id: string) {
   scannedSkills.value = []
+  scannedGiteeTree.value = null
   selectedIds.value = new Set()
   clearError()
   if (id === 'git') step.value = 'git-input'
@@ -60,9 +64,9 @@ function selectedBranch(infoBranch = 'main') {
 }
 
 async function scanGit() {
-  const info = parseGitHubUrl(gitUrl.value.trim())
+  const info = parseRepositoryUrl(gitUrl.value.trim())
   if (!info) {
-    showError('请输入有效的 GitHub URL 或仓库名称（如 owner/repo）')
+    showError('请输入有效的 GitHub URL 或 Gitee URL（如 owner/repo）')
     return
   }
   scanning.value = true
@@ -70,13 +74,18 @@ async function scanGit() {
   scannedSkills.value = []
   selectedIds.value = new Set()
   try {
-    const token = storage.getSettings().githubToken || undefined
+    const token = info.provider === 'gitee' ? storage.getSettings().giteeToken || undefined : storage.getSettings().githubToken || undefined
     const branch = selectedBranch(info.defaultBranch)
-    const tree = await fetchGitHubRepoTree(info.owner, info.repo, branch, token)
+    const tree = info.provider === 'gitee'
+      ? await fetchGiteeRepoTree(info.owner, info.repo, branch, token)
+      : await fetchGitHubRepoTree(info.owner, info.repo, branch, token)
+    scannedGiteeTree.value = info.provider === 'gitee' ? tree : null
     const skills: Skill[] = []
     for (const sd of detectSkillDirectories(tree)) {
       try {
-        const content = await fetchGitHubFile(info.owner, info.repo, sd.manifestFile, branch, token)
+        const content = info.provider === 'gitee'
+          ? await fetchGiteeFile(info.owner, info.repo, sd.manifestFile, branch, token)
+          : await fetchGitHubFile(info.owner, info.repo, sd.manifestFile, branch, token)
         const fm = parseFrontmatter(content)
         const dirName = skillIdPart(sd.dir, info.repo)
         const tags = fm.tags
@@ -92,9 +101,10 @@ async function scanGit() {
           description: fm.description || '',
           author: fm.author || '',
           tags,
-          source: 'github',
-          sourceUrl: `https://github.com/${info.owner}/${info.repo}`,
+          source: info.provider,
+          sourceUrl: getRepositoryUrl(info),
           repo: `${info.owner}/${info.repo}`,
+          repositoryProvider: info.provider,
           path: sd.dir,
           readme: content,
           branch,
@@ -114,10 +124,10 @@ async function scanGit() {
 }
 
 async function importGitDirect() {
-  const info = parseGitHubUrl(gitUrl.value.trim())
+  const info = parseRepositoryUrl(gitUrl.value.trim())
   const path = gitSkillPath.value.trim()
   if (!info) {
-    showError('请输入有效的 GitHub URL 或仓库名称（如 owner/repo）')
+    showError('请输入有效的 GitHub URL 或 Gitee URL（如 owner/repo）')
     return
   }
   if (!path) {
@@ -133,9 +143,10 @@ async function importGitDirect() {
       description: '',
       author: '',
       tags: [],
-      source: 'github',
-      sourceUrl: `https://github.com/${info.owner}/${info.repo}`,
+      source: info.provider,
+      sourceUrl: getRepositoryUrl(info),
       repo: `${info.owner}/${info.repo}`,
+      repositoryProvider: info.provider,
       path,
       branch,
     },
@@ -213,7 +224,9 @@ function matchSkillDir(candidates: string[], targetName: string): string | null 
 async function resolveRemoteSkillPath(owner: string, repo: string, branch: string, token: string | undefined, skill: Skill) {
   let tree
   try {
-    tree = await fetchGitHubRepoTree(owner, repo, branch, token)
+    tree = skill.repositoryProvider === 'gitee'
+      ? await fetchGiteeRepoTree(owner, repo, branch, token)
+      : await fetchGitHubRepoTree(owner, repo, branch, token)
   } catch (err: any) {
     throw new Error(err.message || `仓库或分支不存在：${owner}/${repo}`)
   }
@@ -230,7 +243,9 @@ async function resolveRemoteSkillPath(owner: string, repo: string, branch: strin
     const dirName = skillIdPart(sd.dir, repo).toLowerCase()
     if (dirName === targetLower) return sd.dir
     try {
-      const content = await fetchGitHubFile(owner, repo, sd.manifestFile, branch, token)
+      const content = skill.repositoryProvider === 'gitee'
+        ? await fetchGiteeFile(owner, repo, sd.manifestFile, branch, token)
+        : await fetchGitHubFile(owner, repo, sd.manifestFile, branch, token)
       const name = parseFrontmatter(content).name?.toLowerCase()
       if (name && name === targetLower) return sd.dir
     } catch {}
@@ -252,13 +267,25 @@ async function importGitSkills(skills: Skill[]) {
       continue
     }
     try {
-      const branch = skill.branch || 'main'
+      const branch = skill.branch || (skill.repositoryProvider === 'gitee' ? 'main' : 'main')
       const [owner, repo] = skill.repo.split('/')
-      const token = storage.getSettings().githubToken || undefined
+      const token = skill.repositoryProvider === 'gitee' ? storage.getSettings().giteeToken || undefined : storage.getSettings().githubToken || undefined
       const remotePath = await resolveRemoteSkillPath(owner, repo, branch, token, skill)
       const skillName = (skill.path || skill.name || '').trim().split('/').pop() || skill.name
       if (downloadedIds.some((id) => id.toLowerCase().endsWith(`/${skillName.toLowerCase()}`)) || targetNames.includes(skillName)) {
         errors.push(`「${skillName}」已存在，跳过导入`)
+        continue
+      }
+      if (skill.repositoryProvider === 'gitee') {
+        const targetDir = getSkillsRepoDir(skill.id)
+        const ok = await downloadGiteeSkillCompat(skill.repo, remotePath, targetDir, token, branch, scannedGiteeTree.value || undefined)
+        if (!ok) throw new Error(`skill 不存在：${skill.path || skill.name}`)
+        if (typeof window.services.saveGiteeSkillMetaAfterDownload === 'function') {
+          await window.services.saveGiteeSkillMetaAfterDownload(skill.repo, branch, token, targetDir)
+        }
+        finishImportedSkill({ ...skill, source: 'gitee', repositoryProvider: 'gitee' }, targetDir, 'gitee', skill.repo)
+        targetNames.push(skill.name || skillName)
+        importedCount++
         continue
       }
       const arrayBuffer = await githubFetch(`https://api.github.com/repos/${owner}/${repo}/zipball/${branch}`, {
@@ -313,7 +340,7 @@ async function importGitSkills(skills: Skill[]) {
   emit('close')
 }
 
-function finishImportedSkill(skill: Skill, targetDir: string, sourceType: 'github' | 'local', location: string) {
+function finishImportedSkill(skill: Skill, targetDir: string, sourceType: 'github' | 'gitee' | 'local', location: string) {
   // location / skill.path = original source (local dir or github relative path)
   if (sourceType === 'local' && !skill.path) {
     skill.path = location
@@ -446,9 +473,9 @@ async function importLocalSelected() {
         </template>
 
         <template v-else-if="step === 'git-input'">
-          <p class="hint">输入 GitHub 仓库，可直接填 skill 目录，也可扫描选择：</p>
+          <p class="hint">输入 GitHub 或 Gitee 仓库，可直接填 skill 目录，也可扫描选择：</p>
           <div class="git-input-row">
-            <input v-model="gitUrl" type="text" placeholder="https://github.com/user/repo 或 owner/repo" class="git-input" />
+            <input v-model="gitUrl" type="text" placeholder="https://github.com/user/repo 或 https://gitee.com/user/repo" class="git-input" />
             <input v-model="gitBranch" type="text" placeholder="分支（可选）" class="git-input small" />
           </div>
           <div class="git-input-row">

@@ -1,4 +1,4 @@
-export type SkillSource = 'builtin' | 'github' | 'skills-sh' | 'local' | 'marketplace-json' | 'well-known-index' | 'git-repo' | 'local-dir'
+export type SkillSource = 'builtin' | 'github' | 'gitee' | 'skills-sh' | 'local' | 'marketplace-json' | 'well-known-index' | 'git-repo' | 'local-dir'
 export type StoreSourceType = 'marketplace-json' | 'well-known-index' | 'git-repo' | 'local-dir'
 export type InstallMode = 'symlink' | 'copy'
 export type ToastPosition = 'center-bottom' | 'center-top' | 'top-right'
@@ -24,6 +24,7 @@ export interface Skill {
   storeSourceId?: string
   canonicalId?: string
   branch?: string
+  repositoryProvider?: 'github' | 'gitee'
   manifestFile?: string
   installUrl?: string
   downloaded?: boolean
@@ -109,6 +110,7 @@ export const FONT_SIZES: Record<FontSize, string> = {
 export interface AppSettings {
   defaultInstallMode: InstallMode
   githubToken: string
+  giteeToken: string
   storeCacheEnabled: boolean
   themeMode: ThemeMode
   themeColor: string

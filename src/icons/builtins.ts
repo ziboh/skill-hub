@@ -1,6 +1,7 @@
 import { registerIcon, registerAlias } from './registry'
 import {
   ICON_GITHUB,
+  ICON_GITEE,
   ICON_MARKETPLACE,
   ICON_WELL_KNOWN,
   ICON_FOLDER,
@@ -80,6 +81,7 @@ registerIcon('store', 'codex', { type: 'src', src: codexIcon })
 const storeDefaults: Record<string, string> = {
   'git-repo': ICON_GITHUB,
   github: ICON_GITHUB,
+  gitee: ICON_GITEE,
   'marketplace-json': ICON_MARKETPLACE,
   'well-known-index': ICON_WELL_KNOWN,
   'local-dir': ICON_FOLDER,

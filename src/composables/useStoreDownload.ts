@@ -10,6 +10,8 @@ import { isChineseContent, computeContentHash } from '../utils/translate'
 import { isWellKnownSkill, downloadSkillFromWebsite, downloadDirectFromStore, type WellKnownSkillResult } from '../utils/well-known'
 import { atomicReplaceDir, atomicWriteDir } from '../utils/fs-ops'
 import { finalizeImportedSkill, resolveImportSourceType } from '../utils/skill-import'
+import { parseRepositoryUrl } from '../utils/repository'
+import { downloadGiteeSkillCompat } from '../utils/gitee'
 import type { ShowToast } from './useStoreSkills'
 
 export function getSkillUrl(skill: Skill): string | undefined {
@@ -183,8 +185,51 @@ export function useStoreDownload(opts: {
         }
 
         if (!skill.repo) {
-          opts.showToast({ type: 'error', message: '该技能没有关联的 GitHub 仓库，无法下载' })
-          updateItem(queueItem.id, { status: 'error', error: '无 GitHub 仓库' })
+          opts.showToast({ type: 'error', message: '该技能没有关联的 Git 仓库，无法下载' })
+          updateItem(queueItem.id, { status: 'error', error: '无 Git 仓库' })
+          return
+        }
+        const repository = parseRepositoryUrl(skill.sourceUrl || '') || {
+          provider: skill.repositoryProvider || (skill.source === 'gitee' ? 'gitee' : 'github'),
+          defaultBranch: skill.source === 'gitee' ? 'main' : 'main',
+        }
+        if (repository.provider === 'gitee') {
+          const targetDir = getSkillsRepoDir(skill.id)
+          const ok = await downloadGiteeSkillCompat(
+            skill.repo,
+            skill.path || skill.id,
+            targetDir,
+            storage.getSettings().giteeToken || undefined,
+            skill.branch || repository.defaultBranch,
+          )
+          if (!ok) {
+            opts.showToast({ type: 'error', message: '未找到技能文件' })
+            updateItem(queueItem.id, { status: 'error', error: '未找到技能文件' })
+            return
+          }
+          if (typeof window.services.saveGiteeSkillMetaAfterDownload === 'function') {
+            await window.services.saveGiteeSkillMetaAfterDownload(
+              skill.repo,
+              skill.branch || repository.defaultBranch,
+              storage.getSettings().giteeToken || undefined,
+              targetDir,
+            )
+          }
+          finalizeImportedSkill({
+            skill: { ...skill, source: 'gitee', repositoryProvider: 'gitee' },
+            targetDir,
+            sourceType: 'gitee',
+            location: skill.repo,
+            sessionSource: opts.activePresetId.value || 'unknown',
+            storeSourceId: opts.activePresetId.value,
+            forceStoreSourceId: true,
+          })
+          opts.refreshDownloadedIds()
+          opts.refreshCounts?.()
+          opts.bumpDownloadedSkillsVersion?.()
+          autoTranslateSkill(skill, targetDir)
+          updateItem(queueItem.id, { status: 'success' })
+          opts.showToast({ type: 'success', message: `已导入 ${skill.name}` })
           return
         }
         const gh = skillsSh.getGitHubRepo(skill)

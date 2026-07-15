@@ -91,6 +91,7 @@ function buildLocalFileManifest(skillDir) {
       return
     }
     for (const entry of entries) {
+      if (entry.name === '.skill-meta.json') continue
       const rel = relative ? `${relative}/${entry.name}` : entry.name
       const fullPath = path.join(dir, entry.name)
       if (entry.isDirectory()) {
@@ -107,7 +108,7 @@ function buildLocalFileManifest(skillDir) {
     }
   }
   walk(fullDir, '')
-  return files
+  return files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
 }
 
 async function saveSkillMetaAfterDownload(repo, branch, token, targetDir) {

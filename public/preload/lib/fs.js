@@ -35,7 +35,7 @@ function doAtomicWriteDir(targetDir, files) {
     for (const [rel, content] of entries) {
       const full = safeResolveWithin(tempDir, rel)
       fs.mkdirSync(path.dirname(full), { recursive: true })
-      fs.writeFileSync(full, content, { encoding: 'utf-8' })
+      fs.writeFileSync(full, content, Buffer.isBuffer(content) ? undefined : { encoding: 'utf-8' })
     }
     const hasSkill = ['SKILL.md', 'skill.md'].some((f) => fs.existsSync(path.join(tempDir, f)))
     if (!hasSkill) throw new Error('SKILL.md not found in downloaded files')

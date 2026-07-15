@@ -1,6 +1,7 @@
 {
   "type": "commonjs",
   "dependencies": {
-    "adm-zip": "^0.5.17"
+    "adm-zip": "^0.5.17",
+    "isomorphic-git": "^1.38.7"
   }
 }

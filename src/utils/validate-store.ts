@@ -1,5 +1,5 @@
 import type { StoreSourceType } from '../types'
-import { parseGitHubUrl } from './github'
+import { parseRepositoryUrl } from './repository'
 
 export interface ValidationResult {
   valid: boolean
@@ -64,9 +64,9 @@ export async function validateStoreUrl(url: string, type: StoreSourceType): Prom
     }
 
     case 'git-repo': {
-      const info = parseGitHubUrl(trimmed)
-      if (!info) return { valid: false, message: '不是有效的 GitHub 仓库地址（格式：owner/repo）' }
-      return { valid: true, message: `验证通过：${info.owner}/${info.repo}` }
+      const info = parseRepositoryUrl(trimmed)
+      if (!info) return { valid: false, message: '不是有效的 GitHub 或 Gitee 仓库地址（格式：owner/repo）' }
+      return { valid: true, message: '验证通过：' + (info.provider === 'gitee' ? 'Gitee' : 'GitHub') + ' / ' + info.owner + '/' + info.repo }
     }
 
     case 'local-dir': {

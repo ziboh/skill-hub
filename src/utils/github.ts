@@ -4,6 +4,9 @@ export interface GitHubRepoInfo {
   defaultBranch: string
 }
 
+export { parseRepositoryUrl } from './repository'
+export type { RepositoryInfo, RepositoryProvider } from './repository'
+
 export function parseGitHubUrl(url: string): GitHubRepoInfo | null {
   const trimmed = url.trim()
   const fullMatch = trimmed.match(/^(?:https?:\/\/)?(?:www\.)?github\.com\/([^/]+)\/([^/]+?)(?:\/|$)/)

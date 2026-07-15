@@ -17,6 +17,34 @@ describe('StoreSkillCard', () => {
     expect(wrapper.emitted('download')?.[0]?.[0]).toBeInstanceOf(MouseEvent)
   })
 
+  test('下载按钮及下载中状态使用高对比度样式', () => {
+    const ready = mount(StoreSkillCard, { props: { skill }, global: { stubs: { ProviderIcon: true, UiIcon: true } } })
+    const downloading = mount(StoreSkillCard, {
+      props: { skill, isDownloading: true },
+      global: { stubs: { ProviderIcon: true, UiIcon: true } },
+    })
+
+    expect(ready.find('button:not([title])').classes()).toContain('download')
+    expect(downloading.find('button:not([title])').classes()).toContain('download')
+    expect(downloading.find('button:not([title])').classes()).toContain('is-downloading')
+    expect(downloading.find('button:not([title]) svg').classes()).toContain('spin')
+  })
+
+  test('商店卡片的操作按钮使用统一按钮样式类', () => {
+    const wrapper = mount(StoreSkillCard, {
+      props: { skill, skillUrl: 'https://example.com' },
+      global: { stubs: { ProviderIcon: true, UiIcon: true } },
+    })
+
+    expect(wrapper.find('[title="打开链接"]').classes()).toContain('store-action-btn')
+    const downloaded = mount(StoreSkillCard, {
+      props: { skill, isDownloaded: true },
+      global: { stubs: { ProviderIcon: true, UiIcon: true } },
+    })
+    expect(downloaded.find('button[title="前往我的 Skill"]').classes()).toContain('store-action-btn')
+    expect(wrapper.find('button.download').classes()).toContain('store-action-btn')
+  })
+
   test('可用部分已下载的 Skill 显示前往我的 Skill 而不是删除', async () => {
     const wrapper = mount(StoreSkillCard, {
       props: { skill, isDownloaded: true },

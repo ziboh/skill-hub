@@ -48,6 +48,9 @@ export function getSourceInfo(skill: Skill): SourceInfo {
     if (skill.repo === 'openai/skills') {
       return { label: 'Codex', icon: STORE_ICONS.codex, color: '#2563eb', bg: '#dbeafe' }
     }
+    if (skill.repositoryProvider === 'gitee' || skill.sourceUrl?.includes('gitee.com')) {
+      return { label: 'Gitee', icon: 'store:gitee', color: '#c0392b', bg: '#fde8e7' }
+    }
     return { label: 'GitHub', icon: 'store:git-repo', color: '#6b7280', bg: '#f3f4f6' }
   }
   if (skill.source === 'local') {

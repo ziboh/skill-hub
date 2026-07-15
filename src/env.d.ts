@@ -86,6 +86,8 @@ interface Services {
 
   /** HTTP(S) download; returns ArrayBuffer (zip/binary) or parsed JSON for GitHub API. */
   downloadFile: (url: string, token?: string) => Promise<ArrayBuffer | Record<string, unknown>>
+  fetchGiteeJSON?: (url: string, token?: string) => Promise<Record<string, unknown>>
+  downloadGiteeSkill?: (repo: string, skillPath: string, targetDir: string, token?: string, branch?: string, cachedTree?: { path: string; type: 'blob' | 'tree'; size?: number }[]) => Promise<boolean>
   extractBufferZip: (buffer: ArrayBuffer, dest: string) => string
 
   scanForSkills: (rootDir: string) => SkillScanResult[]
@@ -95,6 +97,8 @@ interface Services {
   parseSkillFile: (filePath: string) => { content: string; manifest: SkillScanResult['manifest'] } | null
 
   updateSkillFromGitHub: (repo: string, skillPath: string, targetDir: string, token?: string, branch?: string) => Promise<boolean>
+  updateSkillFromGitee: (repo: string, skillPath: string, targetDir: string, token?: string, branch?: string) => Promise<boolean>
+  downloadGiteeSkill: (repo: string, skillPath: string, targetDir: string, token?: string, branch?: string, cachedTree?: { path: string; type: 'blob' | 'tree'; size?: number }[]) => Promise<boolean>
 
   getLatestCommitSha: (repo: string, branch?: string, token?: string) => Promise<string | null>
   getRemoteSkillTree: (repo: string, skillPath: string, branch?: string, token?: string) => Promise<{ path: string; size: number }[] | null>
@@ -109,6 +113,8 @@ interface Services {
     skillId?: string,
   ) => Promise<{ hasUpdate: boolean; changedFiles: string[] } | null>
   saveSkillMetaAfterDownload: (repo: string, branch: string, token: string | undefined, targetDir: string) => Promise<void>
+  saveGiteeSkillMetaAfterDownload: (repo: string, branch: string, token: string | undefined, targetDir: string) => Promise<void>
+  checkGiteeSkillUpdateFull: (repo: string, skillPath: string, token?: string, branch?: string, skillId?: string) => Promise<{ hasUpdate: boolean; changedFiles: string[] } | null>
 
   getStateDir: () => string
 
@@ -132,4 +138,3 @@ declare global {
 }
 
 export {}
-

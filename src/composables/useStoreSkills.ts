@@ -1,7 +1,9 @@
 import { ref, computed, watch } from 'vue'
 import type { Skill, StoreSource } from '../types'
 import { storage } from '../utils/storage'
-import { parseGitHubUrl, fetchGitHubRepoTree, detectSkillDirectories, setGitHubResponseCacheEnabled } from '../utils/github'
+import { fetchGitHubRepoTree, detectSkillDirectories, setGitHubResponseCacheEnabled } from '../utils/github'
+import { fetchGiteeRepoTree } from '../utils/gitee'
+import { getRepositoryUrl, parseRepositoryUrl } from '../utils/repository'
 import { parseFrontmatter } from '../utils/frontmatter'
 import * as skillsSh from '../utils/skills-sh'
 import { fetchWellKnownIndex } from '../utils/well-known'
@@ -11,7 +13,7 @@ import { STORE_ICONS, getStoreIconFromSource } from '../data/store-icons'
 import { useDownloadQueue } from './useDownloadQueue'
 import { useTranslationQueue } from './useTranslationQueue'
 import { isChineseContent } from '../utils/translate'
-import { skillsShareIdentity } from '../utils/skill-identity'
+import { normalizeSkillNameKey, skillsShareIdentity } from '../utils/skill-identity'
 import {
   completeStoreSkill,
   makeStoreSkillId,
@@ -163,7 +165,7 @@ export function useStoreSkills(opts: {
   onNavigate?: (route: string, params?: { sub: string }) => void
 }) {
   const showToast = opts.showToast || (() => {})
-  const { isDownloading: isQueuedDownloading } = useDownloadQueue()
+  const { isDownloading: isQueuedDownloading, queue: downloadQueue } = useDownloadQueue()
   const { cacheVersion: translationCacheVersion } = useTranslationQueue()
 
   const presets = STORE_PRESETS
@@ -219,7 +221,7 @@ export function useStoreSkills(opts: {
 
   // GitHub lazy-desc support (state only; observers stay in view)
   const githubManifestMap = new Map<string, string>()
-  const githubRepoInfo = ref<{ owner: string; repo: string; branch: string; presetId: string } | null>(null)
+  const githubRepoInfo = ref<{ provider: 'github' | 'gitee'; owner: string; repo: string; branch: string; presetId: string } | null>(null)
   const fetchedDescIds = ref<Set<string>>(new Set())
   const loadingDescIds = ref<Set<string>>(new Set())
   const failedDescIds = ref<Set<string>>(new Set())
@@ -300,7 +302,7 @@ export function useStoreSkills(opts: {
       resetGitHubDescriptionContext()
       return
     }
-    const info = parseGitHubUrl(source.url)
+    const info = parseRepositoryUrl(source.url)
     if (!info) {
       resetGitHubDescriptionContext()
       return
@@ -311,7 +313,7 @@ export function useStoreSkills(opts: {
       const manifestFile = skill.manifestFile || (skill.path === '.' ? 'SKILL.md' : skill.path ? `${skill.path}/SKILL.md` : '')
       if (manifestFile) githubManifestMap.set(skill.id, manifestFile)
     }
-    githubRepoInfo.value = { owner: info.owner, repo: info.repo, branch, presetId: id }
+    githubRepoInfo.value = { provider: info.provider, owner: info.owner, repo: info.repo, branch, presetId: id }
   }
 
   function fetchCurrentSkills(force = false) {
@@ -402,9 +404,9 @@ export function useStoreSkills(opts: {
     resetDescriptionStates()
     setGitHubResponseCacheEnabled(isStoreCacheEnabled())
     error.value = ''
-    const info = parseGitHubUrl(url)
+    const info = parseRepositoryUrl(url)
     if (!info) {
-      error.value = 'Invalid GitHub URL'
+      error.value = 'Invalid GitHub or Gitee URL'
       loading.value = false
       stopLoadingDots()
       return
@@ -419,8 +421,14 @@ export function useStoreSkills(opts: {
     const hasFreshCache = Object.keys(descPool).length > 0
 
     try {
-      const token = storage.getSettings().githubToken || undefined
-      const tree = await fetchGitHubRepoTree(info.owner, info.repo, effectiveBranch, token)
+      const token =
+        info.provider === 'gitee'
+          ? storage.getSettings().giteeToken || undefined
+          : storage.getSettings().githubToken || undefined
+      const tree =
+        info.provider === 'gitee'
+          ? await fetchGiteeRepoTree(info.owner, info.repo, effectiveBranch, token)
+          : await fetchGitHubRepoTree(info.owner, info.repo, effectiveBranch, token)
       if (activePresetId.value !== presetId) return
       const skillDirs = detectSkillDirectories(tree).filter((sd) =>
         directory ? sd.dir === directory || sd.dir.startsWith(directory + '/') : true,
@@ -440,9 +448,10 @@ export function useStoreSkills(opts: {
           shortDescription: prev?.shortDescription || '',
           author: prev?.author || '',
           tags: prev?.tags || [],
-          source: 'github',
-          sourceUrl: `https://github.com/${repoKey}`,
+          source: info.provider,
+          sourceUrl: getRepositoryUrl(info),
           repo: repoKey,
+          repositoryProvider: info.provider,
           path: sd.dir,
           category: prev?.category || builtinCategory || inferCategory(dirName, ''),
           iconUrl: lookupBuiltinIcon(repoKey, dirName),
@@ -464,7 +473,7 @@ export function useStoreSkills(opts: {
         totalCountCache.value[presetId] = skeletons.length
       }
 
-      githubRepoInfo.value = { owner: info.owner, repo: info.repo, branch: effectiveBranch, presetId }
+      githubRepoInfo.value = { provider: info.provider, owner: info.owner, repo: repoKey.split('/')[1], branch: effectiveBranch, presetId }
       if (isStoreCacheEnabled()) storage.saveGitHubSkills(skeletons.filter((s) => s.description || s.shortDescription))
     } catch (err: any) {
       if (!hasFreshCache && !allEntries.value.length) error.value = err.message
@@ -694,7 +703,20 @@ export function useStoreSkills(opts: {
   const categoryCounts = computed(() => buildCategoryCounts(sourceSkills.value))
 
   function isDownloading(id: string) {
-    return isQueuedDownloading(id)
+    if (isQueuedDownloading(id)) return true
+    const skill =
+      searchResults.value.find((item) => item.id === id) ||
+      allEntries.value.find((item) => item.id === id) ||
+      sourceSkills.value.find((item) => item.id === id)
+    if (!skill) return false
+    const nameKey = normalizeSkillNameKey(skill.name)
+    return downloadQueue.value.some(
+      (item) =>
+        item.type === 'download' &&
+        (item.status === 'pending' || item.status === 'running') &&
+        nameKey !== '' &&
+        normalizeSkillNameKey(item.skillName) === nameKey,
+    )
   }
 
   async function onSearch() {

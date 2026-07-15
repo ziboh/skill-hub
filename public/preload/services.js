@@ -34,6 +34,7 @@ const {
   setSkillEnabled,
 } = require('./lib/fs')
 const { downloadFile } = require('./lib/github-http')
+const { fetchGiteeJSON } = require('./lib/gitee-http')
 const { extractBufferZip } = require('./lib/zip')
 const { scanForSkills, scanForSkillFiles, scanForSkillFilesIncludingDisabled, parseSkillFile } = require('./lib/scan')
 const { deployPlatformSkill, uninstallPlatformSkill } = require('./lib/platform-deploy')
@@ -48,6 +49,14 @@ const {
   updateSkillFromGitHub,
   getStateDir,
 } = require('./lib/github-skills')
+const {
+  getLatestGiteeCommitSha,
+  getRemoteGiteeSkillTree,
+  downloadGiteeSkill,
+  updateSkillFromGitee,
+  saveGiteeSkillMetaAfterDownload,
+  checkGiteeSkillUpdateFull,
+} = require('./lib/gitee-skills')
 
 window.services = {
   hashContent(content) {
@@ -91,6 +100,7 @@ window.services = {
   createSymlink,
   setSkillEnabled,
   downloadFile,
+  fetchGiteeJSON,
   extractBufferZip,
   scanForSkills,
   scanForSkillFiles,
@@ -106,5 +116,11 @@ window.services = {
   buildLocalFileManifest,
   checkSkillUpdateFull,
   updateSkillFromGitHub,
+  getLatestGiteeCommitSha,
+  getRemoteGiteeSkillTree,
+  downloadGiteeSkill,
+  updateSkillFromGitee,
+  saveGiteeSkillMetaAfterDownload,
+  checkGiteeSkillUpdateFull,
   getStateDir,
 }
