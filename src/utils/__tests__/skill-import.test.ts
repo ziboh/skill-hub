@@ -133,4 +133,27 @@ describe('finalizeImportedSkill sourceType', () => {
     })
     expect(storage.getDownloadedIds()).toContain('x')
   })
+
+  test('persists canonical id from the parsed SKILL.md name for repository skills', () => {
+    const result = finalizeImportedSkill({
+      skill: {
+        id: 'vercel-labs/agent-skills/react-best-practices',
+        name: 'react-best-practices',
+        description: '',
+        author: '',
+        tags: [],
+        source: 'github',
+        repo: 'vercel-labs/agent-skills',
+        path: 'skills/react-best-practices',
+      },
+      targetDir: '/mock/path/skills-repo/react-best-practices',
+      sourceType: 'github',
+      location: 'vercel-labs/agent-skills',
+    })
+
+    expect(result.canonicalId).toBe('vercel-labs/agent-skills/My Skill')
+    expect(storage.getDownloadedSkills().find((skill) => skill.id === 'vercel-labs/agent-skills/react-best-practices')?.canonicalId).toBe(
+      'vercel-labs/agent-skills/My Skill',
+    )
+  })
 })

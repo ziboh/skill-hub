@@ -44,7 +44,7 @@ export function useSkillInventory() {
         const dir = getPlatformPath(p, 'global') || getPlatformPath(p, 'project')
         if (dir) {
           try {
-            result[p.id] = window.services.scanForSkillFiles([dir])
+            result[p.id] = (window.services.scanForSkillFilesIncludingDisabled || window.services.scanForSkillFiles)([dir])
           } catch (e) {
             console.warn('[useSkillInventory] scan failed for', p.id, dir, e)
             result[p.id] = []
@@ -86,8 +86,8 @@ export function useSkillInventory() {
   const allSkills = computed(() => {
     downloadedSkillsVersion.value // 建立响应式依赖
     const cachedSkills = (storage.getDownloadedSkills() as Skill[]).filter((s) => storage.isDownloaded(s.id))
-    const projectSkills = registeredProjects.value.flatMap((p) => p.skills || []) as SkillScanResult[]
-    const agentList = Object.values(agentSkills.value).flat() as SkillScanResult[]
+    const projectSkills = registeredProjects.value.flatMap((p) => (p.skills || []).filter((s) => s.enabled !== false)) as SkillScanResult[]
+    const agentList = Object.values(agentSkills.value).flat().filter((s) => s.enabled !== false) as SkillScanResult[]
 
     const combined: Skill[] = [...cachedSkills]
     const seenNames = new Set(cachedSkills.map((s) => normalizeSkillNameKey(s.name)))
@@ -113,7 +113,9 @@ export function useSkillInventory() {
 
   const agentCount = computed(() => Object.keys(agentSkills.value).length)
 
-  const totalAgentSkillCount = computed(() => Object.values(agentSkills.value).reduce((sum, skills) => sum + skills.length, 0))
+  const totalAgentSkillCount = computed(() =>
+    Object.values(agentSkills.value).reduce((sum, skills) => sum + skills.filter((skill) => skill.enabled !== false).length, 0),
+  )
 
   return {
     agentSkills,
@@ -130,3 +132,4 @@ export function useSkillInventory() {
     bumpDownloadedSkillsVersion,
   }
 }
+

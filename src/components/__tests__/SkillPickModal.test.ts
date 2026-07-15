@@ -66,10 +66,10 @@ describe('SkillPickModal', () => {
     expect(wrapper.emitted('close')).toHaveLength(1)
   })
 
-  test('clicking overlay emits close', async () => {
+  test('点击遮罩不会关闭弹窗', async () => {
     const wrapper = createWrapper()
     await wrapper.find('.pick-overlay').trigger('click')
-    expect(wrapper.emitted('close')).toHaveLength(1)
+    expect(wrapper.emitted('close')).toBeUndefined()
   })
 
   test('close button emits close', async () => {

@@ -28,7 +28,7 @@ function handleSelect(dir: string) {
 </script>
 
 <template>
-  <div class="pick-overlay" @click.self="emit('close')">
+  <div class="pick-overlay">
     <div class="pick-modal">
       <!-- Header -->
       <div class="pick-header">
@@ -72,7 +72,7 @@ function handleSelect(dir: string) {
               {{ s.name || '未命名' }}
             </div>
             <div class="pick-item-desc">
-              {{ s.description || '暂无描述' }}
+              {{ s.description || '描述暂未解析成功' }}
             </div>
             <div class="pick-item-dir">
               {{ s.dir }}

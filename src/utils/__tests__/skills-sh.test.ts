@@ -1,5 +1,14 @@
-import { describe, test, expect } from 'vitest'
-import { getFilterByKey, leaderboardEntryToSkill, searchResultToSkill, getGitHubRepo } from '../skills-sh'
+import { describe, test, expect, vi } from 'vitest'
+import {
+  getFilterByKey,
+  leaderboardEntryToSkill,
+  searchResultToSkill,
+  getGitHubRepo,
+  fetchLeaderboard,
+  searchSkillsSh,
+  fetchSkillDetailFromSkill,
+} from '../skills-sh'
+import * as github from '../github'
 import type { LeaderboardEntry, PublicSearchResult } from '../skills-sh'
 
 describe('getFilterByKey', () => {
@@ -99,6 +108,35 @@ describe('searchResultToSkill', () => {
   })
 })
 
+describe('fetchSkillDetailFromSkill', () => {
+  test('builds canonical id from the SKILL.md name without changing the source id', async () => {
+    const treeSpy = vi.spyOn(github, 'fetchGitHubRepoTree').mockResolvedValue([
+      { path: 'skills/react-best-practices/SKILL.md', type: 'blob' },
+    ])
+    const fileSpy = vi
+      .spyOn(github, 'fetchGitHubFile')
+      .mockResolvedValue('---\nname: vercel-react-best-practices\ndescription: React guidance\n---\n# Guide')
+
+    try {
+      const result = await fetchSkillDetailFromSkill({
+        id: 'vercel-labs/agent-skills/react-best-practices',
+        name: 'react-best-practices',
+        description: '',
+        author: '',
+        tags: [],
+        source: 'github',
+        repo: 'vercel-labs/agent-skills',
+        path: 'skills/react-best-practices',
+      })
+
+      expect(result?.canonicalId).toBe('vercel-labs/agent-skills/vercel-react-best-practices')
+    } finally {
+      treeSpy.mockRestore()
+      fileSpy.mockRestore()
+    }
+  })
+})
+
 describe('getGitHubRepo', () => {
   test('extracts owner and repo from valid repo string', () => {
     const result = getGitHubRepo({ repo: 'owner/repo' } as any)
@@ -114,3 +152,33 @@ describe('getGitHubRepo', () => {
     expect(getGitHubRepo({ repo: '' } as any)).toBeNull()
   })
 })
+
+
+describe('skills.sh network transport', () => {
+  test('uses the preload download bridge for leaderboard HTML', async () => {
+    const html = '<a href="/owner/repo/my-skill"><h3>My Skill</h3></a>'
+    const downloadFile = vi.spyOn(window.services, 'downloadFile').mockResolvedValue(
+      new TextEncoder().encode(html).buffer,
+    )
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+
+    const result = await fetchLeaderboard()
+
+    expect(downloadFile).toHaveBeenCalledWith('https://skills.sh/')
+    expect(result.entries[0]).toMatchObject({ owner: 'owner', repo: 'repo', skillName: 'My Skill' })
+  })
+
+  test('uses the preload download bridge for search JSON', async () => {
+    const payload = { skills: [{ name: 'My Skill', source: 'owner/repo', installs: 1, skillId: 'my-skill' }] }
+    const downloadFile = vi.spyOn(window.services, 'downloadFile').mockResolvedValue(
+      new TextEncoder().encode(JSON.stringify(payload)).buffer,
+    )
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+
+    const result = await searchSkillsSh('my skill')
+
+    expect(downloadFile).toHaveBeenCalledWith('https://skills.sh/api/search?q=my%20skill')
+    expect(result).toEqual(payload.skills)
+  })
+})
+

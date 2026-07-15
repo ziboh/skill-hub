@@ -111,7 +111,7 @@ describe('TranslatePanel', () => {
   test('translate all button enabled when model configured', () => {
     setupStorageSkills()
     setupSettings({
-      translationModelId: 'test-model',
+      translationModelId: 'test-provider::test-model',
       aiModels: [
         {
           id: 'test-provider',
@@ -149,10 +149,10 @@ describe('TranslatePanel', () => {
     expect(wrapper.emitted('close')).toBeTruthy()
   })
 
-  test('click overlay emits close', async () => {
+  test('点击遮罩不会关闭弹窗', async () => {
     const wrapper = createWrapper()
     await wrapper.find('.translate-panel-overlay').trigger('click')
-    expect(wrapper.emitted('close')).toBeTruthy()
+    expect(wrapper.emitted('close')).toBeUndefined()
   })
 })
 
@@ -168,7 +168,7 @@ describe('Translation status detection', () => {
 
   function setupModel() {
     setupSettings({
-      translationModelId: 'test-model',
+      translationModelId: 'test-provider::test-model',
       aiModels: [
         {
           id: 'test-provider',
@@ -328,7 +328,7 @@ describe('Translation status detection', () => {
 
     const { useTranslationQueue } = await import('../../composables/useTranslationQueue')
     const { addTranslation } = useTranslationQueue()
-    addTranslation(readme, 'desc', 'Skill Trans')
+    addTranslation(readme, 'desc', 'Skill Trans', 'An English skill')
 
     const wrapper = createWrapper()
     await wrapper.vm.$nextTick()
@@ -346,7 +346,7 @@ describe('Translation status detection', () => {
 
     const { useTranslationQueue } = await import('../../composables/useTranslationQueue')
     const { addTranslation } = useTranslationQueue()
-    addTranslation(readme, 'desc', 'Skill Desc Only')
+    addTranslation(readme, 'desc', 'Skill Desc Only', 'An English skill')
 
     const wrapper = createWrapper()
     const typeButtons = wrapper.findAll('.segment-btn')

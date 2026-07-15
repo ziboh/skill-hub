@@ -131,10 +131,10 @@ describe('SkillDetailModal', () => {
     expect(wrapper.emitted('close')).toBeTruthy()
   })
 
-  test('overlay click emits close', async () => {
+  test('点击遮罩不会关闭弹窗', async () => {
     wrapper = mountModal()
     await wrapper.find('.modal-overlay').trigger('click')
-    expect(wrapper.emitted('close')).toBeTruthy()
+    expect(wrapper.emitted('close')).toBeUndefined()
   })
 
   test('shows import button for non-downloaded skill', () => {
@@ -142,6 +142,17 @@ describe('SkillDetailModal', () => {
     const importBtn = wrapper.find('.import-btn')
     expect(importBtn.exists()).toBe(true)
     expect(importBtn.text()).toContain('导入')
+  })
+
+  test('asks for confirmation before importing', async () => {
+    wrapper = mountModal()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await wrapper.vm.$nextTick()
+    await wrapper.find('.import-btn').trigger('click')
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.confirm-modal').exists()).toBe(true)
+    expect(wrapper.find('.confirm-modal').text()).toContain('Test Skill')
   })
 
   test('shows imported status when already downloaded', async () => {

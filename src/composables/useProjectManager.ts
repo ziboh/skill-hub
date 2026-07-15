@@ -4,6 +4,7 @@ import { storage } from '../utils/storage'
 import { getAllPlatformDefinitions } from '../data/platforms'
 import { syncAllowedWriteRoots } from '../utils/write-roots'
 import type { RegisteredProject, SkillScanResult } from '../types'
+import type { ShowToast } from '../inject-keys'
 
 function getDefaultProjectScanSubdirs(): string[] {
   const paths = getAllPlatformDefinitions()
@@ -13,10 +14,7 @@ function getDefaultProjectScanSubdirs(): string[] {
   return ['.agents/skills', ...new Set(paths)]
 }
 
-export function useProjectManager(opts: {
-  showToast: (msg: string, type?: 'success' | 'error' | 'info' | 'warning') => void
-  navigate: (code: string, params?: any) => void
-}) {
+export function useProjectManager(opts: { showToast: ShowToast; navigate: (code: string, params?: any) => void }) {
   const { registeredProjects, selectedProject, selectedProjectSkill, persistSelectedProject } = useProjectState()
   registeredProjects.value = storage.getRegisteredProjects()
 
@@ -49,7 +47,8 @@ export function useProjectManager(opts: {
           ...getDefaultProjectScanSubdirs().map((d) => window.services.pathJoin(project.rootDir, d)),
           ...project.scanPaths,
         ]
-        const skills = window.services.scanForSkillFiles(dirs)
+        const scan = window.services.scanForSkillFilesIncludingDisabled || window.services.scanForSkillFiles
+        const skills = scan(dirs)
         const idx = registeredProjects.value.findIndex((p) => p.id === project.id)
         if (idx >= 0) {
           const newList = [...registeredProjects.value]
@@ -63,7 +62,7 @@ export function useProjectManager(opts: {
         }
       } catch (err) {
         console.error('[ProjectManager] scanProject failed:', err)
-        opts.showToast(err instanceof Error ? err.message : '扫描项目失败', 'error')
+        opts.showToast({ type: 'error', message: err instanceof Error ? err.message : '扫描项目失败' })
       }
       projectScanning.value = false
     }, 300)

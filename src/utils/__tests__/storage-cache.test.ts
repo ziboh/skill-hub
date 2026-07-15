@@ -17,6 +17,20 @@ describe('storage cache consistency', () => {
     expect(storage.getDownloadedSkills().map((s) => s.id).sort()).toEqual(['a', 'b'])
   })
 
+  test('getDownloadedSkills ignores the removed cached skills storage key', () => {
+    window.ztools.dbStorage.setItem(
+      'sm_cached_skills',
+      JSON.stringify([{ id: 'legacy', name: 'Legacy', description: '', tags: [], source: 'local', downloaded: true }]),
+    )
+
+    expect(storage.getDownloadedSkills()).toEqual([])
+    expect(window.ztools.dbStorage.getItem('sm_cached_skills')).not.toBeNull()
+  })
+
+  test('storage no longer exposes the favorites migration', () => {
+    expect((storage as Record<string, unknown>).migrateFavorites).toBeUndefined()
+  })
+
   test('getDownloadedSet shares cache until invalidate', () => {
     storage.saveDownloadedSkills([{ id: 'x', name: 'X', description: '', author: '', tags: [], source: 'local' }])
     const s1 = storage.getDownloadedSet()

@@ -2,6 +2,7 @@
 import { computed, ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { getAvatarColor } from '../utils/color'
 import ProviderIcon from './ProviderIcon.vue'
+import UiIcon, { type UiIconName } from './UiIcon.vue'
 import { findPlatformById, platformDisplayIcon } from '../data/platforms'
 
 const props = withDefaults(
@@ -19,18 +20,20 @@ const props = withDefaults(
     avatarIcon?: string
     sourceTag?: { label: string; icon: string; color: string; bg: string } | null
     extraSourceTag?: { label: string; color: string; bg: string } | null
-    categoryTag?: { label: string; icon: string } | null
+    categoryTag?: { label: string; icon: UiIconName } | null
     showChineseTag?: boolean
     showTranslatedTag?: boolean
     badges?: { text: string; type: string }[]
     duplicateBadge?: { count: number } | null
     showSymlinkBadge?: boolean
     descriptionError?: boolean
+    emptyDescriptionReason?: string
   }>(),
   {
-    description: '暂无描述',
+    description: '',
     loadingDescription: false,
     descriptionError: false,
+    emptyDescriptionReason: '描述暂未返回',
     selected: false,
     showBatchCheckbox: false,
     showActions: true,
@@ -114,11 +117,16 @@ watch(
       </svg>
     </div>
     <div class="card-top-row">
-      <div v-if="avatarIcon" class="card-avatar-icon">
-        <ProviderIcon :icon="avatarIcon" :size="22" />
-      </div>
-      <div v-else class="card-avatar" :style="{ background: avatarColor }">
-        {{ avatarLetter }}
+      <div class="card-top-left-group">
+        <div v-if="avatarIcon" class="card-avatar-icon">
+          <ProviderIcon :icon="avatarIcon" :size="22" />
+        </div>
+        <div v-else class="card-avatar" :style="{ background: avatarColor }">
+          {{ avatarLetter }}
+        </div>
+        <div v-if="$slots['top-left']" class="card-top-left-slot">
+          <slot name="top-left" />
+        </div>
       </div>
       <div
         v-if="showPlatformIcons && installedPlatforms.length"
@@ -199,7 +207,7 @@ watch(
               </span>
             </template>
             <template v-if="categoryTag">
-              <span class="card-tag category-tag">{{ categoryTag.icon }} {{ categoryTag.label }}</span>
+              <span class="card-tag category-tag"><UiIcon :name="categoryTag.icon" :size="12" /> {{ categoryTag.label }}</span>
             </template>
             <span v-if="showChineseTag" class="card-tag chinese-tag">中文</span>
             <span v-if="showTranslatedTag" class="card-tag translated-tag">译</span>
@@ -245,7 +253,7 @@ watch(
       加载失败，点击重试
     </p>
     <p v-else class="card-desc">
-      {{ description || shortDescription || '暂无描述' }}
+      {{ description || shortDescription || emptyDescriptionReason }}
     </p>
     <slot name="after-desc" />
   </div>
@@ -263,8 +271,6 @@ watch(
   transition: all var(--duration-base) var(--ease-standard);
   position: relative;
   min-height: 120px;
-  content-visibility: auto;
-  contain-intrinsic-height: 120px;
 }
 
 .skill-card:hover {
@@ -310,6 +316,13 @@ watch(
   margin-bottom: 16px;
 }
 
+.card-top-left-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 .card-avatar {
   width: 36px;
   height: 36px;
@@ -320,6 +333,12 @@ watch(
   font-size: 14px;
   font-weight: 700;
   color: #fff;
+  flex-shrink: 0;
+}
+
+.card-top-left-slot {
+  display: flex;
+  align-items: center;
   flex-shrink: 0;
 }
 

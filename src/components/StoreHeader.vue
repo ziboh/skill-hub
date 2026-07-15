@@ -8,6 +8,7 @@ defineProps<{
   viewMode: 'grid' | 'list'
   loading: boolean
   isDarkMode: boolean
+  cacheEnabled: boolean
 }>()
 
 const emit = defineEmits<{
@@ -15,6 +16,7 @@ const emit = defineEmits<{
   (e: 'add-store'): void
   (e: 'refresh'): void
   (e: 'toggle-theme'): void
+  (e: 'toggle-cache'): void
   (e: 'update:viewMode', mode: 'grid' | 'list'): void
 }>()
 </script>
@@ -122,6 +124,29 @@ const emit = defineEmits<{
           >
             <polyline points="23 4 23 10 17 10" />
             <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+          </svg>
+        </button>
+        <button
+          class="toolbar-icon-btn"
+          :class="{ active: !cacheEnabled }"
+          :title="cacheEnabled ? '关闭商店缓存' : '开启商店缓存'"
+          @click="emit('toggle-cache')"
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <ellipse cx="12" cy="5" rx="8" ry="3" />
+            <path d="M4 5v7c0 1.66 3.58 3 8 3s8-1.34 8-3V5" />
+            <path d="M4 12v7c0 1.66 3.58 3 8 3 1.31 0 2.53-.15 3.5-.42" />
+            <path d="m17 17 4 4" />
+            <path d="m21 17-4 4" />
           </svg>
         </button>
         <button

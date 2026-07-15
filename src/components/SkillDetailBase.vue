@@ -9,6 +9,7 @@ import { getAvatarColor } from '../utils/color'
 import { SKILL_CATEGORIES, ALL_CATEGORIES, inferCategory, CATEGORY_ICONS, type SkillCategory } from '../data/skill-categories'
 import { getSourceInfo } from '../utils/source-info'
 import ProviderIcon from './ProviderIcon.vue'
+import UiIcon from './UiIcon.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -249,7 +250,7 @@ function openSource() {
                 </svg>
                 {{ sourceInfo.label }}
               </span>
-              <span class="header-tag category-tag">{{ currentCategory.icon }} {{ currentCategory.label }}</span>
+              <span class="header-tag category-tag"><UiIcon :name="currentCategory.icon" :size="12" /> {{ currentCategory.label }}</span>
             </div>
           </div>
         </div>
@@ -476,7 +477,7 @@ function openSource() {
                 <div v-if="!editingTags" class="tags-display">
                   <div class="tags-list">
                     <span v-if="currentCategory" class="user-tag category-selected">
-                      {{ currentCategory.icon }} {{ currentCategory.label }}
+                      <UiIcon :name="currentCategory.icon" :size="14" /> {{ currentCategory.label }}
                     </span>
                     <span v-else class="tags-empty">未分类</span>
                   </div>
@@ -506,7 +507,7 @@ function openSource() {
                       :class="{ active: selectedCategory === cat }"
                       @click="selectedCategory = cat"
                     >
-                      <span class="category-icon">{{ CATEGORY_ICONS[cat] }}</span>
+                      <span class="category-icon"><UiIcon :name="CATEGORY_ICONS[cat]" :size="20" /></span>
                       <span class="category-label">{{ SKILL_CATEGORIES[cat].label }}</span>
                     </button>
                   </div>
@@ -1123,7 +1124,8 @@ function openSource() {
   background: hsl(var(--primary) / 0.08);
 }
 .category-icon {
-  font-size: 20px;
+  display: inline-flex;
+  align-items: center;
 }
 .category-label {
   font-size: 11px;

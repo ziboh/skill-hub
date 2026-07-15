@@ -221,9 +221,9 @@ describe('SkillDetailBase', () => {
     expect(translateBtns.length).toBeGreaterThanOrEqual(1)
   })
 
-  test('description shows placeholder when empty', () => {
+  test('description shows parse state when empty', () => {
     wrapper = mountBase(createSkill({ description: '' }), { skillDesc: '' })
-    expect(wrapper.find('.desc-text').text()).toContain('暂无描述')
+    expect(wrapper.find('.desc-text').text()).toContain('描述暂未解析成功')
   })
 
   test('shows content empty state when no content', () => {

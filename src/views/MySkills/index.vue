@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onActivated, onUnmounted, inject, watch, reactive } from 'vue'
+import { ref, computed, onMounted, onActivated, onUnmounted, inject, watch, reactive, nextTick } from 'vue'
 import { storage } from '../../utils/storage'
 import type { MySkillsSortMode, Skill } from '../../types'
 import {} from '../../data/platforms'
@@ -14,6 +14,7 @@ import ConfirmDeleteModal from '../../components/ConfirmDeleteModal.vue'
 import ConfirmBatchDeleteModal from '../../components/ConfirmBatchDeleteModal.vue'
 import { getSourceInfo as getSourceInfoUtil } from '../../utils/source-info'
 import ProviderIcon from '../../components/ProviderIcon.vue'
+import UiIcon, { type UiIconName } from '../../components/UiIcon.vue'
 import { isChineseContent } from '../../utils/translate'
 import SkillCard from '../../components/SkillCard.vue'
 import {
@@ -28,6 +29,7 @@ import {
 import { cacheVersion as translationCacheVersion } from '../../composables/useTranslationQueue'
 
 const emit = defineEmits(['navigate'])
+const props = defineProps<{ targetSkillId?: string }>()
 
 const { settings, updateSettings } = useSettings()
 
@@ -52,6 +54,7 @@ const refreshCounts = inject(KeyRefreshCounts, () => {})
 const allSkills = ref<Skill[]>([])
 const distributeRecords = ref(storage.getDistributeRecords())
 const downloadedIds = ref<string[]>([])
+const scrollRef = ref<HTMLElement | null>(null)
 
 onMounted(() => {
   refreshData()
@@ -61,7 +64,13 @@ onMounted(() => {
 onActivated(() => {
   refreshData()
   enrichLocalDescriptions()
+  locateTargetSkill()
 })
+
+watch(
+  () => props.targetSkillId,
+  () => locateTargetSkill(),
+)
 
 const refreshKey = inject(KeyRefreshKey, ref(0))
 watch(refreshKey, () => {
@@ -80,6 +89,21 @@ function refreshData() {
   downloadedIds.value = storage.getDownloadedIds()
   distributeRecords.value = storage.getDistributeRecords()
   refreshMySkills()
+}
+
+async function locateTargetSkill() {
+  if (!props.targetSkillId) return
+  filterCategory.value = 'all'
+  filterSource.value = ''
+  filterTag.value = ''
+  await nextTick()
+  const target = Array.from(scrollRef.value?.querySelectorAll<HTMLElement>('[data-skill-id]') || []).find(
+    (el) => el.dataset.skillId === props.targetSkillId,
+  )
+  if (!target) return
+  target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  target.classList.add('skill-locate-highlight')
+  window.setTimeout(() => target.classList.remove('skill-locate-highlight'), 1600)
 }
 
 async function enrichLocalDescriptions() {
@@ -229,7 +253,7 @@ function getSourceInfo(skill: Skill): { label: string; icon: string; color: stri
   return getSourceInfoUtil(skill)
 }
 
-function getCategoryInfo(skill: Skill): { label: string; icon: string } {
+function getCategoryInfo(skill: Skill): { label: string; icon: UiIconName } {
   const cat = getSkillCategory(skill)
   return { label: SKILL_CATEGORIES[cat].label, icon: CATEGORY_ICONS[cat] }
 }
@@ -300,6 +324,13 @@ function toggleSortDropdown() {
 function openDeploy(skill: Skill) {
   deploySkill.value = skill
   showDeployModal.value = true
+}
+
+function onDeployed() {
+  showDeployModal.value = false
+  deploySkill.value = null
+  refreshData()
+  refreshCounts()
 }
 
 const viewMode = ref<'grid' | 'list'>('grid')
@@ -737,7 +768,7 @@ function batchSyncToPlatform() {
         :class="{ active: filterTag === cat.id }"
         @click="filterTag = filterTag === cat.id ? '' : cat.id"
       >
-        {{ cat.icon }} {{ cat.label }}
+        <UiIcon :name="cat.icon" :size="14" /> {{ cat.label }}
         <span class="pill-count">{{ cat.count }}</span>
       </button>
     </div>
@@ -829,7 +860,7 @@ function batchSyncToPlatform() {
       </div>
     </div>
 
-    <div class="ms-scroll">
+    <div ref="scrollRef" class="ms-scroll">
       <div v-if="!filteredSkills.length" class="empty">
         <p>{{ emptyMessage }}</p>
         <p v-if="emptyHint" class="empty-hint">
@@ -846,8 +877,10 @@ function batchSyncToPlatform() {
         <SkillCard
           v-for="skill in filteredSkills"
           :key="skill.id"
+          :data-skill-id="skill.id"
           :name="skill.name"
-          :description="skill.description || '暂无描述'"
+          :description="skill.description || ''"
+          empty-description-reason="本地技能描述未解析成功"
           :selected="selectedIds.has(skill.id)"
           :show-batch-checkbox="batchMode"
           :show-platform-icons="true"
@@ -933,7 +966,7 @@ function batchSyncToPlatform() {
       v-if="showDeployModal && deploySkill"
       :skill="deploySkill"
       @close="((showDeployModal = false), (deploySkill = null))"
-      @deployed="((showDeployModal = false), (deploySkill = null), refreshData())"
+      @deployed="onDeployed"
     />
 
     <BatchSyncModal
@@ -973,6 +1006,35 @@ function batchSyncToPlatform() {
   overscroll-behavior: contain;
   min-height: 0;
   scrollbar-gutter: stable;
+}
+
+.my-skills :deep(.skill-locate-highlight) {
+  position: relative;
+  z-index: 1;
+  animation: skill-locate-highlight 2.4s ease-out;
+}
+
+@keyframes skill-locate-highlight {
+  0% {
+    outline: 0 solid hsl(var(--primary) / 0);
+    outline-offset: 0;
+    box-shadow: var(--shadow-card);
+  }
+  22% {
+    outline: 3px solid hsl(var(--primary) / 0.85);
+    outline-offset: 3px;
+    box-shadow: 0 0 18px hsl(var(--primary) / 0.35), var(--shadow-card);
+  }
+  62% {
+    outline: 3px solid hsl(var(--primary) / 0.55);
+    outline-offset: 3px;
+    box-shadow: 0 0 12px hsl(var(--primary) / 0.25), var(--shadow-card);
+  }
+  100% {
+    outline: 0 solid hsl(var(--primary) / 0);
+    outline-offset: 0;
+    box-shadow: var(--shadow-card);
+  }
 }
 
 .batch-bar {

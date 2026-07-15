@@ -9,7 +9,6 @@ export const KEYS = {
   PLATFORM_ORDER: 'platform_order',
   SETTINGS: 'settings',
   DOWNLOADED_SKILLS: 'downloaded_skills',
-  OLD_CACHED_SKILLS: 'cached_skills',
   REGISTERED_PROJECTS: 'registered_projects',
   TRANSLATIONS: 'translations',
   FAILURE_RECORDS: 'failure_records',
@@ -65,7 +64,6 @@ const STRIPPED_FIELDS: (keyof Skill)[] = [
   'readmeCachedAt',
   'installCount',
   'iconUrl',
-  'canonicalId',
   'installUrl',
 ]
 

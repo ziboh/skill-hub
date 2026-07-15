@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import QuickSwitcher from './QuickSwitcher.vue'
 import ProviderIcon from './ProviderIcon.vue'
+import UiIcon from './UiIcon.vue'
 import { SKILL_CATEGORIES, ALL_CATEGORIES, CATEGORY_ICONS } from '../data/skill-categories'
 import * as skillsSh from '../utils/skills-sh'
 
@@ -123,7 +124,7 @@ function onSearchClick() {
       :class="{ active: filterTab === cat }"
       @click="emit('update:filterTab', cat)"
     >
-      {{ CATEGORY_ICONS[cat] }} {{ SKILL_CATEGORIES[cat].label }}
+      <UiIcon :name="CATEGORY_ICONS[cat]" :size="14" /> {{ SKILL_CATEGORIES[cat].label }}
       <span class="tab-count">{{ categoryCounts[cat] || 0 }}</span>
     </button>
   </div>

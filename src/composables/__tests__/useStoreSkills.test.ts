@@ -1,4 +1,4 @@
-import { describe, test, expect } from 'vitest'
+import { describe, test, expect, vi } from 'vitest'
 import {
   PAGE_SIZE,
   growVisible,
@@ -6,8 +6,13 @@ import {
   splitImportedAndAvailable,
   buildCategoryCounts,
   parseMarketplaceEntries,
+  findDownloadedSkillMatch,
+  useStoreSkills,
 } from '../useStoreSkills'
 import type { Skill, StoreSource } from '../../types'
+import * as skillsSh from '../../utils/skills-sh'
+import * as github from '../../utils/github'
+import { fetchWellKnownIndex } from '../../utils/well-known'
 
 function makeSkill(overrides: Partial<Skill> & { name: string }): Skill {
   return {
@@ -22,6 +27,68 @@ function makeSkill(overrides: Partial<Skill> & { name: string }): Skill {
 }
 
 describe('useStoreSkills pure helpers', () => {
+  test('loading skills.sh cards does not request GitHub', async () => {
+    const leaderboardSpy = vi.spyOn(skillsSh, 'fetchLeaderboard').mockResolvedValue({
+      entries: [
+        {
+          owner: 'vercel-labs',
+          repo: 'agent-skills',
+          skillName: 'vercel-react-best-practices',
+          detailPath: '/vercel-labs/agent-skills/vercel-react-best-practices',
+          detailUrl: 'https://skills.sh/vercel-labs/agent-skills/vercel-react-best-practices',
+          installs: 1,
+        },
+      ],
+      totalCount: 1,
+    })
+    const treeSpy = vi.spyOn(github, 'fetchGitHubRepoTree').mockResolvedValue([])
+    const store = useStoreSkills({ storeId: () => 'skills-sh' })
+
+    try {
+      await store.fetchSkillsSh()
+      expect(treeSpy).not.toHaveBeenCalled()
+      expect(store.allEntries.value[0].id).toBe('vercel-labs/agent-skills/vercel-react-best-practices')
+    } finally {
+      store.stopLoadingDots()
+      leaderboardSpy.mockRestore()
+      treeSpy.mockRestore()
+    }
+  })
+
+  test('GitHub cards do not show description loading before a card request starts', async () => {
+    const treeSpy = vi.spyOn(github, 'fetchGitHubRepoTree').mockResolvedValue([{ path: 'skills/demo/SKILL.md', type: 'blob' }])
+    const store = useStoreSkills({ storeId: () => 'claude' })
+
+    try {
+      await store.fetchGitHubSkills('github.com/example/skills')
+
+      expect(store.allEntries.value).toHaveLength(1)
+      expect(store.loadingDescIds.value.size).toBe(0)
+    } finally {
+      store.stopLoadingDots()
+      treeSpy.mockRestore()
+    }
+  })
+
+  test('refetching a GitHub store clears stale description states', async () => {
+    const treeSpy = vi.spyOn(github, 'fetchGitHubRepoTree').mockResolvedValue([{ path: 'skills/demo/SKILL.md', type: 'blob' }])
+    const store = useStoreSkills({ storeId: () => 'claude' })
+    store.fetchedDescIds.value = new Set(['example/skills/demo'])
+    store.loadingDescIds.value = new Set(['example/skills/demo'])
+    store.failedDescIds.value = new Set(['example/skills/demo'])
+
+    try {
+      await store.fetchGitHubSkills('github.com/example/skills')
+
+      expect(store.fetchedDescIds.value.size).toBe(0)
+      expect(store.loadingDescIds.value.size).toBe(0)
+      expect(store.failedDescIds.value.size).toBe(0)
+    } finally {
+      store.stopLoadingDots()
+      treeSpy.mockRestore()
+    }
+  })
+
   test('growVisible grows by PAGE_SIZE and caps at max', () => {
     expect(growVisible(0, 100)).toBe(PAGE_SIZE)
     expect(growVisible(PAGE_SIZE, 100)).toBe(Math.min(PAGE_SIZE * 2, 100))
@@ -69,6 +136,57 @@ describe('useStoreSkills pure helpers', () => {
     expect(imported.map((s) => s.id)).toEqual(['s1', 's4'])
     expect(imported.find((s) => s.id === 's1')?.description).toBe('from cache')
     expect(available.map((s) => s.id).sort()).toEqual(['s2', 's3'])
+  })
+
+  test('recognizes the same downloaded skill through canonicalId', () => {
+    const sourceSkills = [
+      makeSkill({
+        name: 'react-best-practices',
+        id: 'vercel-labs/agent-skills/react-best-practices',
+        canonicalId: 'vercel-labs/agent-skills/vercel-react-best-practices',
+        storeSourceId: 'github-store',
+      }),
+    ]
+    const cached = [
+      makeSkill({
+        name: 'vercel-react-best-practices',
+        id: 'vercel-labs/agent-skills/vercel-react-best-practices',
+        storeSourceId: 'github-store',
+      }),
+    ]
+
+    const { imported, available } = splitImportedAndAvailable({
+      sourceSkills,
+      allEntries: sourceSkills,
+      downloadedIds: [cached[0].id],
+      cachedDownloaded: cached,
+      activePresetId: 'github-store',
+      filterTab: 'all',
+    })
+
+    expect(imported).toHaveLength(1)
+    expect(imported[0].canonicalId).toBe(cached[0].id)
+    expect(available).toHaveLength(0)
+  })
+
+  test('finds a skills.sh download for an unresolved GitHub card id', () => {
+    const githubCard = makeSkill({
+      id: 'vercel-labs/agent-skills/react-best-practices',
+      name: 'react-best-practices',
+      source: 'github',
+      repo: 'vercel-labs/agent-skills',
+      path: 'skills/react-best-practices',
+    })
+    const downloaded = makeSkill({
+      id: 'vercel-labs/agent-skills/vercel-react-best-practices',
+      canonicalId: 'vercel-labs/agent-skills/vercel-react-best-practices',
+      name: 'vercel-react-best-practices',
+      source: 'skills-sh',
+      repo: 'vercel-labs/agent-skills',
+      storeSourceId: 'skills-sh',
+    })
+
+    expect(findDownloadedSkillMatch(githubCard, [downloaded.id], [downloaded])).toBe(downloaded)
   })
 
   test('splitImportedAndAvailable filters by category tab', () => {
@@ -132,5 +250,45 @@ describe('useStoreSkills pure helpers', () => {
     expect(skills[0].tags).toEqual(['a', 'b'])
     expect(skills[1].id).toBe('m1/no-repo')
     expect(skills[1].name).toBe('No Repo')
+  })
+
+  test('parseMarketplaceEntries normalizes alternate description fields', () => {
+    const source = {
+      id: 'm1',
+      name: 'Market',
+      type: 'marketplace-json',
+      url: 'https://example.com/skills.json',
+      enabled: true,
+    } as StoreSource
+
+    const skills = parseMarketplaceEntries(
+      [
+        { name: 'Summary Skill', summary: 'summary desc' },
+        { name: 'Manifest Skill', manifest: { description: 'manifest desc' } },
+      ],
+      source,
+      'm1',
+    )
+
+    expect(skills[0].description).toBe('summary desc')
+    expect(skills[1].description).toBe('manifest desc')
+  })
+
+  test('fetchWellKnownIndex normalizes alternate description fields', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        skills: [{ name: 'demo', summary: 'well known summary', url: './demo/SKILL.md' }],
+      }),
+    } as Response)
+
+    try {
+      const skills = await fetchWellKnownIndex('https://example.com/.well-known/agent-skills/index.json')
+
+      expect(skills[0].description).toBe('well known summary')
+      expect(skills[0].source).toBe('well-known-index')
+    } finally {
+      fetchSpy.mockRestore()
+    }
   })
 })

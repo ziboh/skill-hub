@@ -13,6 +13,7 @@ function createWrapper(props?: Record<string, unknown>) {
       viewMode: 'grid',
       loading: false,
       isDarkMode: false,
+      cacheEnabled: true,
       ...props,
     },
   })
@@ -53,5 +54,11 @@ describe('StoreHeader', () => {
     const buttons = wrapper.findAll('.view-toggle button')
     await buttons[1].trigger('click')
     expect(wrapper.emitted('update:viewMode')?.[0]).toEqual(['list'])
+  })
+
+  test('emits cache toggle', async () => {
+    const wrapper = createWrapper({ cacheEnabled: true })
+    await wrapper.find('[title="关闭商店缓存"]').trigger('click')
+    expect(wrapper.emitted('toggle-cache')).toBeTruthy()
   })
 })

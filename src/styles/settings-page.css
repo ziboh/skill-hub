@@ -81,9 +81,12 @@
 }
 
 .settings-nav-icon {
-  font-size: 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 20px;
-  text-align: center;
+  height: 20px;
+  flex-shrink: 0;
 }
 
 .settings-content {
@@ -144,7 +147,8 @@
 }
 
 .segment-icon {
-  font-size: 15px;
+  display: inline-flex;
+  align-items: center;
 }
 
 /* Color Name Bar */
@@ -392,7 +396,10 @@
 }
 
 .mode-icon {
-  font-size: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
 }
 .mode-name {
   font-size: 13px;
@@ -1459,7 +1466,8 @@
 }
 
 .model-item-icon {
-  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
   flex-shrink: 0;
 }
 
@@ -1558,6 +1566,8 @@
 }
 
 .apikey-lock {
+  display: inline-flex;
+  align-items: center;
   flex-shrink: 0;
 }
 

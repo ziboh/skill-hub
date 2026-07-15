@@ -31,6 +31,7 @@ import {
   KeyIsAgentSkillsDirty,
   KeyBumpDownloadedSkillsVersion,
 } from './inject-keys'
+import type { LegacyNotificationType, NotificationOptions, ShowToast } from './inject-keys'
 
 const SkillStore = defineAsyncComponent(() => import('./views/SkillStore/index.vue'))
 const SkillDetail = defineAsyncComponent(() => import('./views/SkillStore/Detail.vue'))
@@ -60,8 +61,8 @@ const { settings } = useSettings()
 
 const showTranslatePanel = ref(false)
 const appToast = ref<InstanceType<typeof AppToast> | null>(null)
-function showToast(message: string, type?: 'success' | 'error' | 'info' | 'warning') {
-  appToast.value?.showToast(message, type)
+const showToast: ShowToast = (input: string | NotificationOptions, type?: LegacyNotificationType) => {
+  appToast.value?.showToast(input as any, type)
 }
 provide(KeyShowToast, showToast)
 
@@ -91,6 +92,7 @@ const {
   selectedAgentPlatformId,
   selectedDuplicateSkills,
   settingsAnchor,
+  targetMySkillId,
   storeSubId,
   activeRoute,
   isFullHeight,
@@ -168,7 +170,7 @@ function refreshCountsNow() {
     detectedPlatforms.value = installedPlatforms
     const counts: Record<string, number> = {}
     for (const p of installedPlatforms) {
-      counts[p.id] = inventoryAgentSkills.value[p.id]?.length || 0
+      counts[p.id] = inventoryAgentSkills.value[p.id]?.filter((skill) => skill.enabled !== false).length || 0
     }
     platformSkillCounts.value = counts
     syncAllowedWriteRoots({
@@ -215,7 +217,6 @@ let mqCleanup: (() => void) | null = null
 
 onMounted(() => {
   storage.cleanStaleDownloadedSkills()
-  storage.migrateFavorites()
   storage.updateChineseTags()
   syncAllowedWriteRoots({ projects: registeredProjects.value })
   refreshCounts()
@@ -237,16 +238,6 @@ onMounted(() => {
           const provider = providers.find((m) => m.id === providerId)
           if (provider && provider.enabled !== false && provider.models?.some((m) => m.id === modelId && m.enabled)) {
             model = { ...provider, model: modelId } as ModelConfig
-          }
-        } else {
-          for (const provider of providers) {
-            if (provider.models) {
-              const m = provider.models.find((m) => m.id === s.translationModelId && m.enabled)
-              if (m && provider.enabled !== false) {
-                model = { ...provider, model: m.id } as ModelConfig
-                break
-              }
-            }
           }
         }
         if (model) {
@@ -302,7 +293,7 @@ provide(KeyTriggerRefresh, () => {
 const allAvailableSkills = computed<Skill[]>(() => inventoryAllSkills.value as Skill[])
 
 const allProjectsSkills = computed<Skill[]>(() => {
-  const all = registeredProjects.value.flatMap((p) => (p.skills || []).map((s) => normalizeSkillScanResult(s)))
+  const all = registeredProjects.value.flatMap((p) => (p.skills || []).filter((s) => s.enabled !== false).map((s) => normalizeSkillScanResult(s)))
   return dedupeByNameKey(all, (s) => s.name)
 })
 
@@ -314,7 +305,9 @@ const currentAgentPlatform = computed(() => {
 
 const currentAgentPlatformSkills = computed<Skill[]>(() => {
   if (route.value !== 'agent-skills' || !selectedAgentPlatformId.value) return []
-  const all = (inventoryAgentSkills.value[selectedAgentPlatformId.value] || []).map((s) => normalizeSkillScanResult(s))
+  const all = (inventoryAgentSkills.value[selectedAgentPlatformId.value] || [])
+    .filter((s) => s.enabled !== false)
+    .map((s) => normalizeSkillScanResult(s))
   return dedupeByNameKey(all, (s) => s.name)
 })
 
@@ -322,11 +315,12 @@ const currentPageSkills = computed<Skill[]>(() => {
   if (route.value === 'my') {
     return storage.getDownloadedSkills().filter((s) => storage.isDownloaded(s.id))
   } else if (route.value === 'project-skills') {
-    const all = (selectedProject.value?.skills || []).map((s: SkillScanResult) => normalizeSkillScanResult(s))
+    const all = (selectedProject.value?.skills || []).filter((s: SkillScanResult) => s.enabled !== false).map((s: SkillScanResult) => normalizeSkillScanResult(s))
     return dedupeByNameKey(all, (s) => s.name)
   } else if (route.value === 'agent-skills') {
     const all = Object.values(inventoryAgentSkills.value)
       .flat()
+      .filter((s) => s.enabled !== false)
       .map((s) => normalizeSkillScanResult(s))
     return dedupeByNameKey(all, (s) => s.name)
   }
@@ -418,7 +412,7 @@ const currentPageSkills = computed<Skill[]>(() => {
         <!-- ===== ALL VIEWS — SINGLE COLUMN ===== -->
         <main class="main-content" :class="{ 'full-height': isFullHeight, 'no-padding': true }">
           <KeepAlive :max="5">
-            <MySkills v-if="route === 'my'" key="my" @navigate="navigate" />
+            <MySkills v-if="route === 'my'" key="my" :target-skill-id="targetMySkillId" @navigate="navigate" />
             <SkillDetail v-else-if="route === 'detail'" key="detail" :skill="selectedSkill" :context="detailContext" @navigate="navigate" />
             <AgentSkillDetail
               v-else-if="route === 'agent-skill-detail'"

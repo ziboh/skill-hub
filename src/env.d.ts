@@ -30,6 +30,7 @@ interface SkillScanResult {
   skillFile: string
   content: string
   isSymlink?: boolean
+  enabled?: boolean
   manifest: {
     name: string
     description: string
@@ -63,6 +64,7 @@ interface Services {
   readDir: (dir: string) => DirEntry[]
   readFileText: (filePath: string) => string | null
   writeFile: (filePath: string, content: string) => void
+  renamePath?: (sourcePath: string, targetPath: string) => void
   removeFile: (filePath: string) => void
   removeEmptyAncestors: (filePath: string) => void
   copyFile: (src: string, dest: string) => void
@@ -88,6 +90,8 @@ interface Services {
 
   scanForSkills: (rootDir: string) => SkillScanResult[]
   scanForSkillFiles: (dirs: string[]) => SkillScanResult[]
+  scanForSkillFilesIncludingDisabled: (dirs: string[]) => SkillScanResult[]
+  setSkillEnabled: (skillDir: string, enabled: boolean) => { enabled: boolean; path: string }
   parseSkillFile: (filePath: string) => { content: string; manifest: SkillScanResult['manifest'] } | null
 
   updateSkillFromGitHub: (repo: string, skillPath: string, targetDir: string, token?: string, branch?: string) => Promise<boolean>
@@ -128,3 +132,4 @@ declare global {
 }
 
 export {}
+

@@ -20,6 +20,7 @@ import {
 import { findPhysicallyInstalledPlatforms, toastSourceMissing, uninstallPathAndRecord } from '../utils/skill-install-status'
 import { skillMatchesInstalled } from '../utils/skill-identity'
 import { formatSkillLifecycleWarnings } from '../utils/skill-lifecycle'
+import { sortProcessedSkillsLast } from '../utils/skill-modal-sort'
 
 const props = defineProps<{
   skill: Skill
@@ -42,6 +43,12 @@ const deployResults = ref<{ platform: string; status: 'ok' | 'error'; msg: strin
 const selectedPlatforms = ref<Set<string>>(new Set())
 
 const platforms = computed(() => getDeployPlatforms())
+
+const orderedPlatforms = computed(() =>
+  sortProcessedSkillsLast(platforms.value, (platform) =>
+    installedPlatformIds.value.has(platform.id) || physicallyInstalledPlatforms.value.has(platform.id),
+  ),
+)
 
 const physicallyInstalledPlatforms = computed(() => {
   void globalRefreshTick.value
@@ -144,14 +151,14 @@ function uninstallGlobalPlatform() {
     scope: 'global',
   })
   if (!result.ok) {
-    showToast(`卸载失败: ${result.error || '请检查文件权限'}`, 'error')
+    showToast({ type: 'error', message: `卸载失败: ${result.error || '请检查文件权限'}` })
     cancelGlobalUninstall()
     return
   }
   globalRefreshTick.value++
   const warning = formatSkillLifecycleWarnings('uninstall', result.warnings)
-  if (warning) showToast(warning, 'warning')
-  showToast(`已从 ${platform?.name || pid} 卸载`, 'success')
+  if (warning) showToast({ type: 'warning', message: warning })
+  showToast({ type: 'success', message: `已从 ${platform?.name || pid} 卸载` })
   cancelGlobalUninstall()
 }
 
@@ -169,7 +176,7 @@ function addCustomDir() {
   if (!p) return
   const exists = agentDirOptions.value.some((d) => d.path === p)
   if (exists) {
-    showToast('该路径已存在', 'warning')
+    showToast({ type: 'warning', message: '该路径已存在' })
     return
   }
   const dir = { id: 'custom-' + Date.now(), name: '自定义', path: p, type: 'custom' }
@@ -195,6 +202,12 @@ const agentDirOptions = computed(() => {
   }
   return dirs
 })
+
+const orderedAgentDirOptions = computed(() =>
+  sortProcessedSkillsLast(agentDirOptions.value, (agent) =>
+    isProjectDirInstalled(agent.path) || physicallyExistingAgentDirs.value.has(agent.path),
+  ),
+)
 
 const projectDistributeRecords = ref<any[]>([])
 const physicallyExistingAgentDirs = ref<Set<string>>(new Set())
@@ -309,15 +322,15 @@ function uninstall() {
     scope: 'project',
   })
   if (!result.ok) {
-    showToast('卸载失败: ' + (result.error || '未知错误'), 'error')
+    showToast({ type: 'error', message: '卸载失败: ' + (result.error || '未知错误') })
   } else {
     loadProjectInstallStatus()
     const stillExists = projectDistributeRecords.value.some((r: any) => r.platformId === key)
-    if (stillExists) showToast('卸载失败：记录删除异常', 'error')
+    if (stillExists) showToast({ type: 'error', message: '卸载失败：记录删除异常' })
     else {
       const warning = formatSkillLifecycleWarnings('uninstall', result.warnings)
-      if (warning) showToast(warning, 'warning')
-      showToast(`已从项目卸载`, 'success')
+      if (warning) showToast({ type: 'warning', message: warning })
+      showToast({ type: 'success', message: `已从项目卸载` })
     }
   }
   cancelUninstall()
@@ -386,7 +399,7 @@ async function deployGlobal() {
 
   const sourceDir = resolveSkillSourceDir(props.skill)
   if (!sourceDir) {
-    showToast(toastSourceMissing(props.skill.name), 'error')
+    showToast({ type: 'error', message: toastSourceMissing(props.skill.name) })
     deploying.value = false
     return
   }
@@ -408,7 +421,7 @@ async function deployGlobal() {
       msg: result.message,
     })
     const warning = formatSkillLifecycleWarnings('install', result.warnings)
-    if (warning) showToast(warning, 'warning')
+    if (warning) showToast({ type: 'warning', message: warning })
     done++
   }
 
@@ -417,8 +430,8 @@ async function deployGlobal() {
 
   const okCount = deployResults.value.filter((r) => r.status === 'ok').length
   const errCount = deployResults.value.filter((r) => r.status === 'error').length
-  if (okCount > 0) showToast(`已将 ${props.skill.name} 分发到 ${okCount} 个平台`, 'success')
-  if (errCount > 0) showToast(`${errCount} 个平台分发失败`, 'error')
+  if (okCount > 0) showToast({ type: 'success', message: `已将 ${props.skill.name} 分发到 ${okCount} 个平台` })
+  if (errCount > 0) showToast({ type: 'error', message: `${errCount} 个平台分发失败` })
   markAgentSkillsDirty()
   emit('deployed')
 }
@@ -426,12 +439,12 @@ async function deployGlobal() {
 async function deployProject() {
   const projects = selectedProjects.value
   if (!projects.length) {
-    showToast('请先选择项目', 'error')
+    showToast({ type: 'error', message: '请先选择项目' })
     return
   }
   const agentPaths = [...selectedAgentDirs.value]
   if (!agentPaths.length) {
-    showToast('请先选择保存位置', 'error')
+    showToast({ type: 'error', message: '请先选择保存位置' })
     return
   }
 
@@ -442,7 +455,7 @@ async function deployProject() {
 
   const sourceDir = resolveSkillSourceDir(props.skill)
   if (!sourceDir) {
-    showToast(toastSourceMissing(props.skill.name), 'error')
+    showToast({ type: 'error', message: toastSourceMissing(props.skill.name) })
     deploying.value = false
     return
   }
@@ -461,7 +474,7 @@ async function deployProject() {
         msg: result.message,
       })
       const warning = formatSkillLifecycleWarnings('install', result.warnings)
-      if (warning) showToast(warning, 'warning')
+      if (warning) showToast({ type: 'warning', message: warning })
       done++
     }
   }
@@ -473,9 +486,9 @@ async function deployProject() {
   const errCount = deployResults.value.filter((r) => r.status === 'error').length
   if (okCount > 0) {
     const detail = projects.length === 1 ? projects[0].name : `${projects.length} 个项目`
-    showToast(`已将 ${props.skill.name} 分发到${detail}`, 'success')
+    showToast({ type: 'success', message: `已将 ${props.skill.name} 分发到${detail}` })
   }
-  if (errCount > 0) showToast(`${errCount} 个位置分发失败`, 'error')
+  if (errCount > 0) showToast({ type: 'error', message: `${errCount} 个位置分发失败` })
   emit('deployed')
 }
 
@@ -507,7 +520,7 @@ watch(
 </script>
 
 <template>
-  <div class="deploy-overlay" @click.self="emit('close')">
+  <div class="deploy-overlay">
     <div class="deploy-modal">
       <!-- Header -->
       <div class="deploy-header">
@@ -519,7 +532,7 @@ watch(
             <h3 class="deploy-skill-name">
               {{ skill.name }}
             </h3>
-            <span class="deploy-skill-desc">{{ skill.description || '暂无描述' }}</span>
+            <span class="deploy-skill-desc">{{ skill.description || '描述暂未解析成功' }}</span>
           </div>
         </div>
         <button class="deploy-close" @click="emit('close')">
@@ -633,7 +646,7 @@ watch(
             </div>
             <div v-else class="deploy-platform-grid">
               <div
-                v-for="p in platforms"
+                v-for="p in orderedPlatforms"
                 :key="p.id"
                 class="deploy-platform-card"
                 :class="{
@@ -799,7 +812,7 @@ watch(
 
             <div class="deploy-platform-grid">
               <div
-                v-for="a in agentDirOptions"
+                v-for="a in orderedAgentDirOptions"
                 :key="a.id"
                 class="deploy-platform-card"
                 :class="{

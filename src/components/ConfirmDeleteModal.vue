@@ -71,13 +71,13 @@ function deleteSkill() {
   try {
     dir = getSkillsRepoDir(props.skill.id)
   } catch (e) {
-    showToast(e instanceof Error ? e.message : '无效的技能路径', 'error')
+    showToast({ type: 'error', message: e instanceof Error ? e.message : '无效的技能路径' })
     return
   }
 
   const rm = safeRemovePath(dir)
   if (!rm.ok) {
-    showToast(`删除失败: ${rm.error || '请检查文件权限'}`, 'error')
+    showToast({ type: 'error', message: `删除失败: ${rm.error || '请检查文件权限'}` })
     return
   }
   try {
@@ -109,16 +109,16 @@ function deleteSkill() {
   storage.removeDownloadedSkill(props.skill.id)
 
   if (distErrors.length) {
-    showToast(`技能已删除，但 ${distErrors.length} 处分发文件删除失败`, 'warning')
+    showToast({ type: 'warning', message: `技能已删除，但 ${distErrors.length} 处分发文件删除失败` })
   }
   const warning = formatSkillLifecycleWarnings('uninstall', lifecycleWarnings)
-  if (warning) showToast(warning, 'warning')
+  if (warning) showToast({ type: 'warning', message: warning })
   emit('deleted')
 }
 </script>
 
 <template>
-  <div class="confirm-overlay" @click.self="emit('close')">
+  <div class="confirm-overlay">
     <div class="confirm-modal">
       <div class="confirm-header">
         <div class="confirm-icon">

@@ -113,7 +113,7 @@ function handleSubmit() {
 </script>
 
 <template>
-  <div class="modal-overlay" @click.self="emit('close')">
+  <div class="modal-overlay">
     <div class="modal-panel">
       <div class="modal-header">
         <h2 class="modal-title">

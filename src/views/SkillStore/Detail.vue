@@ -10,6 +10,7 @@ import SkillDetailBase from '../../components/SkillDetailBase.vue'
 import GlobalDistPanel from '../../components/GlobalDistPanel.vue'
 import ProjectDistPanel from '../../components/ProjectDistPanel.vue'
 import ConfirmDeleteModal from '../../components/ConfirmDeleteModal.vue'
+import ConfirmModal from '../../components/ConfirmModal.vue'
 import { getSkillsRepoDir } from '../../utils/skill-path'
 import { finalizeImportedSkill } from '../../utils/skill-import'
 
@@ -55,6 +56,7 @@ const skillDir = computed(() => {
   return ''
 })
 const projectImporting = ref(false)
+const showProjectImportConfirm = ref(false)
 const _projectRemoving = ref(false)
 const showDeleteModal = ref(false)
 
@@ -86,7 +88,7 @@ async function checkForUpdate() {
     if (!result) {
       updateStatus.value = 'error'
       updateMessage.value = '检查失败'
-      showToast('检查更新失败', 'error')
+      showToast({ type: 'error', message: '检查更新失败' })
     } else if (result.hasUpdate) {
       updateAvailable.value = true
       updateStatus.value = 'done'
@@ -94,17 +96,17 @@ async function checkForUpdate() {
       updateMessage.value = `有 ${count} 个文件已更新`
       const preview = result.changedFiles.slice(0, 3).join(', ')
       const suffix = count > 3 ? ` 等${count}个文件` : ''
-      showToast(`发现更新：${preview}${suffix}`, 'info')
+      showToast({ type: 'notification', message: `发现更新：${preview}${suffix}` })
     } else {
       updateAvailable.value = false
       updateStatus.value = 'done'
       updateMessage.value = '已是最新'
-      showToast('已是最新版本', 'success')
+      showToast({ type: 'success', message: '已是最新版本' })
     }
   } catch (err: any) {
     updateStatus.value = 'error'
     updateMessage.value = '检查失败: ' + (err.message || '未知错误')
-    showToast('检查更新失败: ' + (err.message || '未知错误'), 'error')
+    showToast({ type: 'error', message: '检查更新失败: ' + (err.message || '未知错误') })
   }
   updateChecking.value = false
 }
@@ -122,7 +124,7 @@ async function updateSkill() {
       updateStatus.value = 'done'
       updateMessage.value = '更新完成'
       loadSkillContent()
-      showToast('技能已更新', 'success')
+      showToast({ type: 'success', message: '技能已更新' })
     } else {
       updateStatus.value = 'error'
       updateMessage.value = '更新失败'
@@ -133,7 +135,12 @@ async function updateSkill() {
   }
 }
 
+function requestProjectImport() {
+  if (!isImported.value && !projectImporting.value) showProjectImportConfirm.value = true
+}
+
 async function projectImportSkill() {
+  showProjectImportConfirm.value = false
   if (!props.skill) return
   projectImporting.value = true
   try {
@@ -151,9 +158,9 @@ async function projectImportSkill() {
       storeSourceId: props.skill.storeSourceId,
     })
     bumpDownloadedSkillsVersion()
-    showToast(`已将 ${props.skill.name} 导入到我的 Skill`, 'success')
+    showToast({ type: 'success', message: `已将 ${props.skill.name} 导入到我的 Skill` })
   } catch (err: any) {
-    showToast(err.message, 'error')
+    showToast({ type: 'error', message: err.message })
   }
   projectImporting.value = false
 }
@@ -311,7 +318,9 @@ async function loadSkillContent() {
     if (result) {
       skill.readme = result.content
       skill.readmeCachedAt = Date.now()
+      if (result.name) skill.name = result.name
       if (result.description) skill.description = result.description
+      if (result.canonicalId) skill.canonicalId = result.canonicalId
       storage.saveGitHubSkills([skill])
       skillName.value = result.name
       skillDesc.value = result.description
@@ -419,7 +428,7 @@ function saveContent() {
         </div>
 
         <div class="project-actions">
-          <button v-if="!isImported" class="project-action-btn primary" :disabled="projectImporting" @click="projectImportSkill">
+          <button v-if="!isImported" class="project-action-btn primary" :disabled="projectImporting" @click="requestProjectImport">
             <svg
               width="14"
               height="14"
@@ -537,6 +546,14 @@ function saveContent() {
     </template>
   </SkillDetailBase>
 
+  <ConfirmModal
+    v-if="showProjectImportConfirm && skill"
+    title="确认导入 Skill"
+    :message="`确定要将 <strong>${skill.name}</strong> 导入到我的 Skill 吗？`"
+    confirm-text="导入"
+    @confirm="projectImportSkill"
+    @cancel="showProjectImportConfirm = false"
+  />
   <ConfirmDeleteModal v-if="showDeleteModal && skill" :skill="skill" @close="showDeleteModal = false" @deleted="onSkillDeleted" />
 </template>
 

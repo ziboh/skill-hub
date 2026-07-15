@@ -24,6 +24,7 @@ import { normalizePath } from '../../utils/path'
 import type { PlatformInfo, Skill, SkillScanResult } from '../../types'
 import ProviderIcon from '../../components/ProviderIcon.vue'
 import SkillCard from '../../components/SkillCard.vue'
+import SkillEnabledToggle from '../../components/SkillEnabledToggle.vue'
 import QuickSwitcher from '../../components/QuickSwitcher.vue'
 import ConfirmModal from '../../components/ConfirmModal.vue'
 import DeployModal from '../../components/DeployModal.vue'
@@ -32,6 +33,9 @@ import { getSkillsRepoDir } from '../../utils/skill-path'
 import { safeRemovePath } from '../../utils/fs-ops'
 import { uninstallPathAndRecord } from '../../utils/skill-install-status'
 import { formatSkillLifecycleWarnings } from '../../utils/skill-lifecycle'
+import { sortProcessedSkillsLast } from '../../utils/skill-modal-sort'
+import { isSkillEnabled, toggleSkillEnabled } from '../../utils/skill-toggle'
+import { importScanResultToMySkills } from '../../utils/skill-import'
 
 const props = defineProps<{ initialPlatformId?: string }>()
 const emit = defineEmits(['navigate'])
@@ -54,6 +58,9 @@ const skillFilter = ref<string>('')
 const viewMode = ref<'grid' | 'list'>('grid')
 const downloadedIds = ref<string[]>(storage.getDownloadedIds())
 const importing = ref<Record<string, boolean>>({})
+const toggling = ref<Record<string, boolean>>({})
+const confirmImportSkill = ref<any>(null)
+const showBatchImportConfirm = ref(false)
 function refreshDownloaded() {
   downloadedIds.value = storage.getDownloadedIds()
 }
@@ -184,7 +191,7 @@ onActivated(() => {
       const dir = getPlatformPath(p, 'global') || getPlatformPath(p, 'project')
       if (dir) {
         try {
-          const skills = window.services.scanForSkillFiles([dir])
+          const skills = (window.services.scanForSkillFilesIncludingDisabled || window.services.scanForSkillFiles)([dir])
           updateAgentPlatformSkills(p.id, skills)
         } catch {
           updateAgentPlatformSkills(p.id, [])
@@ -210,13 +217,14 @@ function refreshCurrent() {
       const dir = getPlatformPath(p, 'global') || getPlatformPath(p, 'project')
       if (dir) {
         try {
-          const skills = window.services.scanForSkillFiles([dir])
+          const skills = (window.services.scanForSkillFilesIncludingDisabled || window.services.scanForSkillFiles)([dir])
           updateAgentPlatformSkills(p.id, skills)
         } catch {
           updateAgentPlatformSkills(p.id, [])
         }
       }
     }
+    refreshCounts()
     loading.value = false
   }, 300)
 }
@@ -238,6 +246,33 @@ onDeactivated(() => {
 
 const selectedPlatform = computed(() => detectedPlatforms.value.find((p) => p.id === selectedId.value))
 const selectedSkills = computed(() => (selectedId.value ? platformSkills.value[selectedId.value] || [] : []))
+
+async function toggleAgentSkill(skill: SkillScanResult) {
+  const dir = skill.dir
+  const nextEnabled = !isSkillEnabled(skill)
+  if (!dir || toggling.value[dir]) return
+  toggling.value[dir] = true
+  try {
+    const result = toggleSkillEnabled(dir, nextEnabled)
+    const platform = selectedPlatform.value
+    const scanDir = platform ? getPlatformPath(platform, 'global') || getPlatformPath(platform, 'project') : ''
+    if (platform && scanDir) {
+      const scan = window.services.scanForSkillFilesIncludingDisabled || window.services.scanForSkillFiles
+      updateAgentPlatformSkills(platform.id, scan([scanDir]))
+    } else {
+      updateAgentPlatformSkills(
+        selectedId.value,
+        selectedSkills.value.map((item) => (item.dir === dir ? { ...item, enabled: result.enabled } : item)),
+      )
+    }
+    refreshCounts()
+    showToast({ type: 'success', message: result.enabled ? 'Skill 已启用' : 'Skill 已停用' })
+  } catch (err: any) {
+    showToast({ type: 'error', message: err?.message || '切换 Skill 状态失败' })
+  } finally {
+    toggling.value[dir] = false
+  }
+}
 
 watch(
   selectedPlatform,
@@ -363,10 +398,10 @@ function onDeployed() {
   deploySkill.value = null
   _platformInstallDirs.value = getPlatFormInstallDirSet()
   refreshCurrent()
-  refreshCounts()
 }
 
 async function importSkillToMy(skill: any) {
+  confirmImportSkill.value = null
   const id = getSkillId(skill)
   importing.value[id] = true
   try {
@@ -391,11 +426,15 @@ async function importSkillToMy(skill: any) {
     storage.addSessionDownload(id, skill.manifest?.name || skill.name, 'agent')
     refreshDownloaded()
     refreshCounts()
-    showToast(`已导入「${skill.manifest?.name || skill.name}」到我的 Skill`, 'success')
+    showToast({ type: 'success', message: `已导入「${skill.manifest?.name || skill.name}」到我的 Skill` })
   } catch (err: any) {
-    showToast(err?.message || `导入「${skill.manifest?.name || skill.name}」失败`, 'error')
+    showToast({ type: 'error', message: err?.message || `导入「${skill.manifest?.name || skill.name}」失败` })
   }
   importing.value[id] = false
+}
+
+function requestImportSkillToMy(skill: any) {
+  if (!importing.value[getSkillId(skill)]) confirmImportSkill.value = skill
 }
 
 function executeUninstallByScope() {
@@ -403,7 +442,7 @@ function executeUninstallByScope() {
   if (!dir) return
   const selected = uninstallScopeOptions.value.filter((o) => o.checked).map((o) => o.scope)
   if (!selected.length) {
-    showToast('请选择至少一个范围', 'warning')
+    showToast({ type: 'warning', message: '请选择至少一个范围' })
     return
   }
 
@@ -419,23 +458,22 @@ function executeUninstallByScope() {
         scope: r.scope,
       })
       if (!result.ok) {
-        showToast(`删除失败: ${result.error || '请检查文件权限'}`, 'error')
+        showToast({ type: 'error', message: `删除失败: ${result.error || '请检查文件权限'}` })
         return
       }
       const warning = formatSkillLifecycleWarnings('uninstall', result.warnings)
-      if (warning) showToast(warning, 'warning')
+      if (warning) showToast({ type: 'warning', message: warning })
     }
   } else {
     const rm = safeRemovePath(dir)
     if (!rm.ok) {
-      showToast(`删除失败: ${rm.error || '请检查文件权限'}`, 'error')
+      showToast({ type: 'error', message: `删除失败: ${rm.error || '请检查文件权限'}` })
       return
     }
   }
 
   refreshCurrent()
-  refreshCounts()
-  showToast('已卸载', 'success')
+  showToast({ type: 'success', message: '已卸载' })
   uninstallScopeDir.value = null
   confirmDeleteDir.value = null
 }
@@ -462,22 +500,21 @@ function uninstallSkill(skill: any) {
         scope: r.scope,
       })
       if (!result.ok) {
-        showToast(`删除失败: ${result.error || '请检查文件权限'}`, 'error')
+        showToast({ type: 'error', message: `删除失败: ${result.error || '请检查文件权限'}` })
         return
       }
       const warning = formatSkillLifecycleWarnings('uninstall', result.warnings)
-      if (warning) showToast(warning, 'warning')
+      if (warning) showToast({ type: 'warning', message: warning })
     }
   } else {
     const rm = safeRemovePath(dir)
     if (!rm.ok) {
-      showToast(`删除失败: ${rm.error || '请检查文件权限'}`, 'error')
+      showToast({ type: 'error', message: `删除失败: ${rm.error || '请检查文件权限'}` })
       return
     }
   }
   refreshCurrent()
   for (const r of allRecords) storage.removeDistributeRecord(r.skillId, r.platformId, r.scope)
-  refreshCounts()
   confirmDeleteDir.value = null
 }
 
@@ -527,6 +564,83 @@ function batchDelete() {
   showBatchDeleteConfirm.value = true
 }
 
+function batchSetAgentSkillsEnabled(enabled: boolean) {
+  const selectedSkills = filteredSkills.value.filter((skill) => selectedIds.value.has(skill.dir))
+  let successCount = 0
+  let failCount = 0
+
+  for (const skill of selectedSkills) {
+    try {
+      toggleSkillEnabled(skill.dir, enabled)
+      successCount++
+    } catch {
+      failCount++
+    }
+  }
+
+  const platform = selectedPlatform.value
+  const scanDir = platform ? getPlatformPath(platform, 'global') || getPlatformPath(platform, 'project') : ''
+  if (platform && scanDir) {
+    try {
+      const scan = window.services.scanForSkillFilesIncludingDisabled || window.services.scanForSkillFiles
+      updateAgentPlatformSkills(platform.id, scan([scanDir]))
+    } catch {
+      updateAgentPlatformSkills(platform.id, [])
+    }
+  } else {
+    updateAgentPlatformSkills(
+      selectedId.value,
+      selectedSkills.map((skill) => ({ ...skill, enabled })),
+    )
+  }
+
+  refreshCounts()
+  selectedIds.value.clear()
+  batchMode.value = false
+  const action = enabled ? '启用' : '停用'
+  if (failCount > 0 && successCount > 0) {
+    showToast({ type: 'warning', message: `批量${action}完成：${successCount} 个成功，${failCount} 个失败` })
+  } else if (failCount > 0) {
+    showToast({ type: 'error', message: `批量${action}失败：${failCount} 个 Skill` })
+  } else if (successCount > 0) {
+    showToast({ type: 'success', message: `已批量${action} ${successCount} 个 Skill` })
+  }
+}
+
+function requestBatchImportToMySkills() {
+  if (selectedIds.value.size > 0) showBatchImportConfirm.value = true
+}
+
+function batchImportToMySkills() {
+  showBatchImportConfirm.value = false
+  const selectedSkills = filteredSkills.value.filter((skill) => selectedIds.value.has(skill.dir) && getBadgeType(skill) === 'local')
+  let successCount = 0
+  let failCount = 0
+
+  for (const skill of selectedSkills) {
+    try {
+      importScanResultToMySkills({ skill, sessionSource: 'agent' })
+      successCount++
+    } catch {
+      failCount++
+    }
+  }
+
+  refreshDownloaded()
+  refreshCounts()
+  selectedIds.value.clear()
+  batchMode.value = false
+  if (failCount > 0 && successCount > 0) {
+    showToast({ type: 'warning', message: `导入完成：${successCount} 成功，${failCount} 失败` })
+  } else if (failCount > 0) {
+    showToast({ type: 'error', message: `批量导入失败：${failCount} 个 Skill` })
+  } else if (successCount > 0) {
+    showToast({ type: 'success', message: `已导入 ${successCount} 个技能到我的 Skill` })
+  } else {
+    showToast({ type: 'warning', message: '选中的 Skill 没有可导入到我的 Skill 的本地项目' })
+  }
+}
+
 function executeBatchDelete() {
   let failCount = 0
   let okCount = 0
@@ -545,7 +659,7 @@ function executeBatchDelete() {
         })
         if (!result.ok) failed = true
         const warning = formatSkillLifecycleWarnings('uninstall', result.warnings)
-        if (warning) showToast(warning, 'warning')
+        if (warning) showToast({ type: 'warning', message: warning })
       }
     } else {
       const rm = safeRemovePath(dir)
@@ -555,12 +669,11 @@ function executeBatchDelete() {
     else okCount++
   }
   if (failCount > 0 && okCount > 0) {
-    showToast(`${okCount} 个已删除，${failCount} 个失败`, 'warning')
+    showToast({ type: 'warning', message: `${okCount} 个已删除，${failCount} 个失败` })
   } else if (failCount > 0) {
-    showToast(`${failCount} 个技能删除失败，请检查文件权限`, 'error')
+    showToast({ type: 'error', message: `${failCount} 个技能删除失败，请检查文件权限` })
   }
   refreshCurrent()
-  refreshCounts()
   selectedIds.value.clear()
   batchMode.value = false
   showBatchDeleteConfirm.value = false
@@ -575,8 +688,8 @@ const allCachedSkills = ref<Skill[]>([])
 const filteredMySkills = computed(() => {
   const q = importSearch.value.toLowerCase().trim()
   const skills = allCachedSkills.value.filter((s) => storage.isDownloaded(s.id))
-  if (!q) return skills
-  return skills.filter((s) => s.name.toLowerCase().includes(q) || (s.description || '').toLowerCase().includes(q))
+  const filtered = !q ? skills : skills.filter((s) => s.name.toLowerCase().includes(q) || (s.description || '').toLowerCase().includes(q))
+  return sortProcessedSkillsLast(filtered, isAlreadyInAgent)
 })
 
 function openImportModal() {
@@ -592,7 +705,7 @@ function refreshPlatformSkillsForImport() {
   const dir = getPlatformPath(selectedPlatform.value, 'global') || getPlatformPath(selectedPlatform.value, 'project')
   if (dir) {
     try {
-      updateAgentPlatformSkills(selectedPlatform.value.id, window.services.scanForSkillFiles([dir]))
+      updateAgentPlatformSkills(selectedPlatform.value.id, (window.services.scanForSkillFilesIncludingDisabled || window.services.scanForSkillFiles)([dir]))
     } catch {
       updateAgentPlatformSkills(selectedPlatform.value.id, [])
     }
@@ -635,13 +748,13 @@ function confirmImportFromMy() {
   try {
     const targetPlatform = selectedPlatform.value
     if (!targetPlatform) {
-      showToast('请先选择 Agent', 'error')
+      showToast({ type: 'error', message: '请先选择 Agent' })
       importingFromMy.value = false
       return
     }
     const targetDir = getPlatformPath(targetPlatform, 'global') || getPlatformPath(targetPlatform, 'project')
     if (!targetDir) {
-      showToast('未找到 Agent 路径', 'error')
+      showToast({ type: 'error', message: '未找到 Agent 路径' })
       importingFromMy.value = false
       return
     }
@@ -664,7 +777,7 @@ function confirmImportFromMy() {
           : null
       try {
         if (!sourceDir) {
-          showToast(`「${skill.name}」的源文件不存在，已跳过`, 'warning')
+          showToast({ type: 'warning', message: `「${skill.name}」的源文件不存在，已跳过` })
           failCount++
           continue
         }
@@ -685,19 +798,17 @@ function confirmImportFromMy() {
       }
     }
     if (importedCount > 0 && failCount > 0) {
-      showToast(`导入完成：${importedCount} 成功，${failCount} 失败`, 'warning')
+      showToast({ type: 'warning', message: `导入完成：${importedCount} 成功，${failCount} 失败` })
       refreshCurrent()
-      refreshCounts()
     } else if (importedCount > 0) {
-      showToast(`已导入 ${importedCount} 个技能到 ${targetPlatform.name}`, 'success')
+      showToast({ type: 'success', message: `已导入 ${importedCount} 个技能到 ${targetPlatform.name}` })
       refreshCurrent()
       _platformInstallDirs.value = getPlatFormInstallDirSet()
-      refreshCounts()
     } else if (failCount > 0) {
-      showToast(`所有技能导入失败`, 'error')
+      showToast({ type: 'error', message: `所有技能导入失败` })
     }
   } catch (err: any) {
-    showToast(err.message, 'error')
+    showToast({ type: 'error', message: err.message })
   }
   importingFromMy.value = false
   selectedImportIds.value = new Set()
@@ -986,6 +1097,55 @@ function confirmImportFromMy() {
           </svg>
           全选
         </button>
+        <button class="batch-action-btn" title="批量启用" :disabled="selectedIds.size === 0" @click="batchSetAgentSkillsEnabled(true)">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M12 19V5" />
+            <polyline points="5 12 12 5 19 12" />
+          </svg>
+          开启
+        </button>
+        <button class="batch-action-btn" title="批量停用" :disabled="selectedIds.size === 0" @click="batchSetAgentSkillsEnabled(false)">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M12 5v14" />
+            <polyline points="19 12 12 19 5 12" />
+          </svg>
+          关闭
+        </button>
+        <button class="batch-action-btn primary" title="批量导入到我的 Skill" :disabled="selectedIds.size === 0" @click="requestBatchImportToMySkills">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+          导入到我的 Skill
+        </button>
         <button class="batch-action-btn danger" :disabled="selectedIds.size === 0" @click="batchDelete">
           <svg
             width="14"
@@ -1015,7 +1175,8 @@ function confirmImportFromMy() {
             v-for="s in filteredSkills"
             :key="s.dir"
             :name="s.manifest?.name || s.name"
-            :description="s.manifest?.description || '暂无描述'"
+            :description="s.manifest?.description || ''"
+            empty-description-reason="Agent 技能描述未解析成功"
             :selected="selectedIds.has(s.dir)"
             :show-batch-checkbox="batchMode"
             :show-platform-icons="false"
@@ -1026,6 +1187,13 @@ function confirmImportFromMy() {
             @click="batchMode ? toggleSelect(s.dir) : openSkillDetail(s)"
             @select="toggleSelect(s.dir)"
           >
+            <template #top-left>
+              <SkillEnabledToggle
+                :enabled="isSkillEnabled(s)"
+                :busy="!!toggling[s.dir]"
+                @toggle="toggleAgentSkill(s)"
+              />
+            </template>
             <template #actions>
               <button class="card-action-btn" title="打开文件夹" @click.stop="openFolder(s)">
                 <svg
@@ -1061,7 +1229,7 @@ function confirmImportFromMy() {
                 class="card-action-btn primary"
                 :disabled="importing[getSkillId(s)]"
                 title="导入到我的 Skill"
-                @click.stop="importSkillToMy(s)"
+                @click.stop="requestImportSkillToMy(s)"
               >
                 <svg
                   v-if="importing[getSkillId(s)]"
@@ -1121,8 +1289,8 @@ function confirmImportFromMy() {
     <div v-else class="empty-right">选择 Agent 查看技能</div>
 
     <!-- Import from My Skills modal -->
-    <div v-if="showImportModal" class="modal-overlay" @click.self="showImportModal = false">
-      <div class="modal">
+    <div v-if="showImportModal" class="modal-overlay skill-import-overlay">
+      <div class="modal skill-import-modal">
         <div class="modal-header">
           <h3 class="modal-title">从我的 Skill 导入</h3>
           <button class="modal-close" @click="showImportModal = false">
@@ -1164,34 +1332,32 @@ function confirmImportFromMy() {
               :class="{ selected: selectedImportIds.has(skill.id), disabled: isAlreadyInAgent(skill) }"
               @click="!isAlreadyInAgent(skill) && toggleImportSelect(skill)"
             >
-              <div class="modal-skill-top">
-                <div class="modal-skill-avatar" :style="{ background: getAvatarColor(skill.name) }">
-                  {{ skill.name.charAt(0).toUpperCase() }}
-                </div>
-                <div class="modal-skill-check" :class="{ checked: selectedImportIds.has(skill.id) }">
-                  <svg
-                    v-if="selectedImportIds.has(skill.id)"
-                    width="12"
-                    height="12"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="3"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                </div>
+              <div class="modal-skill-check" :class="{ checked: selectedImportIds.has(skill.id) || isAlreadyInAgent(skill) }">
+                <svg
+                  v-if="selectedImportIds.has(skill.id) || isAlreadyInAgent(skill)"
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="3"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              </div>
+              <div class="modal-skill-avatar" :style="{ background: getAvatarColor(skill.name) }">
+                {{ skill.name.charAt(0).toUpperCase() }}
               </div>
               <div class="modal-skill-info">
                 <div class="modal-skill-name">
                   {{ skill.name }}
+                  <span v-if="isAlreadyInAgent(skill)" class="badge-already">已在 Agent 中</span>
                 </div>
                 <div class="modal-skill-desc">
-                  {{ skill.description || '暂无描述' }}
+                  {{ skill.description || 'Agent 技能描述未解析成功' }}
                 </div>
-                <span v-if="isAlreadyInAgent(skill)" class="badge-already">已在 Agent 中</span>
               </div>
             </div>
           </div>
@@ -1223,6 +1389,24 @@ function confirmImportFromMy() {
     <DeployModal v-if="showDeployModal && deploySkill" :skill="deploySkill" @close="showDeployModal = false" @deployed="onDeployed" />
 
     <ConfirmModal
+      v-if="confirmImportSkill"
+      title="确认导入 Skill"
+      :message="`确定要将 <strong>${confirmImportSkill.manifest?.name || confirmImportSkill.name}</strong> 导入到我的 Skill 吗？`"
+      confirm-text="导入"
+      @confirm="importSkillToMy(confirmImportSkill)"
+      @cancel="confirmImportSkill = null"
+    />
+
+    <ConfirmModal
+      v-if="showBatchImportConfirm"
+      title="批量导入 Skill"
+      :message="`确定要将选中的 <strong>${selectedIds.size}</strong> 个 Agent Skill 导入到我的 Skill 吗？`"
+      :confirm-text="`导入 ${selectedIds.size} 个 Skill`"
+      @confirm="batchImportToMySkills"
+      @cancel="showBatchImportConfirm = false"
+    />
+
+    <ConfirmModal
       v-if="confirmDeleteDir"
       title="删除 Skill"
       :message="`确定要删除 <strong>${confirmDeleteSkillName}</strong> 吗？此操作不可撤销。`"
@@ -1230,7 +1414,7 @@ function confirmImportFromMy() {
       @cancel="confirmDeleteDir = null"
     />
 
-    <div v-if="showBatchDeleteConfirm" class="confirm-overlay" @click.self="showBatchDeleteConfirm = false">
+    <div v-if="showBatchDeleteConfirm" class="confirm-overlay">
       <div class="confirm-modal">
         <div class="confirm-header">
           <div class="confirm-icon">
@@ -1294,7 +1478,7 @@ function confirmImportFromMy() {
       </div>
     </div>
 
-    <div v-if="uninstallScopeDir" class="confirm-overlay" @click.self="uninstallScopeDir = null">
+    <div v-if="uninstallScopeDir" class="confirm-overlay">
       <div class="confirm-modal">
         <div class="confirm-header">
           <div class="confirm-icon">
@@ -1728,24 +1912,23 @@ function confirmImportFromMy() {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: hsl(0 0% 0% / 0.5);
+  background: hsl(var(--background) / 0.6);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
-  backdrop-filter: blur(4px);
+  backdrop-filter: blur(8px);
 }
 .modal {
-  width: 560px;
-  max-width: 90vw;
-  max-height: 80vh;
+  width: min(920px, 92vw);
+  max-height: 86vh;
   background: hsl(var(--card));
   border: 1px solid hsl(var(--border));
-  border-radius: 20px;
+  border-radius: 16px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: 0 24px 64px hsl(0 0% 0% / 0.2);
+  box-shadow: var(--shadow-lg);
 }
 .modal-header {
   display: flex;
@@ -1845,9 +2028,11 @@ function confirmImportFromMy() {
 }
 .modal-skill-card {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
   gap: 10px;
-  padding: 14px;
+  min-height: 56px;
+  padding: 10px;
   border-radius: 12px;
   border: 1px solid hsl(var(--border));
   background: hsl(var(--card));
@@ -1866,15 +2051,10 @@ function confirmImportFromMy() {
   opacity: 0.5;
   cursor: default;
 }
-.modal-skill-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
 .modal-skill-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1884,8 +2064,8 @@ function confirmImportFromMy() {
   flex-shrink: 0;
 }
 .modal-skill-check {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   border-radius: 6px;
   border: 2px solid hsl(var(--border));
   display: flex;
@@ -1900,6 +2080,7 @@ function confirmImportFromMy() {
   color: #fff;
 }
 .modal-skill-info {
+  flex: 1;
   min-width: 0;
 }
 .modal-skill-name {
@@ -1919,14 +2100,10 @@ function confirmImportFromMy() {
   white-space: nowrap;
 }
 .badge-already {
-  display: inline-block;
-  margin-top: 4px;
+  margin-left: 6px;
   font-size: 10px;
   font-weight: 500;
-  padding: 2px 8px;
-  border-radius: 6px;
-  background: hsl(var(--muted));
-  color: hsl(var(--muted-foreground));
+  color: hsl(var(--primary));
 }
 .modal-footer {
   display: flex;

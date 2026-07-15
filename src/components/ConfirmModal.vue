@@ -1,15 +1,20 @@
 <script setup lang="ts">
-defineProps<{
+import { computed } from 'vue'
+import { sanitizeConfirmMessage } from '../utils/sanitize-html'
+
+const props = defineProps<{
   title?: string
   message: string
   confirmText?: string
 }>()
 
+const safeMessage = computed(() => sanitizeConfirmMessage(props.message))
+
 const emit = defineEmits(['confirm', 'cancel'])
 </script>
 
 <template>
-  <div class="confirm-overlay" @click.self="emit('cancel')">
+  <div class="confirm-overlay">
     <div class="confirm-modal">
       <div class="confirm-header">
         <div class="confirm-icon">
@@ -48,7 +53,7 @@ const emit = defineEmits(['confirm', 'cancel'])
         </button>
       </div>
       <div class="confirm-body">
-        <p class="confirm-desc" v-html="message" />
+        <p class="confirm-desc" v-html="safeMessage" />
       </div>
       <div class="confirm-footer">
         <button class="confirm-btn cancel" @click="emit('cancel')">取消</button>

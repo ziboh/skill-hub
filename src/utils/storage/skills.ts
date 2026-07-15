@@ -17,26 +17,9 @@ import {
 } from './core'
 import { distributeApi } from './distribute'
 
-function migrateLegacyCachedSkillsToDownloaded(): void {
-  try {
-    const raw = window.ztools.dbStorage.getItem(PREFIX + KEYS.OLD_CACHED_SKILLS)
-    if (!raw) return
-    const old: Skill[] = JSON.parse(raw)
-    const downloaded = old.filter((s) => s.downloaded).map((s) => stripSkillFields(s))
-    if (downloaded.length > 0) {
-      window.ztools.dbStorage.setItem(PREFIX + KEYS.DOWNLOADED_SKILLS, JSON.stringify(downloaded))
-    }
-    window.ztools.dbStorage.removeItem(PREFIX + KEYS.OLD_CACHED_SKILLS)
-    console.log(`[storage] migrated ${old.length} cached skills → ${downloaded.length} downloaded skills`)
-  } catch (e) {
-    console.warn('[storage] migrateLegacyCachedSkillsToDownloaded failed:', e)
-  }
-}
-
 export const skillsApi = {
   getDownloadedSkills(): Skill[] {
     if (!getDownloadedSkillsCache()) {
-      migrateLegacyCachedSkillsToDownloaded()
       try {
         window.ztools.dbStorage.removeItem(PREFIX + KEYS.TRANSLATIONS + '_desc')
       } catch {
@@ -110,31 +93,6 @@ export const skillsApi = {
     skills[idx] = { ...skills[idx], isFavorited: !skills[idx].isFavorited }
     reseedDownloadedSkills(skills)
     dbSet(KEYS.DOWNLOADED_SKILLS, skills)
-  },
-  migrateFavorites(): void {
-    try {
-      const raw = window.ztools.dbStorage.getItem(PREFIX + 'favorite_ids')
-      if (!raw) return
-      const oldIds: string[] = JSON.parse(raw)
-      if (!oldIds.length) return
-      const idSet = new Set(oldIds)
-      const skills = skillsApi.getDownloadedSkills()
-      let changed = false
-      for (let i = 0; i < skills.length; i++) {
-        if (idSet.has(skills[i].id) && !skills[i].isFavorited) {
-          skills[i] = { ...skills[i], isFavorited: true }
-          changed = true
-        }
-      }
-      if (changed) {
-        reseedDownloadedSkills(skills)
-        dbSet(KEYS.DOWNLOADED_SKILLS, skills)
-      }
-      window.ztools.dbStorage.removeItem(PREFIX + 'favorite_ids')
-      console.log(`[storage] migrated ${oldIds.length} favorite ids → isFavorited on skills`)
-    } catch (e) {
-      console.warn('[storage] migrateFavorites failed:', e)
-    }
   },
   saveSkillUserTags(skillId: string, userTags: string[]): void {
     const skills = skillsApi.getDownloadedSkills()

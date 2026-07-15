@@ -103,7 +103,7 @@ function handleSubmit() {
 </script>
 
 <template>
-  <div class="modal-overlay" @click.self="emit('close')">
+  <div class="modal-overlay">
     <div class="modal-panel">
       <div class="modal-header">
         <h2 class="modal-title">{{ isEdit ? '编辑平台' : '添加平台' }}</h2>
@@ -158,7 +158,7 @@ function handleSubmit() {
     </div>
   </div>
 
-  <div v-if="showIconPicker" class="modal-overlay icon-overlay" @click.self="showIconPicker = false">
+  <div v-if="showIconPicker" class="modal-overlay icon-overlay">
     <div class="modal-panel icon-panel">
       <div class="modal-header">
         <h2 class="modal-title">选择图标</h2>

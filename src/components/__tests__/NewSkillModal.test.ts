@@ -4,6 +4,7 @@ import NewSkillModal from '../NewSkillModal.vue'
 import * as github from '../../utils/github'
 import { parseFrontmatter } from '../../utils/frontmatter'
 import { KeyShowToast } from '../../inject-keys'
+import { resetStorageCaches, storage } from '../../utils/storage'
 
 vi.mock('../../utils/github', () => ({
   parseGitHubUrl: vi.fn(),
@@ -87,14 +88,23 @@ describe('NewSkillModal', () => {
     await input.setValue('invalid-url')
     await wrapper.find('.scan-btn.secondary').trigger('click')
     await flush()
-    expect(showToast).toHaveBeenCalledWith(expect.stringContaining('请输入有效的 GitHub URL'), 'error')
+    expect(showToast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'error',
+        message: expect.stringContaining('请输入有效的 GitHub URL'),
+      }),
+    )
   })
 
-  test('back link returns to choose step from git input', async () => {
+  test('返回按钮位于标题栏并返回添加方式选择', async () => {
     wrapper = mount(NewSkillModal)
     await wrapper.find('.method-item').trigger('click')
     expect(wrapper.find('.git-input').exists()).toBe(true)
-    await wrapper.find('.back-link').trigger('click')
+    const backButton = wrapper.find('.modal-header .back-btn')
+    expect(backButton.attributes('title')).toBe('返回选择添加方式')
+    expect(backButton.find('svg').exists()).toBe(true)
+    expect(wrapper.find('.modal-footer .back-link').exists()).toBe(false)
+    await backButton.trigger('click')
     expect(wrapper.find('.hint').text()).toContain('选择添加技能的方式')
   })
 
@@ -108,7 +118,7 @@ describe('NewSkillModal', () => {
     await input.setValue('owner/repo')
     await wrapper.find('.scan-btn.secondary').trigger('click')
     await flush()
-    expect(showToast).toHaveBeenCalledWith('API 速率限制', 'error')
+    expect(showToast).toHaveBeenCalledWith({ type: 'error', message: 'API 速率限制' })
   })
 
   test('scan error is reported through toast', async () => {
@@ -121,7 +131,7 @@ describe('NewSkillModal', () => {
     await input.setValue('owner/repo')
     await wrapper.find('.scan-btn.secondary').trigger('click')
     await flush()
-    expect(showToast).toHaveBeenCalledWith('Network error', 'error')
+    expect(showToast).toHaveBeenCalledWith({ type: 'error', message: 'Network error' })
   })
 
   test('shows scan results with skills', async () => {
@@ -139,6 +149,65 @@ describe('NewSkillModal', () => {
     await flush()
     expect(wrapper.find('.scan-header .hint').text()).toContain('找到 1 个技能')
     expect(wrapper.find('.skill-name').text()).toContain('Test Skill')
+  })
+
+  test('moves imported GitHub skills after available skills', async () => {
+    window.ztools.dbStorage.clear()
+    resetStorageCaches()
+    storage.saveDownloadedSkills([{ id: 'user/repo/imported', name: 'Imported', description: '', tags: [], source: 'github' }])
+    vi.mocked(github.parseGitHubUrl).mockReturnValue({ owner: 'user', repo: 'repo', defaultBranch: 'main' })
+    vi.mocked(github.fetchGitHubRepoTree).mockResolvedValue([])
+    vi.mocked(github.detectSkillDirectories).mockReturnValue([
+      { dir: 'skills/imported', manifestFile: 'skills/imported/SKILL.md' },
+      { dir: 'skills/available', manifestFile: 'skills/available/SKILL.md' },
+    ])
+    vi.mocked(github.fetchGitHubFile).mockImplementation(async (_owner, _repo, path) => path)
+    vi.mocked(parseFrontmatter).mockImplementation((content) => ({
+      name: content.includes('imported') ? 'Imported' : 'Available',
+      description: '',
+      tags: '',
+      author: '',
+    }))
+    wrapper = mount(NewSkillModal)
+    await wrapper.find('.method-item').trigger('click')
+    await wrapper.find('.git-input').setValue('user/repo')
+    await wrapper.find('.scan-btn.secondary').trigger('click')
+    await flush()
+
+    expect(wrapper.findAll('.skill-name').map((item) => item.text())).toEqual(['Available', 'Imported 已导入'])
+  })
+
+  test('treats a GitHub folder alias as imported when its SKILL.md name was installed from skills.sh', async () => {
+    window.ztools.dbStorage.clear()
+    resetStorageCaches()
+    storage.saveDownloadedSkills([
+      {
+        id: 'vercel-labs/agent-skills/vercel-react-best-practices',
+        canonicalId: 'vercel-labs/agent-skills/vercel-react-best-practices',
+        name: 'vercel-react-best-practices',
+        description: '',
+        author: '',
+        tags: [],
+        source: 'skills-sh',
+        repo: 'vercel-labs/agent-skills',
+      },
+    ])
+    vi.mocked(github.parseGitHubUrl).mockReturnValue({ owner: 'vercel-labs', repo: 'agent-skills', defaultBranch: 'main' })
+    vi.mocked(github.fetchGitHubRepoTree).mockResolvedValue([])
+    vi.mocked(github.detectSkillDirectories).mockReturnValue([
+      { dir: 'skills/react-best-practices', manifestFile: 'skills/react-best-practices/SKILL.md' },
+    ])
+    vi.mocked(github.fetchGitHubFile).mockResolvedValue('---\nname: vercel-react-best-practices\n---')
+    vi.mocked(parseFrontmatter).mockReturnValue({ name: 'vercel-react-best-practices', description: '', tags: '', author: '' })
+
+    wrapper = mount(NewSkillModal)
+    await wrapper.find('.method-item').trigger('click')
+    await wrapper.find('.git-input').setValue('vercel-labs/agent-skills')
+    await wrapper.find('.scan-btn.secondary').trigger('click')
+    await flush()
+
+    expect(wrapper.find('.skill-name').text()).toContain('已导入')
+    expect(wrapper.find<HTMLInputElement>('.skill-select-item input').element.disabled).toBe(true)
   })
 
   test('toggle skill selection', async () => {
@@ -208,10 +277,10 @@ describe('NewSkillModal', () => {
     expect(wrapper.emitted('close')).toBeTruthy()
   })
 
-  test('overlay click emits close', async () => {
+  test('点击遮罩不会关闭弹窗', async () => {
     wrapper = mount(NewSkillModal)
     await wrapper.find('.modal-overlay').trigger('click')
-    expect(wrapper.emitted('close')).toBeTruthy()
+    expect(wrapper.emitted('close')).toBeUndefined()
   })
 
   test('shows no skills message when scan finds nothing', async () => {
@@ -225,7 +294,7 @@ describe('NewSkillModal', () => {
     await input.setValue('user/repo')
     await wrapper.find('.scan-btn.secondary').trigger('click')
     await flush()
-    expect(showToast).toHaveBeenCalledWith('未找到可安装的技能', 'error')
+    expect(showToast).toHaveBeenCalledWith({ type: 'error', message: '未找到可安装的技能' })
   })
 
   test('scan error on API failure', async () => {
@@ -238,7 +307,7 @@ describe('NewSkillModal', () => {
     await input.setValue('user/repo')
     await wrapper.find('.scan-btn.secondary').trigger('click')
     await flush()
-    expect(showToast).toHaveBeenCalledWith('Network error', 'error')
+    expect(showToast).toHaveBeenCalledWith({ type: 'error', message: 'Network error' })
   })
 
   test('import button text shows count when selected', async () => {

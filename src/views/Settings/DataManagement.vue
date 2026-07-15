@@ -113,7 +113,7 @@ const buckets: BucketDef[] = [
     columns: [
       { key: '_source', label: '源', width: '80px' },
       { key: 'name', label: '名称', width: 'auto' },
-      { key: 'description', label: '描述', width: 'auto', render: (v: string) => v?.slice(0, 80) || '暂无描述' },
+      { key: 'description', label: '描述', width: 'auto', render: (v: string) => v?.slice(0, 80) || '记录中未保存描述' },
       { key: 'readme', label: 'SKILL.md', width: '70px', render: (v: string) => (v ? '✓' : '') },
       { key: '_fetchedAt', label: '缓存时间', width: '120px' },
     ],
@@ -619,7 +619,7 @@ function confirmClearAll(bucket: BucketDef) {
 
     <!-- ===== Modal (table / json / kv) ===== -->
     <Teleport to="body">
-      <div v-if="showJsonModal && modalBucket" class="dm-overlay" @click.self="closeModal">
+      <div v-if="showJsonModal && modalBucket" class="dm-overlay">
         <div class="dm-modal">
           <div class="dm-modal-header">
             <div>
@@ -753,18 +753,32 @@ function confirmClearAll(bucket: BucketDef) {
 
             <!-- KV view for translations -->
             <template v-else-if="modalBucket.viewType === 'kv'">
-              <div class="dm-kv-list">
-                <div v-for="(val, key) in modalBucket.getData()" :key="key" class="dm-kv-item">
-                  <span class="dm-kv-key">{{ key }}</span>
-                  <pre class="dm-kv-val">{{ JSON.stringify(val, null, 2) }}</pre>
+              <div
+                class="dm-data-scroll dm-kv-scroll"
+                role="region"
+                tabindex="0"
+                :aria-label="`${modalBucket.label}数据`"
+              >
+                <div class="dm-kv-list">
+                  <div v-for="(val, key) in modalBucket.getData()" :key="key" class="dm-kv-item">
+                    <span class="dm-kv-key">{{ key }}</span>
+                    <pre class="dm-kv-val">{{ JSON.stringify(val, null, 2) }}</pre>
+                  </div>
+                  <div v-if="Object.keys(modalBucket.getData() || {}).length === 0" class="dm-empty">无数据</div>
                 </div>
-                <div v-if="Object.keys(modalBucket.getData() || {}).length === 0" class="dm-empty">无数据</div>
               </div>
             </template>
 
             <!-- JSON view (fallback) -->
             <template v-else>
-              <pre class="dm-json">{{ JSON.stringify(modalBucket.getData(), null, 2) }}</pre>
+              <div
+                class="dm-data-scroll dm-json-scroll"
+                role="region"
+                tabindex="0"
+                :aria-label="`${modalBucket.label}数据`"
+              >
+                <pre class="dm-json">{{ JSON.stringify(modalBucket.getData(), null, 2) }}</pre>
+              </div>
             </template>
           </div>
         </div>
@@ -773,7 +787,7 @@ function confirmClearAll(bucket: BucketDef) {
 
     <!-- Row detail overlay -->
     <Teleport to="body">
-      <div v-if="tableDetailItem" class="dm-detail-fixed" @click.self="tableDetailItem = null">
+      <div v-if="tableDetailItem" class="dm-detail-fixed">
         <div class="dm-detail-card">
           <div class="dm-detail-card-header">
             <svg
@@ -807,7 +821,7 @@ function confirmClearAll(bucket: BucketDef) {
               </svg>
             </button>
           </div>
-          <div class="dm-detail-card-body">
+          <div class="dm-detail-card-body" role="region" tabindex="0" aria-label="行详情内容">
             <div v-for="(val, key) in tableDetailItem" :key="key" class="dm-detail-field">
               <div class="dm-detail-field-key">
                 {{ key }}
@@ -975,10 +989,48 @@ function confirmClearAll(bucket: BucketDef) {
 }
 .dm-modal-body {
   flex: 1;
+  min-height: 0;
   overflow: hidden;
   padding: 0;
   display: flex;
   flex-direction: column;
+}
+
+.dm-data-scroll {
+  flex: 1;
+  min-height: 0;
+  margin: 16px 20px 20px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.55) hsl(var(--border) / 0.45);
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  background: hsl(var(--background));
+}
+.dm-data-scroll:focus-visible,
+.dm-detail-card-body:focus-visible {
+  outline: 2px solid hsl(var(--ring) / 0.7);
+  outline-offset: -2px;
+}
+.dm-data-scroll::-webkit-scrollbar,
+.dm-detail-card-body::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.dm-data-scroll::-webkit-scrollbar-track,
+.dm-detail-card-body::-webkit-scrollbar-track {
+  background: hsl(var(--border) / 0.45);
+}
+.dm-data-scroll::-webkit-scrollbar-thumb,
+.dm-detail-card-body::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.55);
+  border-radius: 99px;
+}
+.dm-data-scroll::-webkit-scrollbar-thumb:hover,
+.dm-detail-card-body::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.75);
 }
 
 /* Toolbar (fixed at top of modal body) */
@@ -1206,6 +1258,7 @@ function confirmClearAll(bucket: BucketDef) {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  padding: 12px;
 }
 .dm-kv-item {
   padding: 8px 10px;
@@ -1279,6 +1332,7 @@ function confirmClearAll(bucket: BucketDef) {
 /* JSON view */
 .dm-json {
   margin: 0;
+  padding: 16px;
   font-size: 11px;
   font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
   line-height: 1.6;
@@ -1328,7 +1382,12 @@ function confirmClearAll(bucket: BucketDef) {
 }
 .dm-detail-card-body {
   flex: 1;
+  min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.55) hsl(var(--border) / 0.45);
   padding: 4px 0;
   display: flex;
   flex-direction: column;

@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest'
-import { getSkillUrl, matchSkillDirByMeta, collectPathCandidates } from '../useStoreDownload'
+import { getSkillUrl, matchSkillDirByMeta, collectPathCandidates, getRepoRelativeSkillPath } from '../useStoreDownload'
 import type { Skill } from '../../types'
 
 describe('useStoreDownload pure helpers', () => {
@@ -28,5 +28,14 @@ describe('useStoreDownload pure helpers', () => {
       'skills/owner/repo/path',
       'agent-skills/owner/repo/path',
     ])
+  })
+
+  test('derives the actual repository path from an extracted skill directory', () => {
+    expect(
+      getRepoRelativeSkillPath(
+        'C:\\temp\\agent-skills-main',
+        'C:\\temp\\agent-skills-main\\skills\\react-best-practices',
+      ),
+    ).toBe('skills/react-best-practices')
   })
 })

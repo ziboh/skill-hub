@@ -82,14 +82,14 @@ async function deploy() {
 
   const okCount = deployResults.value.filter((r) => r.status === 'ok').length
   const errCount = deployResults.value.filter((r) => r.status === 'error').length
-  if (okCount > 0) showToast(`已将 ${props.skills.length} 个技能分发到 ${selectedPlatforms.value.size} 个平台`, 'success')
-  if (errCount > 0) showToast(`${errCount} 个平台分发失败`, 'error')
+  if (okCount > 0) showToast({ type: 'success', message: `已将 ${props.skills.length} 个技能分发到 ${selectedPlatforms.value.size} 个平台` })
+  if (errCount > 0) showToast({ type: 'error', message: `${errCount} 个平台分发失败` })
   emit('deployed')
 }
 </script>
 
 <template>
-  <div class="deploy-overlay" @click.self="emit('close')">
+  <div class="deploy-overlay">
     <div class="deploy-modal">
       <!-- Header -->
       <div class="deploy-header">

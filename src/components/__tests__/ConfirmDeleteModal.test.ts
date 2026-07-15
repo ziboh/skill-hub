@@ -80,10 +80,10 @@ describe('ConfirmDeleteModal', () => {
     expect(wrapper.emitted('close')).toHaveLength(1)
   })
 
-  test('overlay click emits close', async () => {
+  test('点击遮罩不会关闭弹窗', async () => {
     wrapper = mountModal()
     await wrapper.find('.confirm-overlay').trigger('click')
-    expect(wrapper.emitted('close')).toHaveLength(1)
+    expect(wrapper.emitted('close')).toBeUndefined()
   })
 
   test('cancel button emits close', async () => {

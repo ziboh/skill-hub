@@ -23,6 +23,7 @@ export interface Skill {
   storeSourceId?: string
   canonicalId?: string
   branch?: string
+  manifestFile?: string
   installUrl?: string
   downloaded?: boolean
   isFavorited?: boolean
@@ -107,7 +108,7 @@ export const FONT_SIZES: Record<FontSize, string> = {
 export interface AppSettings {
   defaultInstallMode: InstallMode
   githubToken: string
-  theme: 'auto' | 'light' | 'dark'
+  storeCacheEnabled: boolean
   themeMode: ThemeMode
   themeColor: string
   fontSize: FontSize
@@ -169,6 +170,7 @@ export interface SkillScanResult {
   skillFile: string
   content: string
   isSymlink?: boolean
+  enabled?: boolean
   manifest: {
     name: string
     description: string

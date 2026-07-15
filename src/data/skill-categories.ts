@@ -1,12 +1,14 @@
+import type { UiIconName } from '../components/UiIcon.vue'
+
 export type SkillCategory = 'search' | 'content' | 'dev' | 'testing' | 'ops' | 'other'
 
-export const SKILL_CATEGORIES: Record<SkillCategory, { label: string; labelEn: string; icon: string }> = {
-  search: { label: '搜索', labelEn: 'Search', icon: '🔍' },
-  content: { label: '内容', labelEn: 'Content', icon: '✨' },
-  dev: { label: '开发', labelEn: 'Development', icon: '🔧' },
-  testing: { label: '测试', labelEn: 'Testing', icon: '✏️' },
-  ops: { label: '运维', labelEn: 'Ops', icon: '🚀' },
-  other: { label: '其他', labelEn: 'Other', icon: '📋' },
+export const SKILL_CATEGORIES: Record<SkillCategory, { label: string; labelEn: string; icon: UiIconName }> = {
+  search: { label: '搜索', labelEn: 'Search', icon: 'search' },
+  content: { label: '内容', labelEn: 'Content', icon: 'sparkles' },
+  dev: { label: '开发', labelEn: 'Development', icon: 'wrench' },
+  testing: { label: '测试', labelEn: 'Testing', icon: 'pencil' },
+  ops: { label: '运维', labelEn: 'Ops', icon: 'rocket' },
+  other: { label: '其他', labelEn: 'Other', icon: 'clipboard' },
 }
 
 export const ALL_CATEGORIES = Object.keys(SKILL_CATEGORIES) as SkillCategory[]
@@ -38,11 +40,11 @@ export function inferCategory(slug: string, description: string): SkillCategory 
   return 'other'
 }
 
-export const CATEGORY_ICONS: Record<SkillCategory, string> = {
-  search: '🔍',
-  content: '✨',
-  dev: '🔧',
-  testing: '✏️',
-  ops: '🚀',
-  other: '📋',
+export const CATEGORY_ICONS: Record<SkillCategory, UiIconName> = {
+  search: 'search',
+  content: 'sparkles',
+  dev: 'wrench',
+  testing: 'pencil',
+  ops: 'rocket',
+  other: 'clipboard',
 }

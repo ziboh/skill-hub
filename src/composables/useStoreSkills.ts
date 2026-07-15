@@ -1,7 +1,7 @@
 import { ref, computed, watch } from 'vue'
 import type { Skill, StoreSource } from '../types'
 import { storage } from '../utils/storage'
-import { parseGitHubUrl, fetchGitHubRepoTree, detectSkillDirectories } from '../utils/github'
+import { parseGitHubUrl, fetchGitHubRepoTree, detectSkillDirectories, setGitHubResponseCacheEnabled } from '../utils/github'
 import { parseFrontmatter } from '../utils/frontmatter'
 import * as skillsSh from '../utils/skills-sh'
 import { fetchWellKnownIndex } from '../utils/well-known'
@@ -11,6 +11,14 @@ import { STORE_ICONS, getStoreIconFromSource } from '../data/store-icons'
 import { useDownloadQueue } from './useDownloadQueue'
 import { useTranslationQueue } from './useTranslationQueue'
 import { isChineseContent } from '../utils/translate'
+import { skillsShareIdentity } from '../utils/skill-identity'
+import {
+  completeStoreSkill,
+  makeStoreSkillId,
+  readStoreSkillDescription,
+  readStoreSkillTags,
+  slugifySkillName,
+} from '../utils/store-skill-normalize'
 
 export const PAGE_SIZE = 60
 
@@ -67,18 +75,10 @@ export function buildCategoryCounts(skills: Skill[]): Record<string, number> {
 export function parseMarketplaceEntries(entries: any[], source: StoreSource, presetId: string): Skill[] {
   return entries.map((entry: any) => {
     const name = entry.name || entry.title || '未知'
-    const description = entry.description || ''
+    const description = readStoreSkillDescription(entry)
     const author = entry.author || ''
-    const tags = Array.isArray(entry.tags)
-      ? entry.tags
-      : typeof entry.tags === 'string'
-        ? entry.tags
-            .split(',')
-            .map((t: string) => t.trim())
-            .filter(Boolean)
-        : []
-    const dirName = name.toLowerCase().replace(/\s+/g, '-')
-    const category = inferCategory(dirName, description)
+    const tags = readStoreSkillTags(entry.tags || entry.manifest?.tags || entry.frontmatter?.tags)
+    const dirName = slugifySkillName(name)
     const repo = entry.repo || entry.repository || ''
     let skillPath = dirName
     if (entry.homepage && repo) {
@@ -88,22 +88,29 @@ export function parseMarketplaceEntries(entries: any[], source: StoreSource, pre
         if (afterBranch) skillPath = afterBranch
       }
     }
-    const skillId = repo ? `${repo}/${dirName}` : `${source.id}/${dirName}`
-    return {
-      id: skillId,
-      name,
-      description,
-      author,
-      tags,
-      source: 'marketplace-json',
-      repo: repo || undefined,
-      path: skillPath,
-      category,
-      storeSourceId: presetId,
-      sourceUrl: entry.url || entry.sourceUrl || entry.homepage || entry.downloadUrl || source.url,
-      iconUrl: entry.icon || entry.iconUrl,
-    } as Skill
+    const skillId = makeStoreSkillId(source.id, 'marketplace-json', repo, name)
+    return completeStoreSkill(
+      {
+        id: skillId,
+        name,
+        description,
+        author,
+        tags,
+        source: 'marketplace-json',
+        repo: repo || undefined,
+        path: skillPath,
+        storeSourceId: presetId,
+        sourceUrl: entry.url || entry.sourceUrl || entry.homepage || entry.downloadUrl || source.url,
+        iconUrl: entry.icon || entry.iconUrl,
+      },
+      entry,
+    )
   })
+}
+
+export function findDownloadedSkillMatch(skill: Skill, downloadedIds: string[], cachedDownloaded: Skill[]): Skill | undefined {
+  const ids = new Set(downloadedIds)
+  return cachedDownloaded.find((cached) => ids.has(cached.id) && skillsShareIdentity(skill, cached))
 }
 
 export function splitImportedAndAvailable(opts: {
@@ -117,15 +124,16 @@ export function splitImportedAndAvailable(opts: {
   const { sourceSkills, allEntries, downloadedIds, cachedDownloaded, activePresetId, filterTab } = opts
   const ids = new Set(downloadedIds)
   const cachedMap = new Map(cachedDownloaded.map((s) => [s.id, s]))
+  const findCached = (skill: Skill) => findDownloadedSkillMatch(skill, downloadedIds, cachedDownloaded)
 
   const idMap = new Map<string, Skill>()
   if (allEntries.length) {
     for (const s of allEntries) {
-      if (!ids.has(s.id)) continue
-      const cs = cachedMap.get(s.id)
+      const cs = ids.has(s.id) ? cachedMap.get(s.id) : findCached(s)
       if (!cs || cs.storeSourceId !== activePresetId) continue
       const merged = cs && !s.description && cs.description ? { ...s, description: cs.description } : s
       idMap.set(s.id, merged)
+      idMap.set(cs.id, merged)
     }
   }
   for (const s of cachedDownloaded) {
@@ -137,8 +145,7 @@ export function splitImportedAndAvailable(opts: {
   if (filterTab !== 'all') imported = imported.filter((s) => s.category === filterTab)
 
   let available = sourceSkills.filter((s) => {
-    if (!ids.has(s.id)) return true
-    const cs = cachedMap.get(s.id)
+    const cs = ids.has(s.id) ? cachedMap.get(s.id) : findCached(s)
     return !cs || cs.storeSourceId !== activePresetId
   })
   if (filterTab !== 'all') available = available.filter((s) => s.category === filterTab)
@@ -146,7 +153,9 @@ export function splitImportedAndAvailable(opts: {
   return { imported, available }
 }
 
-export type ShowToast = (msg: string, type?: 'success' | 'error' | 'info' | 'warning') => void
+import type { ShowToast } from '../inject-keys'
+
+export type { ShowToast }
 
 export function useStoreSkills(opts: {
   storeId: () => string
@@ -215,6 +224,16 @@ export function useStoreSkills(opts: {
   const loadingDescIds = ref<Set<string>>(new Set())
   const failedDescIds = ref<Set<string>>(new Set())
 
+  function resetDescriptionStates() {
+    fetchedDescIds.value = new Set()
+    loadingDescIds.value = new Set()
+    failedDescIds.value = new Set()
+  }
+
+  function isStoreCacheEnabled() {
+    return storage.getSettings().storeCacheEnabled !== false
+  }
+
   const loadingDots = ref('.')
   let loadingDotsTimer: ReturnType<typeof setInterval> | null = null
   function startLoadingDots() {
@@ -270,14 +289,41 @@ export function useStoreSkills(opts: {
     return presets.find((p) => p.id === activePresetId.value) || storage.getStoreSources().find((s) => s.id === activePresetId.value)
   }
 
+  function resetGitHubDescriptionContext() {
+    githubManifestMap.clear()
+    githubRepoInfo.value = null
+  }
+
+  function restoreGitHubDescriptionContext(id: string, skills: Skill[]) {
+    const source = presets.find((p) => p.id === id) || storage.getStoreSources().find((s) => s.id === id)
+    if (!source?.url) {
+      resetGitHubDescriptionContext()
+      return
+    }
+    const info = parseGitHubUrl(source.url)
+    if (!info) {
+      resetGitHubDescriptionContext()
+      return
+    }
+    const branch = 'branch' in source && source.branch ? source.branch : info.defaultBranch
+    githubManifestMap.clear()
+    for (const skill of skills) {
+      const manifestFile = skill.manifestFile || (skill.path === '.' ? 'SKILL.md' : skill.path ? `${skill.path}/SKILL.md` : '')
+      if (manifestFile) githubManifestMap.set(skill.id, manifestFile)
+    }
+    githubRepoInfo.value = { owner: info.owner, repo: info.repo, branch, presetId: id }
+  }
+
   function fetchCurrentSkills(force = false) {
     const id = activePresetId.value
     resetVisibleCount()
+    resetDescriptionStates()
     if (storeScrollRef.value) storeScrollRef.value.scrollTop = 0
-    if (!force && skillsCache.value[id]) {
+    if (!force && isStoreCacheEnabled() && skillsCache.value[id]) {
       allEntries.value = skillsCache.value[id]
       totalCount.value = totalCountCache.value[id] ?? allEntries.value.length
       sourceSkills.value = allEntries.value
+      restoreGitHubDescriptionContext(id, allEntries.value)
       loading.value = false
       stopLoadingDots()
       error.value = ''
@@ -288,6 +334,7 @@ export function useStoreSkills(opts: {
     if (preset) {
       allEntries.value = []
       totalCount.value = 0
+      resetGitHubDescriptionContext()
       startLoadingDots()
       if (id === 'skills-sh') fetchSkillsSh()
       else if (preset.url) fetchGitHubSkills(preset.url, preset.directory, undefined, force)
@@ -306,6 +353,7 @@ export function useStoreSkills(opts: {
     }
     allEntries.value = []
     totalCount.value = 0
+    resetGitHubDescriptionContext()
     startLoadingDots()
     if (custom.type === 'git-repo') fetchGitHubSkills(custom.url!, custom.directory, custom.branch, force)
     else if (custom.type === 'marketplace-json') fetchMarketplaceSkills(custom, force)
@@ -315,7 +363,7 @@ export function useStoreSkills(opts: {
 
   async function fetchSkillsSh() {
     const presetId = activePresetId.value
-    fetchedDescIds.value = new Set()
+    resetDescriptionStates()
     loading.value = true
     error.value = ''
     allEntries.value = []
@@ -324,7 +372,7 @@ export function useStoreSkills(opts: {
       const res = await skillsSh.fetchLeaderboard(leaderboardFilter.value)
       if (activePresetId.value !== presetId) return
       const skills = res.entries.map(skillsSh.leaderboardEntryToSkill)
-      const descPool = storage.getGitHubCache()
+      const descPool = isStoreCacheEnabled() ? storage.getGitHubCache() : {}
       skills.forEach((s) => {
         s.storeSourceId = presetId
         const cached = descPool[s.id.toLowerCase()] || descPool[s.id]
@@ -338,8 +386,10 @@ export function useStoreSkills(opts: {
       sourceSkills.value = skills
       loading.value = false
       stopLoadingDots()
-      skillsCache.value['skills-sh'] = allEntries.value
-      totalCountCache.value['skills-sh'] = res.totalCount
+      if (isStoreCacheEnabled()) {
+        skillsCache.value['skills-sh'] = allEntries.value
+        totalCountCache.value['skills-sh'] = res.totalCount
+      }
     } catch (err: any) {
       error.value = err.message
       loading.value = false
@@ -349,6 +399,8 @@ export function useStoreSkills(opts: {
 
   async function fetchGitHubSkills(url: string, directory?: string, branch?: string, _force = false) {
     const presetId = activePresetId.value
+    resetDescriptionStates()
+    setGitHubResponseCacheEnabled(isStoreCacheEnabled())
     error.value = ''
     const info = parseGitHubUrl(url)
     if (!info) {
@@ -363,7 +415,7 @@ export function useStoreSkills(opts: {
     loading.value = true
     startLoadingDots()
 
-    const descPool = storage.getGitHubCache()
+    const descPool = isStoreCacheEnabled() ? storage.getGitHubCache() : {}
     const hasFreshCache = Object.keys(descPool).length > 0
 
     try {
@@ -381,7 +433,7 @@ export function useStoreSkills(opts: {
         githubManifestMap.set(id, sd.manifestFile)
         const prev = descPool[id]
         const builtinCategory = lookupBuiltinCategory(repoKey, dirName)
-        return {
+        return completeStoreSkill({
           id,
           name: prev?.name || dirName,
           description: prev?.description || '',
@@ -395,9 +447,11 @@ export function useStoreSkills(opts: {
           category: prev?.category || builtinCategory || inferCategory(dirName, ''),
           iconUrl: lookupBuiltinIcon(repoKey, dirName),
           readme: prev?.readme,
+          canonicalId: prev?.canonicalId,
+          manifestFile: sd.manifestFile,
           storeSourceId: presetId,
           branch: effectiveBranch,
-        } as Skill
+        })
       })
       if (activePresetId.value !== presetId) return
       allEntries.value = skeletons
@@ -405,16 +459,13 @@ export function useStoreSkills(opts: {
       totalCount.value = skeletons.length
       loading.value = false
       stopLoadingDots()
-      skillsCache.value[presetId] = skeletons
-      totalCountCache.value[presetId] = skeletons.length
+      if (isStoreCacheEnabled()) {
+        skillsCache.value[presetId] = skeletons
+        totalCountCache.value[presetId] = skeletons.length
+      }
 
       githubRepoInfo.value = { owner: info.owner, repo: info.repo, branch: effectiveBranch, presetId }
-      const pending = skeletons.filter((s) => !s.description && !s.shortDescription)
-      pending.forEach((s) => {
-        loadingDescIds.value = new Set([...loadingDescIds.value, s.id])
-      })
-
-      storage.saveGitHubSkills(skeletons.filter((s) => s.description || s.shortDescription))
+      if (isStoreCacheEnabled()) storage.saveGitHubSkills(skeletons.filter((s) => s.description || s.shortDescription))
     } catch (err: any) {
       if (!hasFreshCache && !allEntries.value.length) error.value = err.message
       loading.value = false
@@ -530,7 +581,7 @@ export function useStoreSkills(opts: {
                     .filter(Boolean)
               : []
             const category = inferCategory(dirName, fm.description || '')
-            skills.push({
+            skills.push(completeStoreSkill({
               id: `local/${dirName}`,
               name: fm.name || dirName,
               description: fm.description || '',
@@ -542,7 +593,7 @@ export function useStoreSkills(opts: {
               category,
               readme: r.content,
               storeSourceId: presetId,
-            })
+            }))
           }
           if (activePresetId.value !== presetId) {
             return
@@ -628,10 +679,13 @@ export function useStoreSkills(opts: {
   })
 
   function getDownloadedElsewhereBadges(skill: Skill): { text: string; type: string }[] {
-    if (!downloadedIdSet.value.has(skill.id)) return []
-    const cached = storage.getDownloadedSkills().find((s) => s.id === skill.id)
+    const cached = findDownloadedSkillMatch(skill, downloadedIds.value, storage.getDownloadedSkills())
     if (!cached || cached.storeSourceId === activePresetId.value) return []
     return [{ text: '已下载', type: 'downloaded-elsewhere' }]
+  }
+
+  function getDownloadedSkill(skill: Skill): Skill | undefined {
+    return findDownloadedSkillMatch(skill, downloadedIds.value, storage.getDownloadedSkills())
   }
 
   const availableSkills = computed(() => availableSkillsAll.value.slice(0, visibleCount.value))
@@ -655,7 +709,7 @@ export function useStoreSkills(opts: {
     try {
       const results = await skillsSh.searchSkillsSh(q)
       const skills = results.map(skillsSh.searchResultToSkill)
-      const descPool = storage.getGitHubCache()
+      const descPool = isStoreCacheEnabled() ? storage.getGitHubCache() : {}
       const cachedMap = new Map(storage.getDownloadedSkills().map((s) => [s.id, s]))
       skills.forEach((s) => {
         const fromPool = descPool[s.id]
@@ -688,9 +742,9 @@ export function useStoreSkills(opts: {
           const desc = await skillsSh.fetchSkillDescriptionFromSh(skill)
           if (desc) {
             skill.shortDescription = desc
-            fetchedDescIds.value = new Set([...fetchedDescIds.value, skill.id])
-            storage.saveGitHubSkills([{ ...skill, storeSourceId: 'skills-sh' }])
+            if (isStoreCacheEnabled()) storage.saveGitHubSkills([{ ...skill, storeSourceId: 'skills-sh' }])
           }
+          fetchedDescIds.value = new Set([...fetchedDescIds.value, skill.id])
         } catch {
           /* ignore desc fetch errors */
         }
@@ -707,7 +761,12 @@ export function useStoreSkills(opts: {
   }
 
   function isDownloaded(id: string) {
-    return downloadedIds.value.includes(id)
+    if (downloadedIds.value.includes(id)) return true
+    const skill =
+      searchResults.value.find((item) => item.id === id) ||
+      allEntries.value.find((item) => item.id === id) ||
+      sourceSkills.value.find((item) => item.id === id)
+    return Boolean(skill && getDownloadedSkill(skill))
   }
 
   function refreshDownloadedIds() {
@@ -838,6 +897,7 @@ export function useStoreSkills(opts: {
     availableSkillsAll,
     availableSkills,
     getDownloadedElsewhereBadges,
+    getDownloadedSkill,
     categoryCounts,
     isDownloading,
     onSearch,

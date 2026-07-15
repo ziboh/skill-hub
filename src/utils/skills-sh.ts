@@ -1,6 +1,7 @@
 import type { Skill } from '../types'
 import { parseFrontmatter } from './frontmatter'
 import { fetchGitHubFile, fetchGitHubRepoTree } from './github'
+import { completeStoreSkill } from './store-skill-normalize'
 
 const BASE = 'https://skills.sh'
 
@@ -37,6 +38,7 @@ export interface SkillDetailRaw {
   name: string
   description: string
   content: string
+  canonicalId?: string
 }
 
 // ── Error ──
@@ -53,8 +55,21 @@ class SkillsShError extends Error {
 
 // ── HTTP helper ──
 
-async function fetchText(url: string): Promise<string> {
-  const resp = await fetch(url, { headers: { 'User-Agent': 'skill-hub' } })
+async function fetchViaPreload(url: string): Promise<string | null> {
+  if (typeof window === 'undefined' || !window.services?.downloadFile) return null
+
+  const payload = await window.services.downloadFile(url)
+  if (typeof payload === 'string') return payload
+  if (payload instanceof ArrayBuffer) return new TextDecoder().decode(payload)
+  if (ArrayBuffer.isView(payload)) return new TextDecoder().decode(payload as unknown as Uint8Array)
+  return JSON.stringify(payload)
+}
+
+async function fetchText(url: string, headers: Record<string, string> = {}): Promise<string> {
+  const preloadText = await fetchViaPreload(url)
+  if (preloadText !== null) return preloadText
+
+  const resp = await fetch(url, { headers: { 'User-Agent': 'skill-hub', ...headers } })
   if (!resp.ok) throw new SkillsShError(resp.status, `HTTP ${resp.status}`)
   return resp.text()
 }
@@ -202,6 +217,15 @@ export async function fetchSkillDetailFromSkill(skill: Skill, token?: string): P
   if (parts.length < 2) return null
   const [owner, repo] = parts
   const skillPath = skill.path || skill.name.toLowerCase().replace(/\s+/g, '-')
+  const toDetail = (content: string): SkillDetailRaw => {
+    const fm = parseFrontmatter(content)
+    return {
+      name: fm.name || skill.name,
+      description: fm.description || '',
+      content,
+      canonicalId: fm.name ? `${skill.repo}/${fm.name}` : skill.canonicalId,
+    }
+  }
 
   try {
     const tree = await fetchGitHubRepoTree(owner, repo, 'main', token)
@@ -247,8 +271,7 @@ export async function fetchSkillDetailFromSkill(skill: Skill, token?: string): P
     if (bestMatch) {
       const content = await fetchGitHubFile(owner, repo, bestMatch)
       if (content) {
-        const fm = parseFrontmatter(content)
-        return { name: fm.name || skill.name, description: fm.description || '', content }
+        return toDetail(content)
       }
     }
   } catch {}
@@ -278,8 +301,7 @@ export async function fetchSkillDetailFromSkill(skill: Skill, token?: string): P
     try {
       const content = await fetchGitHubFile(owner, repo, p)
       if (content) {
-        const fm = parseFrontmatter(content)
-        return { name: fm.name || skill.name, description: fm.description || '', content }
+        return toDetail(content)
       }
     } catch {
       continue
@@ -301,9 +323,7 @@ export interface PublicSearchResult {
 export async function searchSkillsSh(q: string): Promise<PublicSearchResult[]> {
   if (!q || q.length < 1) return []
   const url = `https://skills.sh/api/search?q=${encodeURIComponent(q)}`
-  const resp = await fetch(url, { headers: { 'User-Agent': 'skill-hub', Accept: 'application/json' } })
-  if (!resp.ok) throw new SkillsShError(resp.status, `search API error: ${resp.status}`)
-  const body = await resp.json()
+  const body = JSON.parse(await fetchText(url, { Accept: 'application/json' }))
   return body.skills || []
 }
 
@@ -314,7 +334,7 @@ export function leaderboardEntryToSkill(e: LeaderboardEntry): Skill {
   // Well-known 技能 ID 不包含 site/ 前缀，格式为 域名/skill名称
   const isWellKnown = e.owner === 'site' || e.owner.includes('.')
   const skillId = isWellKnown ? `${e.repo}/${dirName}` : `${e.owner}/${e.repo}/${dirName}`
-  return {
+  return completeStoreSkill({
     id: skillId,
     name: e.skillName,
     description: '',
@@ -325,8 +345,9 @@ export function leaderboardEntryToSkill(e: LeaderboardEntry): Skill {
     sourceUrl: e.detailUrl,
     repo: `${e.owner}/${e.repo}`,
     path: dirName,
+    canonicalId: skillId,
     installCount: e.installs,
-  }
+  })
 }
 
 function isDomainSource(source: string): boolean {
@@ -350,7 +371,7 @@ export function searchResultToSkill(s: PublicSearchResult): Skill {
   }
   const repo = s.source.includes('/') ? s.source : `${s.source}/${s.source}`
   const urlPath = isWellKnown && !fullId.startsWith('site/') ? `site/${fullId}` : fullId
-  return {
+  return completeStoreSkill({
     id: fullId,
     name: s.name,
     description: '',
@@ -361,8 +382,9 @@ export function searchResultToSkill(s: PublicSearchResult): Skill {
     sourceUrl: `${BASE}/${urlPath}`,
     repo,
     path: skillPath,
+    canonicalId: fullId,
     installCount: s.installs,
-  }
+  })
 }
 
 // ── GitHub download helpers ──
@@ -373,3 +395,4 @@ export function getGitHubRepo(skill: Skill): { owner: string; repo: string } | n
   if (parts.length < 2) return null
   return { owner: parts[0], repo: parts[1] }
 }
+

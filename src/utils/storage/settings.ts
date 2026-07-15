@@ -19,32 +19,52 @@ function initBuiltinProviders(): ModelConfig[] {
   }))
 }
 
+function createDefaultSettings(): AppSettings {
+  return {
+    defaultInstallMode: 'copy',
+    githubToken: '',
+    storeCacheEnabled: true,
+    themeMode: 'auto',
+    themeColor: 'blue',
+    fontSize: 'medium',
+    motionPreference: 'standard',
+    compactMode: false,
+    aiModels: [],
+    translationModelId: '',
+    autoTranslate: false,
+    translationTimeout: 300,
+    resumeTranslation: true,
+    showDataManagement: false,
+    translationExtraBody: {},
+    mySkillsSort: 'default',
+  }
+}
+
+function pickKnownSettings(value: unknown, defaults: AppSettings): Partial<AppSettings> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const source = value as Record<string, unknown>
+  const result: Record<string, unknown> = {}
+  for (const key of Object.keys(defaults)) {
+    if (Object.prototype.hasOwnProperty.call(source, key)) result[key] = source[key]
+  }
+  return result as Partial<AppSettings>
+}
+
+function hasUnknownSettings(value: unknown, defaults: AppSettings): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  return Object.keys(value).some((key) => !Object.prototype.hasOwnProperty.call(defaults, key))
+}
+
 export const settingsApi = {
   getSettings(): AppSettings {
-    const defaults: AppSettings = {
-      defaultInstallMode: 'copy',
-      githubToken: '',
-      theme: 'auto',
-      themeMode: 'auto',
-      themeColor: 'blue',
-      fontSize: 'medium',
-      motionPreference: 'standard',
-      compactMode: false,
-      aiModels: [],
-      translationModelId: '',
-      autoTranslate: false,
-      translationTimeout: 300,
-      resumeTranslation: true,
-      showDataManagement: false,
-      translationExtraBody: {},
-      mySkillsSort: 'default',
-    }
-    let saved: Partial<AppSettings> | null = null
+    const defaults = createDefaultSettings()
+    let rawSaved: unknown = null
     try {
-      saved = dbGet<Partial<AppSettings>>(KEYS.SETTINGS)
+      rawSaved = dbGet(KEYS.SETTINGS)
     } catch {
       console.warn('[storage] failed to read settings, using defaults')
     }
+    const saved = pickKnownSettings(rawSaved, defaults)
     if (saved?.aiModels) {
       const activeIds = new Set(BUILTIN_PROVIDERS.map((p) => p.id))
       saved.aiModels = saved.aiModels.filter((m) => !m.isBuiltin || activeIds.has(m.provider))
@@ -61,11 +81,12 @@ export const settingsApi = {
         }
       }
     }
+    if (hasUnknownSettings(rawSaved, defaults)) dbSet(KEYS.SETTINGS, merged)
     return merged
   },
   saveSettings(settings: Partial<AppSettings>): void {
     const current = settingsApi.getSettings()
-    const merged = { ...current, ...settings }
+    const merged = { ...current, ...pickKnownSettings(settings, createDefaultSettings()) }
     dbSet(KEYS.SETTINGS, merged)
   },
 }

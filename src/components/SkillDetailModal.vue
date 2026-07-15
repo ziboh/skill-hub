@@ -6,12 +6,14 @@ import { storage } from '../utils/storage'
 import { parseFrontmatter, extractChineseSummary } from '../utils/frontmatter'
 import type { Skill } from '../types'
 import SkillPickModal from './SkillPickModal.vue'
+import ConfirmModal from './ConfirmModal.vue'
 import SkillPreviewPanel from './SkillPreviewPanel.vue'
 import { useSettings } from '../composables/useSettings'
 import { getAvatarColor } from '../utils/color'
 import { SKILL_CATEGORIES, inferCategory, CATEGORY_ICONS, ALL_CATEGORIES, type SkillCategory } from '../data/skill-categories'
 import { getSourceInfo } from '../utils/source-info'
 import ProviderIcon from './ProviderIcon.vue'
+import UiIcon from './UiIcon.vue'
 import { isWellKnownSkill, downloadSkillFromWebsite, downloadDirectFromStore, type WellKnownSkillResult } from '../utils/well-known'
 import { atomicReplaceDir, atomicWriteDir } from '../utils/fs-ops'
 import { getSkillsRepoDir, skillIdSlug } from '../utils/skill-path'
@@ -31,6 +33,7 @@ const skillDesc = ref('')
 const skillContent = ref('')
 const rawContent = ref('')
 const importing = ref(false)
+const showImportConfirm = ref(false)
 
 const isDownloaded = computed(() => storage.getDownloadedIds().includes(props.skill.id))
 
@@ -101,7 +104,7 @@ const currentCategory = computed(() => {
   return {
     id: cat,
     label: SKILL_CATEGORIES[cat as keyof typeof SKILL_CATEGORIES]?.label || '其他',
-    icon: CATEGORY_ICONS[cat as keyof typeof CATEGORY_ICONS] || '📋',
+    icon: CATEGORY_ICONS[cat as keyof typeof CATEGORY_ICONS] || 'clipboard',
   }
 })
 
@@ -182,7 +185,9 @@ async function fetchContent() {
       if (result) {
         props.skill.readme = result.content
         props.skill.readmeCachedAt = Date.now()
+        if (result.name) props.skill.name = result.name
         if (result.description) props.skill.description = result.description
+        if (result.canonicalId) props.skill.canonicalId = result.canonicalId
         storage.saveGitHubSkills([props.skill])
         skillName.value = props.skill.name
         skillDesc.value = result.description
@@ -349,10 +354,15 @@ async function writeImportFiles(result: WellKnownSkillResult) {
   refreshCounts?.()
   bumpDownloadedSkillsVersion()
   emit('imported')
-  showToast(`已导入 ${props.skill.name}`, 'success')
+  showToast({ type: 'success', message: `已导入 ${props.skill.name}` })
+}
+
+function requestImport() {
+  if (!isDownloaded.value && !importing.value) showImportConfirm.value = true
 }
 
 async function handleImport() {
+  showImportConfirm.value = false
   if (isDownloaded.value) return
   importing.value = true
   try {
@@ -376,7 +386,7 @@ async function handleImport() {
 
     // GitHub 技能
     if (!props.skill.repo) {
-      showToast('该技能没有关联的 GitHub 仓库，无法导入', 'error')
+      showToast({ type: 'error', message: '该技能没有关联的 GitHub 仓库，无法导入' })
       importing.value = false
       return
     }
@@ -405,14 +415,14 @@ async function handleImport() {
     if (!sourceDir) {
       const allSkillDirs = collectAllSkillDirs(sourceRoot)
       if (allSkillDirs.length === 0) {
-        showToast('未找到技能文件', 'error')
+        showToast({ type: 'error', message: '未找到技能文件' })
         importing.value = false
         return
       }
       sourceDir = matchSkillDir(allSkillDirs, props.skill.name) || (await pickSkillDir(allSkillDirs))
     }
     if (!sourceDir) {
-      showToast('未找到技能文件', 'error')
+      showToast({ type: 'error', message: '未找到技能文件' })
       importing.value = false
       return
     }
@@ -436,16 +446,16 @@ async function handleImport() {
     refreshCounts?.()
     bumpDownloadedSkillsVersion()
     emit('imported')
-    showToast(`已导入 ${props.skill.name}`, 'success')
+    showToast({ type: 'success', message: `已导入 ${props.skill.name}` })
   } catch (err: any) {
-    showToast('导入失败: ' + (err.message || '未知错误'), 'error')
+    showToast({ type: 'error', message: '导入失败: ' + (err.message || '未知错误') })
   }
   importing.value = false
 }
 </script>
 
 <template>
-  <div class="modal-overlay" @click.self="emit('close')">
+  <div class="modal-overlay">
     <div class="modal-card">
       <!-- Header (aligned with SkillDetailBase) -->
       <div class="modal-header">
@@ -520,7 +530,7 @@ async function handleImport() {
                   </svg>
                   {{ sourceInfo.label }}
                 </span>
-                <span class="header-tag category-tag">{{ currentCategory.icon }} {{ currentCategory.label }}</span>
+                <span class="header-tag category-tag"><UiIcon :name="currentCategory.icon" :size="12" /> {{ currentCategory.label }}</span>
               </div>
             </div>
           </div>
@@ -603,7 +613,7 @@ async function handleImport() {
           </svg>
           已在我的 Skill 中
         </div>
-        <button v-else class="import-btn" :disabled="importing || loading" @click="handleImport">
+        <button v-else class="import-btn" :disabled="importing || loading" @click="requestImport">
           <svg
             width="16"
             height="16"
@@ -623,6 +633,14 @@ async function handleImport() {
       </div>
     </div>
   </div>
+  <ConfirmModal
+    v-if="showImportConfirm"
+    title="确认导入 Skill"
+    :message="`确定要将 <strong>${props.skill.name}</strong> 导入到我的 Skill 吗？`"
+    confirm-text="导入"
+    @confirm="handleImport"
+    @cancel="showImportConfirm = false"
+  />
   <SkillPickModal v-if="showPickModal" :skills="pickSkills" @select="handlePickSelect" @close="handlePickCancel" />
 </template>
 

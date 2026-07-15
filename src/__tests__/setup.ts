@@ -37,6 +37,7 @@ function createServices() {
   return {
     hashContent: vi.fn((content: string) => content),
     scanForSkillFiles: vi.fn(() => []),
+    scanForSkillFilesIncludingDisabled: vi.fn(() => []),
     pathJoin: vi.fn((...parts: string[]) => parts.join('/')),
     safeJoin: vi.fn((base: string, ...parts: string[]) => {
       const joined = [base, ...parts].filter(Boolean).join('/')
@@ -54,6 +55,7 @@ function createServices() {
     readFile: vi.fn(() => null),
     readFileText: vi.fn(() => ''),
     writeFile: vi.fn(() => {}),
+    renamePath: vi.fn(() => {}),
     removeFile: vi.fn(() => {}),
     removeEmptyAncestors: vi.fn(() => {}),
     copyFile: vi.fn(() => {}),
@@ -61,6 +63,7 @@ function createServices() {
     deployPlatformSkill: vi.fn(() => ({ handled: false })),
     uninstallPlatformSkill: vi.fn(() => ({ handled: false })),
     pathExists: vi.fn(() => false),
+    setSkillEnabled: vi.fn((skillDir: string, enabled: boolean) => ({ enabled, path: skillDir })),
     mkdir: vi.fn(() => {}),
     stat: vi.fn(async () => ({ isDirectory: () => false })),
     expandPath: vi.fn((p: string) => p),

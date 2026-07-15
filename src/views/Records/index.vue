@@ -284,13 +284,6 @@ function _getTranslationModel(): ModelConfig | null {
     if (provider && provider.enabled !== false && provider.models?.some((m) => m.id === modelId && m.enabled)) {
       return { ...provider, model: modelId } as ModelConfig
     }
-  } else {
-    for (const provider of providers) {
-      if (provider.models) {
-        const model = provider.models.find((m) => m.id === settings.translationModelId && m.enabled)
-        if (model && provider.enabled !== false) return { ...provider, model: model.id } as ModelConfig
-      }
-    }
   }
   return null
 }
@@ -1274,7 +1267,7 @@ watch(activeTab, () => {
   </div>
 
   <Teleport to="body">
-    <div v-if="showDeleteConfirm" class="confirm-overlay" @click="showDeleteConfirm = false">
+    <div v-if="showDeleteConfirm" class="confirm-overlay">
       <div class="confirm-modal" @click.stop>
         <div class="confirm-title">确认删除</div>
         <div class="confirm-message">
@@ -1286,7 +1279,7 @@ watch(activeTab, () => {
         </div>
       </div>
     </div>
-    <div v-if="showBatchDeleteConfirm" class="confirm-overlay" @click="showBatchDeleteConfirm = false">
+    <div v-if="showBatchDeleteConfirm" class="confirm-overlay">
       <div class="confirm-modal" @click.stop>
         <div class="confirm-title">批量删除</div>
         <div class="confirm-message">确定要删除选中的 {{ selectedItems.size }} 条记录吗？此操作不可撤销。</div>
@@ -1296,7 +1289,7 @@ watch(activeTab, () => {
         </div>
       </div>
     </div>
-    <div v-if="showFailureDetail && selectedFailureRecord" class="confirm-overlay" @click="closeFailureDetail">
+    <div v-if="showFailureDetail && selectedFailureRecord" class="confirm-overlay">
       <div class="failure-detail-modal" @click.stop>
         <div class="failure-detail-header">
           <h3 class="failure-detail-title">错误详情</h3>

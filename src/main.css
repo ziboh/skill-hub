@@ -20,3 +20,24 @@ select {
 ::selection {
   background: hsl(var(--primary) / 0.25);
 }
+
+/* Shared shell for Agent and Project "Import from My Skills" dialogs. */
+.modal-overlay.skill-import-overlay {
+  background: hsl(var(--background) / 0.6);
+  backdrop-filter: blur(8px);
+}
+
+.modal.skill-import-modal {
+  width: min(920px, 92vw);
+  max-width: none;
+  max-height: 86vh;
+  overflow: hidden;
+  border-radius: 16px;
+  box-shadow: var(--shadow-lg);
+}
+
+@media (max-width: 720px) {
+  .modal.skill-import-modal {
+    width: 94vw;
+  }
+}

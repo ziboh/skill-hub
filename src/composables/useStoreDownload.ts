@@ -23,6 +23,14 @@ export function collectPathCandidates(skillPath: string): string[] {
   return [skillPath, `skills/${skillPath}`, `agent-skills/${skillPath}`]
 }
 
+export function getRepoRelativeSkillPath(sourceRoot: string, skillDir: string): string | null {
+  const root = sourceRoot.replace(/\\/g, '/').replace(/\/+$/, '')
+  const dir = skillDir.replace(/\\/g, '/').replace(/\/+$/, '')
+  if (dir.toLowerCase() === root.toLowerCase()) return '.'
+  if (!dir.toLowerCase().startsWith(root.toLowerCase() + '/')) return null
+  return dir.slice(root.length + 1)
+}
+
 export function matchSkillDirByMeta(
   candidates: { dir: string; name: string; description: string }[],
   targetName: string,
@@ -147,7 +155,7 @@ export function useStoreDownload(opts: {
     opts.bumpDownloadedSkillsVersion?.()
     autoTranslateSkill(skill, targetDir)
     updateItem(queueItem.id, { status: 'success' })
-    opts.showToast(`已导入 ${skill.name}`, 'success')
+    opts.showToast({ type: 'success', message: `已导入 ${skill.name}` })
   }
 
   function downloadSkill(skill: Skill) {
@@ -175,13 +183,13 @@ export function useStoreDownload(opts: {
         }
 
         if (!skill.repo) {
-          opts.showToast('该技能没有关联的 GitHub 仓库，无法下载', 'error')
+          opts.showToast({ type: 'error', message: '该技能没有关联的 GitHub 仓库，无法下载' })
           updateItem(queueItem.id, { status: 'error', error: '无 GitHub 仓库' })
           return
         }
         const gh = skillsSh.getGitHubRepo(skill)
         if (!gh) {
-          opts.showToast('无效的 GitHub 仓库地址', 'error')
+          opts.showToast({ type: 'error', message: '无效的 GitHub 仓库地址' })
           updateItem(queueItem.id, { status: 'error', error: '无效的 GitHub 仓库地址' })
           storage.addFailureRecord({ type: 'download', skillId: skill.id, skillName: skill.name, error: '无效的 GitHub 仓库地址' })
           return
@@ -211,7 +219,7 @@ export function useStoreDownload(opts: {
         if (!skillSourceDir) {
           const allSkillDirs = collectAllSkillDirs(sourceRoot)
           if (allSkillDirs.length === 0) {
-            opts.showToast('未找到技能文件', 'error')
+            opts.showToast({ type: 'error', message: '未找到技能文件' })
             updateItem(queueItem.id, { status: 'error', error: '未找到技能文件' })
             storage.addFailureRecord({ type: 'download', skillId: skill.id, skillName: skill.name, error: '未找到技能文件' })
             return
@@ -223,7 +231,7 @@ export function useStoreDownload(opts: {
           skillSourceDir = matchSkillDirByMeta(metas, skill.name) || (await pickSkillDir(allSkillDirs))
         }
         if (!skillSourceDir) {
-          opts.showToast('未找到技能文件', 'error')
+          opts.showToast({ type: 'error', message: '未找到技能文件' })
           updateItem(queueItem.id, { status: 'error', error: '未找到技能文件' })
           storage.addFailureRecord({ type: 'download', skillId: skill.id, skillName: skill.name, error: '未找到技能文件' })
           return
@@ -237,8 +245,9 @@ export function useStoreDownload(opts: {
           targetDir,
         )
         window.services.removeFile(extractDir)
+        const repoPath = getRepoRelativeSkillPath(sourceRoot, skillSourceDir)
         finalizeImportedSkill({
-          skill: { ...skill },
+          skill: { ...skill, path: repoPath || skill.path },
           targetDir,
           sourceType: opts.activePresetId.value === 'skills-sh' ? 'skills-sh' : 'github',
           location: skill.repo || '',
@@ -250,9 +259,9 @@ export function useStoreDownload(opts: {
         opts.refreshCounts?.()
         autoTranslateSkill(skill, targetDir)
         updateItem(queueItem.id, { status: 'success' })
-        opts.showToast(`已导入 ${skill.name}`, 'success')
+        opts.showToast({ type: 'success', message: `已导入 ${skill.name}` })
       } catch (err: any) {
-        opts.showToast('导入失败: ' + (err.message || '未知错误'), 'error')
+        opts.showToast({ type: 'error', message: '导入失败: ' + (err.message || '未知错误') })
         updateItem(queueItem.id, { status: 'error', error: err.message || '未知错误' })
         storage.addFailureRecord({ type: 'download', skillId: skill.id, skillName: skill.name, error: err.message || '未知错误' })
       }
@@ -277,9 +286,9 @@ export function useStoreDownload(opts: {
       storage.removeDownloadedSkill(skill.id)
       opts.refreshDownloadedIds()
       opts.refreshCounts?.()
-      opts.showToast(`已删除 ${skill.name}`, 'info')
+      opts.showToast({ type: 'notification', message: `已删除 ${skill.name}` })
     } catch (err: any) {
-      opts.showToast('删除失败: ' + (err.message || '未知错误'), 'error')
+      opts.showToast({ type: 'error', message: '删除失败: ' + (err.message || '未知错误') })
     }
   }
 

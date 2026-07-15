@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, watch, inject } from 'vue'
 import { KeyShowToast } from '../inject-keys'
 import SkillCodeEditor from './SkillCodeEditor.vue'
+import UiIcon, { type UiIconName } from './UiIcon.vue'
 import { safeJoin } from '../utils/fs-ops'
 
 interface FileTreeEntry {
@@ -128,7 +129,7 @@ async function loadFiles() {
       selectFile(firstFile)
     }
   } catch (err: any) {
-    showToast('加载文件失败: ' + (err.message || err), 'error')
+    showToast({ type: 'error', message: '加载文件失败: ' + (err.message || err) })
   }
   isLoading.value = false
 }
@@ -216,7 +217,7 @@ async function loadFileContent(relativePath: string) {
       isDirectory: false,
     }
   } catch (err: any) {
-    showToast('读取文件失败: ' + (err.message || err), 'error')
+    showToast({ type: 'error', message: '读取文件失败: ' + (err.message || err) })
   }
 }
 
@@ -250,10 +251,10 @@ async function saveCurrentFile() {
     const next = { ...modifiedFiles.value }
     delete next[selectedFile.value]
     modifiedFiles.value = next
-    showToast('文件已保存', 'success')
+    showToast({ type: 'success', message: '文件已保存' })
     emit('saved')
   } catch (err: any) {
-    showToast('保存失败: ' + (err.message || err), 'error')
+    showToast({ type: 'error', message: '保存失败: ' + (err.message || err) })
   }
   isSaving.value = false
 }
@@ -268,9 +269,9 @@ async function handleNewFile() {
     dialogInput.value = ''
     loadFiles()
     selectFile(name)
-    showToast('文件已创建', 'success')
+    showToast({ type: 'success', message: '文件已创建' })
   } catch (err: any) {
-    showToast('创建文件失败: ' + (err.message || err), 'error')
+    showToast({ type: 'error', message: '创建文件失败: ' + (err.message || err) })
   }
 }
 
@@ -287,9 +288,9 @@ async function handleNewFolder() {
     newFolderDialogOpen.value = false
     dialogInput.value = ''
     loadFiles()
-    showToast('文件夹已创建', 'success')
+    showToast({ type: 'success', message: '文件夹已创建' })
   } catch (err: any) {
-    showToast('创建文件夹失败: ' + (err.message || err), 'error')
+    showToast({ type: 'error', message: '创建文件夹失败: ' + (err.message || err) })
   }
 }
 
@@ -305,9 +306,9 @@ async function handleDelete() {
     delete modifiedFiles.value[deleteDialogFile.value]
     deleteDialogFile.value = null
     loadFiles()
-    showToast('文件已删除', 'success')
+    showToast({ type: 'success', message: '文件已删除' })
   } catch (err: any) {
-    showToast('删除失败: ' + (err.message || err), 'error')
+    showToast({ type: 'error', message: '删除失败: ' + (err.message || err) })
   }
 }
 
@@ -341,18 +342,18 @@ function toggleExpand(item: FileTreeEntry) {
   item.expanded = !item.expanded
 }
 
-function getFileIcon(name: string, isDir: boolean, expanded?: boolean): string {
-  if (isDir) return expanded ? '📂' : '📁'
+function getFileIcon(name: string, isDir: boolean, expanded?: boolean): UiIconName {
+  if (isDir) return expanded ? 'folder-open' : 'folder'
   const ext = name.split('.').pop()?.toLowerCase() || ''
-  if (ext === 'md' || ext === 'mdx') return '📝'
-  if (ext === 'js' || ext === 'ts' || ext === 'jsx' || ext === 'tsx') return '📜'
-  if (ext === 'json') return '📋'
-  if (ext === 'yaml' || ext === 'yml') return '⚙️'
-  if (ext === 'py') return '🐍'
-  if (ext === 'html' || ext === 'htm') return '🌐'
-  if (ext === 'css') return '🎨'
-  if (ext === 'png' || ext === 'jpg' || ext === 'jpeg' || ext === 'gif' || ext === 'svg') return '🖼️'
-  return '📄'
+  if (ext === 'md' || ext === 'mdx') return 'file-text'
+  if (ext === 'js' || ext === 'ts' || ext === 'jsx' || ext === 'tsx') return 'file'
+  if (ext === 'json') return 'clipboard'
+  if (ext === 'yaml' || ext === 'yml') return 'settings'
+  if (ext === 'py') return 'file'
+  if (ext === 'html' || ext === 'htm') return 'globe'
+  if (ext === 'css') return 'palette'
+  if (ext === 'png' || ext === 'jpg' || ext === 'jpeg' || ext === 'gif' || ext === 'svg') return 'file'
+  return 'file'
 }
 </script>
 
@@ -465,7 +466,7 @@ function getFileIcon(name: string, isDir: boolean, expanded?: boolean): string {
                 >
                   <polyline points="9 18 15 12 9 6" />
                 </svg>
-                <span class="item-icon">{{ getFileIcon(item.relativePath, true, item.expanded) }}</span>
+                <span class="item-icon"><UiIcon :name="getFileIcon(item.relativePath, true, item.expanded)" :size="14" /></span>
                 <span class="item-name">{{ item.relativePath.split('/').pop() }}</span>
               </button>
               <div v-if="item.expanded && item.children" class="tree-children">
@@ -476,7 +477,7 @@ function getFileIcon(name: string, isDir: boolean, expanded?: boolean): string {
                     :class="{ active: selectedFile === child.relativePath, modified: child.relativePath in modifiedFiles }"
                     @click="selectFile(child.relativePath)"
                   >
-                    <span class="item-icon">{{ getFileIcon(child.relativePath, false) }}</span>
+                    <span class="item-icon"><UiIcon :name="getFileIcon(child.relativePath, false)" :size="14" /></span>
                     <span class="item-name">{{ child.relativePath.split('/').pop() }}</span>
                     <span v-if="child.relativePath in modifiedFiles" class="modified-dot" />
                   </div>
@@ -490,7 +491,7 @@ function getFileIcon(name: string, isDir: boolean, expanded?: boolean): string {
               :class="{ active: selectedFile === item.relativePath, modified: item.relativePath in modifiedFiles }"
               @click="selectFile(item.relativePath)"
             >
-              <span class="item-icon">{{ getFileIcon(item.relativePath, false) }}</span>
+              <span class="item-icon"><UiIcon :name="getFileIcon(item.relativePath, false)" :size="14" /></span>
               <span class="item-name">{{ item.relativePath.split('/').pop() }}</span>
               <span v-if="item.relativePath in modifiedFiles" class="modified-dot" />
             </div>
@@ -505,7 +506,7 @@ function getFileIcon(name: string, isDir: boolean, expanded?: boolean): string {
         <!-- Editor header -->
         <div class="editor-header">
           <div class="editor-file-name">
-            <span class="file-icon">{{ getFileIcon(currentFileName, false) }}</span>
+            <span class="file-icon"><UiIcon :name="getFileIcon(currentFileName, false)" :size="16" /></span>
             {{ selectedFile }}
             <span v-if="isModified" class="modified-dot" />
           </div>
@@ -611,7 +612,7 @@ function getFileIcon(name: string, isDir: boolean, expanded?: boolean): string {
     </div>
 
     <!-- New File Dialog -->
-    <div v-if="newFileDialogOpen" class="dialog-overlay" @click.self="newFileDialogOpen = false">
+    <div v-if="newFileDialogOpen" class="dialog-overlay">
       <div class="dialog">
         <h3>新建文件</h3>
         <input
@@ -630,7 +631,7 @@ function getFileIcon(name: string, isDir: boolean, expanded?: boolean): string {
     </div>
 
     <!-- New Folder Dialog -->
-    <div v-if="newFolderDialogOpen" class="dialog-overlay" @click.self="newFolderDialogOpen = false">
+    <div v-if="newFolderDialogOpen" class="dialog-overlay">
       <div class="dialog">
         <h3>新建文件夹</h3>
         <input
@@ -649,7 +650,7 @@ function getFileIcon(name: string, isDir: boolean, expanded?: boolean): string {
     </div>
 
     <!-- Switch File Confirm Dialog -->
-    <div v-if="pendingSwitchFile" class="dialog-overlay" @click.self="cancelSwitch">
+    <div v-if="pendingSwitchFile" class="dialog-overlay">
       <div class="dialog">
         <h3>未保存的更改</h3>
         <p class="dialog-desc">有未保存的更改，确定要切换文件吗？</p>
@@ -661,7 +662,7 @@ function getFileIcon(name: string, isDir: boolean, expanded?: boolean): string {
     </div>
 
     <!-- Delete Confirm Dialog -->
-    <div v-if="deleteDialogFile" class="dialog-overlay" @click.self="deleteDialogFile = null">
+    <div v-if="deleteDialogFile" class="dialog-overlay">
       <div class="dialog">
         <h3>确认删除</h3>
         <p class="dialog-desc">
@@ -801,9 +802,9 @@ function getFileIcon(name: string, isDir: boolean, expanded?: boolean): string {
 }
 
 .item-icon {
+  display: inline-flex;
+  align-items: center;
   flex-shrink: 0;
-  font-size: 13px;
-  line-height: 1;
 }
 
 .item-name {
@@ -851,8 +852,8 @@ function getFileIcon(name: string, isDir: boolean, expanded?: boolean): string {
 }
 
 .file-icon {
-  font-size: 14px;
-  line-height: 1;
+  display: inline-flex;
+  align-items: center;
 }
 
 .editor-actions {

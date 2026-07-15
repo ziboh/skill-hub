@@ -84,7 +84,7 @@ function deleteSelected() {
 </script>
 
 <template>
-  <div class="cleanup-overlay" @click.self="emit('close')">
+  <div class="cleanup-overlay">
     <div class="cleanup-modal">
       <div class="cleanup-header">
         <div class="cleanup-icon">

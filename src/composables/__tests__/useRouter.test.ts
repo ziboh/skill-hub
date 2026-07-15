@@ -55,6 +55,14 @@ describe('useRouter', () => {
     expect(settingsAnchor.value).toBe('general')
   })
 
+  test('navigate sets and clears the My Skills target', () => {
+    const { targetMySkillId, navigate } = useRouter()
+    navigate('my', { targetSkillId: 'owner/repo/skill' })
+    expect(targetMySkillId.value).toBe('owner/repo/skill')
+    navigate('store')
+    expect(targetMySkillId.value).toBe('')
+  })
+
   test('navigate sets detailContext', () => {
     const { detailContext, navigate } = useRouter()
     navigate('detail', { context: 'store' })

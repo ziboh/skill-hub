@@ -53,7 +53,7 @@ function addCustomDir() {
   if (!p) return
   const exists = agentDirOptions.value.some((d) => d.path === p)
   if (exists) {
-    showToast('该路径已存在', 'warning')
+    showToast({ type: 'warning', message: '该路径已存在' })
     return
   }
   const dir = { id: 'custom-' + Date.now(), name: '自定义', path: p, type: 'custom' }
@@ -208,7 +208,7 @@ async function uninstall() {
   if (record.targetPath) {
     const rm = safeRemovePath(record.targetPath)
     if (!rm.ok) {
-      showToast(`卸载失败: ${rm.error || '请检查文件权限'}`, 'error')
+      showToast({ type: 'error', message: `卸载失败: ${rm.error || '请检查文件权限'}` })
       cancelUninstall()
       return
     }
@@ -217,9 +217,9 @@ async function uninstall() {
   loadInstallStatus()
   const stillExists = distributeRecords.value.some((r) => r.platformId === key)
   if (stillExists) {
-    showToast('卸载失败：记录删除异常', 'error')
+    showToast({ type: 'error', message: '卸载失败：记录删除异常' })
   } else {
-    showToast(`已从项目卸载`, 'success')
+    showToast({ type: 'success', message: `已从项目卸载` })
   }
   cancelUninstall()
 }
@@ -265,12 +265,12 @@ function addLog(platform: string, status: 'ok' | 'error' | 'pending', msg: strin
 async function install() {
   const projects = selectedProjects.value
   if (!projects.length) {
-    showToast('请先选择项目', 'error')
+    showToast({ type: 'error', message: '请先选择项目' })
     return
   }
   const agentPaths = [...selectedAgentDirs.value]
   if (!agentPaths.length) {
-    showToast('请先选择保存位置', 'error')
+    showToast({ type: 'error', message: '请先选择保存位置' })
     return
   }
 
@@ -280,11 +280,11 @@ async function install() {
   try {
     const sourceDir = resolveSkillSourceDir(props.skill)
     if (!sourceDir) {
-      showToast(`「${props.skill.name}」的源文件不存在，无法分发`, 'error')
+      showToast({ type: 'error', message: `「${props.skill.name}」的源文件不存在，无法分发` })
       return
     }
     if (!hasSkillMd(sourceDir)) {
-      showToast(`「${props.skill.name}」源目录中未找到 SKILL.md`, 'error')
+      showToast({ type: 'error', message: `「${props.skill.name}」源目录中未找到 SKILL.md` })
       return
     }
     const installedNames: string[] = []
@@ -313,15 +313,15 @@ async function install() {
     }
 
     if (installedNames.length && failedMessages.length) {
-      showToast(`分发完成：${installedNames.length} 成功，${failedMessages.length} 失败`, 'warning')
+      showToast({ type: 'warning', message: `分发完成：${installedNames.length} 成功，${failedMessages.length} 失败` })
     } else if (installedNames.length) {
       const detail = installedNames.length === 1 ? installedNames[0] : `${installedNames.length} 个位置`
-      showToast(`已将 ${props.skill.name} 分发到${detail}`, 'success')
+      showToast({ type: 'success', message: `已将 ${props.skill.name} 分发到${detail}` })
     } else if (failedMessages.length) {
-      showToast(`分发失败：${failedMessages[0]}`, 'error')
+      showToast({ type: 'error', message: `分发失败：${failedMessages[0]}` })
     }
   } catch (err: any) {
-    showToast('分发出错：' + (err.message || '未知错误'), 'error')
+    showToast({ type: 'error', message: '分发出错：' + (err.message || '未知错误') })
   } finally {
     loadInstallStatus()
     selectedAgentDirs.value = []

@@ -259,15 +259,15 @@ function uninstallSkill() {
         })
         if (!result.ok) throw new Error(result.error || '请检查文件权限')
         const warning = formatSkillLifecycleWarnings('uninstall', result.warnings)
-        if (warning) showToast(warning, 'warning')
+        if (warning) showToast({ type: 'warning', message: warning })
       }
     } else {
       window.services.removeFile(targetPath)
     }
     emit('navigate', props.platformId ? 'agent-skills' : 'project-skills', props.platformId ? { platformId: props.platformId } : undefined)
-    showToast('已删除', 'success')
+    showToast({ type: 'success', message: '已删除' })
   } catch (err: any) {
-    showToast('删除失败: ' + err.message, 'error')
+    showToast({ type: 'error', message: '删除失败: ' + err.message })
   }
 }
 
@@ -314,11 +314,17 @@ async function importToMySkills() {
     })
     isInMySkills.value = true
     isSourceFile.value = true
-    showToast(`已将 ${skill.value.name} 导入到我的 Skill`, 'success')
+    showToast({ type: 'success', message: `已将 ${skill.value.name} 导入到我的 Skill` })
   } catch (err: any) {
-    showToast(err.message, 'error')
+    showToast({ type: 'error', message: err.message })
   }
   importing.value = false
+}
+
+const showImportConfirm = ref(false)
+
+function requestImportToMySkills() {
+  if (!isInMySkills.value && !importing.value) showImportConfirm.value = true
 }
 
 function handleCopy(text: string, key: string) {
@@ -528,7 +534,7 @@ function selectPath(index: number) {
               </svg>
               已管理
             </button>
-            <button v-else class="project-action-btn primary" :disabled="importing" @click="importToMySkills">
+            <button v-else class="project-action-btn primary" :disabled="importing" @click="requestImportToMySkills">
               <svg
                 width="14"
                 height="14"
@@ -599,6 +605,15 @@ function selectPath(index: number) {
       </div>
     </Teleport>
   </template>
+
+  <ConfirmModal
+    v-if="showImportConfirm"
+    title="确认导入 Skill"
+    :message="`确定要将 <strong>${activeSkill?.name || skill?.name || ''}</strong> 导入到我的 Skill 吗？`"
+    confirm-text="导入"
+    @confirm="importToMySkills"
+    @cancel="showImportConfirm = false"
+  />
 
   <ConfirmModal
     v-if="confirmDelete"

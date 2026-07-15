@@ -8,6 +8,7 @@ import {
   KeyOpenAddProjectModal,
   KeyDetectedPlatforms,
   KeyRefreshCounts,
+  KeyRefreshKey,
 } from '../../inject-keys'
 import { storage } from '../../utils/storage'
 import { isChineseContent } from '../../utils/translate'
@@ -17,8 +18,10 @@ import { useProjectState } from '../../composables/useProjectState'
 import { useBatchSelection } from '../../composables/useBatchSelection'
 import { normalizePath } from '../../utils/path'
 import type { Skill, SkillScanResult, PlatformInfo } from '../../types'
-import { getAllPlatformDefinitions, findPlatformById, getPlatformPath } from '../../data/platforms'
+import { getAllPlatformDefinitions, findPlatformById, getPlatformPath, platformDisplayIcon } from '../../data/platforms'
 import SkillCard from '../../components/SkillCard.vue'
+import SkillEnabledToggle from '../../components/SkillEnabledToggle.vue'
+import ProviderIcon from '../../components/ProviderIcon.vue'
 import DeployModal from '../../components/DeployModal.vue'
 import QuickSwitcher from '../../components/QuickSwitcher.vue'
 import ConfirmModal from '../../components/ConfirmModal.vue'
@@ -30,6 +33,8 @@ import { safeRemovePath } from '../../utils/fs-ops'
 import { importScanResultToMySkills } from '../../utils/skill-import'
 import { makeProjectPlatformKey } from '../../utils/skill-deploy'
 import { normalizeSkillNameKey, getSkillDisplayName } from '../../utils/skill-identity'
+import { sortProcessedSkillsLast } from '../../utils/skill-modal-sort'
+import { isSkillEnabled, toggleSkillEnabled } from '../../utils/skill-toggle'
 
 const emit = defineEmits(['navigate', 'edit-project', 'delete-project'])
 
@@ -41,8 +46,12 @@ const selectProject = inject(KeySelectProject, () => {})
 const openAddProjectModal = inject(KeyOpenAddProjectModal, () => {})
 const detectedPlatforms = inject(KeyDetectedPlatforms, ref<PlatformInfo[]>([]))
 const refreshCounts = inject(KeyRefreshCounts, () => {})
+const refreshKey = inject(KeyRefreshKey, ref(0))
 
 const importing = ref<Record<string, boolean>>({})
+const toggling = ref<Record<string, boolean>>({})
+const confirmImportSkill = ref<SkillScanResult | null>(null)
+const showBatchImportConfirm = ref(false)
 
 const confirmDeleteProjectId = ref<string | null>(null)
 const confirmDeleteProjectName = ref('')
@@ -136,6 +145,10 @@ watch(
     refreshInstallDirs()
   },
 )
+
+watch(refreshKey, () => {
+  refreshInstallDirs()
+})
 
 function getBadgeType(skill: any): string {
   const skillDir = normalizePath(skill.dir || '')
@@ -278,18 +291,44 @@ function viewDetail(skill: SkillScanResult) {
   emit('navigate', 'agent-skill-detail', { skill, platformId: '', duplicateSkills: merged.allSkills || null, context: 'project' })
 }
 
+async function toggleProjectSkill(skill: SkillScanResult) {
+  const dir = skill.dir
+  const nextEnabled = !isSkillEnabled(skill)
+  if (!dir || toggling.value[dir]) return
+  toggling.value[dir] = true
+  try {
+    const result = toggleSkillEnabled(dir, nextEnabled)
+    if (selectedProject.value) {
+      const nextSkills = selectedProject.value.skills.map((item) => (item.dir === dir ? { ...item, enabled: result.enabled } : item))
+      selectedProject.value.skills = nextSkills
+      storage.updateRegisteredProject(selectedProject.value.id, { skills: nextSkills })
+    }
+    refreshCounts()
+    showToast({ type: 'success', message: result.enabled ? 'Skill 已启用' : 'Skill 已停用' })
+  } catch (err: any) {
+    showToast({ type: 'error', message: err?.message || '切换 Skill 状态失败' })
+  } finally {
+    toggling.value[dir] = false
+  }
+}
+
 async function importSkill(skill: SkillScanResult) {
+  confirmImportSkill.value = null
   const id = getSkillId(skill)
   importing.value[id] = true
   try {
     importScanResultToMySkills({ skill, sessionSource: 'project' })
     refreshDownloaded()
     refreshCounts()
-    showToast(`已导入「${skill.manifest?.name || skill.name}」到我的 Skill`, 'success')
+    showToast({ type: 'success', message: `已导入「${skill.manifest?.name || skill.name}」到我的 Skill` })
   } catch (err: any) {
-    showToast(err?.message || `导入「${skill.manifest?.name || skill.name}」失败`, 'error')
+    showToast({ type: 'error', message: err?.message || `导入「${skill.manifest?.name || skill.name}」失败` })
   }
   importing.value[id] = false
+}
+
+function requestImportSkill(skill: SkillScanResult) {
+  if (!importing.value[getSkillId(skill)]) confirmImportSkill.value = skill
 }
 
 async function uninstallSkillFromProject(skills: SkillScanResult[]) {
@@ -329,12 +368,12 @@ async function uninstallSkillFromProject(skills: SkillScanResult[]) {
   refreshCounts()
 
   if (failCount && okCount) {
-    showToast(`${okCount} 个已删除，${failCount} 个删除失败`, 'warning')
+    showToast({ type: 'warning', message: `${okCount} 个已删除，${failCount} 个删除失败` })
   } else if (failCount && !okCount) {
-    showToast(`删除失败（${failCount} 个），请检查文件权限`, 'error')
+    showToast({ type: 'error', message: `删除失败（${failCount} 个），请检查文件权限` })
   } else {
     const name = skills[0]?.manifest?.name || skills[0]?.name || 'Skill'
-    showToast(skills.length > 1 ? `已删除 ${okCount} 个副本` : `已删除「${name}」`, 'success')
+    showToast({ type: 'success', message: skills.length > 1 ? `已删除 ${okCount} 个副本` : `已删除「${name}」` })
   }
 
   confirmUninstallSkill.value = null
@@ -362,6 +401,7 @@ function _openImportModal() {
 }
 
 async function batchImportToMySkills() {
+  showBatchImportConfirm.value = false
   let successCount = 0
   let failCount = 0
   for (const dir of selectedIds.value) {
@@ -378,9 +418,50 @@ async function batchImportToMySkills() {
   refreshCounts()
   exitBatchMode()
   if (failCount > 0) {
-    showToast(`导入完成：${successCount} 成功，${failCount} 失败`, 'warning')
+    showToast({ type: 'warning', message: `导入完成：${successCount} 成功，${failCount} 失败` })
   } else if (successCount > 0) {
-    showToast(`已导入 ${successCount} 个技能`, 'success')
+    showToast({ type: 'success', message: `已导入 ${successCount} 个技能` })
+  }
+}
+
+function requestBatchImportToMySkills() {
+  if (selectedIds.value.size > 0) showBatchImportConfirm.value = true
+}
+
+function batchSetProjectSkillsEnabled(enabled: boolean) {
+  const selectedSkills = filteredProjectSkills.value.filter((skill) => selectedIds.value.has(skill.dir))
+  const selectedDirs = new Set(selectedSkills.flatMap((skill) => (skill.isDuplicate ? skill.allDirs : [skill.dir])))
+  let successCount = 0
+  let failCount = 0
+  const updatedDirs = new Set<string>()
+
+  for (const dir of selectedDirs) {
+    try {
+      toggleSkillEnabled(dir, enabled)
+      updatedDirs.add(dir)
+      successCount++
+    } catch {
+      failCount++
+    }
+  }
+
+  if (selectedProject.value && updatedDirs.size > 0) {
+    const nextSkills = selectedProject.value.skills.map((skill) =>
+      updatedDirs.has(skill.dir) ? { ...skill, enabled } : skill,
+    )
+    selectedProject.value.skills = nextSkills
+    storage.updateRegisteredProject(selectedProject.value.id, { skills: nextSkills })
+  }
+
+  refreshCounts()
+  exitBatchMode()
+  const action = enabled ? '启用' : '停用'
+  if (failCount > 0 && successCount > 0) {
+    showToast({ type: 'warning', message: `批量${action}完成：${successCount} 个成功，${failCount} 个失败` })
+  } else if (failCount > 0) {
+    showToast({ type: 'error', message: `批量${action}失败：${failCount} 个 Skill` })
+  } else if (successCount > 0) {
+    showToast({ type: 'success', message: `已批量${action} ${successCount} 个 Skill` })
   }
 }
 
@@ -493,18 +574,30 @@ const importSearch = ref('')
 const selectedImportIds = ref<Set<string>>(new Set())
 const importingFromMy = ref(false)
 const importTargetDirs = ref<string[]>(['.agents/skills'])
+const importTargetSearch = ref('')
+const importAdvancedSummary = computed(
+  () => `${importTargetDirs.value.length} 个位置 · ${importMode.value === 'copy' ? '复制' : '软链接'}`,
+)
 
 const availableProjectDirs = computed(() => {
-  const dirs = [{ path: '.agents/skills', label: '.agents/skills（通用）', agentName: '' }]
+  const dirs = [{ path: '.agents/skills', label: '.agents/skills（通用）', agentName: '', icon: '_generic' }]
   const platforms = unref(detectedPlatforms)
   for (const p of platforms) {
     if (!p.enabled || !p.detected) continue
     const projectDir = getPlatformPath(p, 'project')
     if (projectDir && projectDir !== '.agents/skills' && !dirs.some((d) => d.path === projectDir)) {
-      dirs.push({ path: projectDir, label: projectDir, agentName: p.name })
+      dirs.push({ path: projectDir, label: projectDir, agentName: p.name, icon: platformDisplayIcon(p) })
     }
   }
   return dirs
+})
+
+const filteredProjectDirs = computed(() => {
+  const query = importTargetSearch.value.trim().toLowerCase()
+  if (!query) return availableProjectDirs.value
+  return availableProjectDirs.value.filter(
+    (dir) => dir.path.toLowerCase().includes(query) || dir.agentName.toLowerCase().includes(query),
+  )
 })
 
 const mySkills = computed(() => {
@@ -515,8 +608,10 @@ const mySkills = computed(() => {
 
 const filteredMySkills = computed(() => {
   const q = importSearch.value.toLowerCase()
-  if (!q) return mySkills.value
-  return mySkills.value.filter((s) => s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q))
+  const filtered = !q
+    ? mySkills.value
+    : mySkills.value.filter((s) => s.name.toLowerCase().includes(q) || (s.description || '').toLowerCase().includes(q))
+  return sortProcessedSkillsLast(filtered, isAlreadyInProject)
 })
 
 const projectSkillNames = computed(() => {
@@ -570,7 +665,7 @@ async function confirmImportFromMy() {
           .replace(/^-|-$/g, '') || skill.id
       const sourceDir = resolveSourceDir(skill)
       if (!sourceDir) {
-        showToast(`「${skill.name}」的源文件不存在，已跳过`, 'warning')
+        showToast({ type: 'warning', message: `「${skill.name}」的源文件不存在，已跳过` })
         failCount++
         continue
       }
@@ -593,7 +688,7 @@ async function confirmImportFromMy() {
           })
           importedCount++
         } catch (err: any) {
-          showToast(`导入「${skill.name}」到 ${targetRel} 失败：${err?.message || '未知错误'}`, 'error')
+          showToast({ type: 'error', message: `导入「${skill.name}」到 ${targetRel} 失败：${err?.message || '未知错误'}` })
           failCount++
         }
       }
@@ -601,17 +696,18 @@ async function confirmImportFromMy() {
     if (importedCount > 0) {
       refreshInstallDirs()
       scanProject(selectedProject.value)
-      if (failCount > 0) showToast(`导入完成：${importedCount} 成功，${failCount} 失败`, 'warning')
-      else showToast(`已导入 ${importedCount} 个技能到项目`, 'success')
+      if (failCount > 0) showToast({ type: 'warning', message: `导入完成：${importedCount} 成功，${failCount} 失败` })
+      else showToast({ type: 'success', message: `已导入 ${importedCount} 个技能到项目` })
     } else if (failCount > 0) {
-      showToast(`所有技能导入失败`, 'error')
+      showToast({ type: 'error', message: `所有技能导入失败` })
     }
   } catch (err: any) {
-    showToast(err.message, 'error')
+    showToast({ type: 'error', message: err.message })
   }
   importingFromMy.value = false
   selectedImportIds.value = new Set()
   importTargetDirs.value = ['.agents/skills']
+  importTargetSearch.value = ''
   showImportModal.value = false
 }
 </script>
@@ -1008,7 +1104,39 @@ async function confirmImportFromMy() {
           </svg>
           全选
         </button>
-        <button class="batch-action-btn primary" :disabled="selectedIds.size === 0" @click="batchImportToMySkills">
+        <button class="batch-action-btn" title="批量启用" :disabled="selectedIds.size === 0" @click="batchSetProjectSkillsEnabled(true)">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M12 19V5" />
+            <polyline points="5 12 12 5 19 12" />
+          </svg>
+          开启
+        </button>
+        <button class="batch-action-btn" title="批量停用" :disabled="selectedIds.size === 0" @click="batchSetProjectSkillsEnabled(false)">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M12 5v14" />
+            <polyline points="19 12 12 19 5 12" />
+          </svg>
+          关闭
+        </button>
+        <button class="batch-action-btn primary" :disabled="selectedIds.size === 0" @click="requestBatchImportToMySkills">
           <svg
             width="14"
             height="14"
@@ -1074,7 +1202,8 @@ async function confirmImportFromMy() {
             v-for="skill in filteredProjectSkills"
             :key="skill.dir"
             :name="skill.manifest?.name || skill.name"
-            :description="skill.manifest?.description || '暂无描述'"
+            :description="skill.manifest?.description || ''"
+            empty-description-reason="项目技能描述未解析成功"
             :selected="selectedIds.has(skill.dir)"
             :show-batch-checkbox="batchMode"
             :show-platform-icons="true"
@@ -1087,6 +1216,13 @@ async function confirmImportFromMy() {
             @click="batchMode ? toggleSelect(skill.dir) : viewDetail(skill)"
             @select="toggleSelect(skill.dir)"
           >
+            <template #top-left>
+              <SkillEnabledToggle
+                :enabled="isSkillEnabled(skill)"
+                :busy="!!toggling[skill.dir]"
+                @toggle="toggleProjectSkill(skill)"
+              />
+            </template>
             <template #actions>
               <button class="card-action-btn" title="打开文件夹" @click.stop="openFolder(skill)">
                 <svg
@@ -1122,7 +1258,7 @@ async function confirmImportFromMy() {
                 class="card-action-btn primary"
                 :disabled="importing[getSkillId(skill)]"
                 title="导入到我的 Skill"
-                @click.stop="importSkill(skill)"
+                @click.stop="requestImportSkill(skill)"
               >
                 <svg
                   width="14"
@@ -1200,8 +1336,8 @@ async function confirmImportFromMy() {
     </div>
 
     <!-- Import from My Skills modal -->
-    <div v-if="showImportModal" class="modal-overlay" @click.self="showImportModal = false">
-      <div class="modal">
+    <div v-if="showImportModal" class="modal-overlay skill-import-overlay">
+      <div class="modal skill-import-modal">
         <div class="modal-header">
           <h3 class="modal-title">从我的 Skill 导入</h3>
           <button class="modal-close" @click="showImportModal = false">
@@ -1225,7 +1361,15 @@ async function confirmImportFromMy() {
             选择要导入到项目 <strong>{{ selectedProject?.name }}</strong> 的技能
           </p>
 
-          <div class="modal-advanced-toggle" @click="showAdvanced = !showAdvanced">
+          <button type="button" class="modal-advanced-toggle" :class="{ open: showAdvanced }" @click="showAdvanced = !showAdvanced">
+            <span class="modal-advanced-icon">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z" />
+                <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21H9.6v-.1A1.7 1.7 0 0 0 8.5 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3V9.6h.1A1.7 1.7 0 0 0 4.6 8.5a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.1A1.7 1.7 0 0 0 15.5 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.14.38.35.72.6 1 .3.3.68.5 1.1.6h.1v4h-.1a1.7 1.7 0 0 0-1.7.4Z" />
+              </svg>
+            </span>
+            <span class="modal-advanced-label">高级设置</span>
+            <span class="modal-advanced-summary">{{ importAdvancedSummary }}</span>
             <svg
               width="14"
               height="14"
@@ -1239,34 +1383,88 @@ async function confirmImportFromMy() {
             >
               <polyline points="9 18 15 12 9 6" />
             </svg>
-            高级
-          </div>
+          </button>
 
           <div v-if="showAdvanced" class="modal-advanced-body">
-            <div class="import-targets">
-              <label class="import-targets-label">导入到：</label>
-              <div class="import-target-options">
-                <label v-for="dir in availableProjectDirs" :key="dir.path" class="import-target-option">
+            <section class="advanced-section">
+              <div class="advanced-section-heading">
+                <span class="advanced-section-icon">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                  </svg>
+                </span>
+                <div>
+                  <h4>导入位置</h4>
+                  <p>可同时分发到项目内的多个 Agent 目录</p>
+                </div>
+                <span class="advanced-section-count">{{ availableProjectDirs.length }}</span>
+              </div>
+              <label v-if="availableProjectDirs.length > 6" class="import-target-search">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="11" cy="11" r="8" />
+                  <path d="m21 21-4.35-4.35" />
+                </svg>
+                <input v-model="importTargetSearch" type="text" placeholder="搜索 Agent 或目录..." />
+              </label>
+              <div class="import-target-options" :class="{ 'is-scrollable': availableProjectDirs.length > 6 }">
+                <label v-for="dir in filteredProjectDirs" :key="dir.path" class="import-target-option">
                   <input type="checkbox" :value="dir.path" v-model="importTargetDirs" />
-                  <span class="import-target-path">{{ dir.label }}</span>
+                  <span class="import-target-check">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  </span>
+                  <span class="import-target-icon">
+                    <ProviderIcon :icon="dir.icon" :size="18" variant="mono" />
+                  </span>
+                  <span class="import-target-content">
+                    <span class="import-target-path">{{ dir.label }}</span>
+                    <span class="import-target-meta">{{ dir.agentName || '所有 Agent 通用' }}</span>
+                  </span>
                   <span v-if="dir.agentName" class="import-target-agent">{{ dir.agentName }}</span>
                 </label>
+                <div v-if="!filteredProjectDirs.length" class="import-target-empty">没有匹配的 Agent 位置</div>
               </div>
-            </div>
+            </section>
 
-            <div class="import-mode">
-              <label class="import-mode-label">导入方式：</label>
+            <section class="advanced-section">
+              <div class="advanced-section-heading">
+                <span class="advanced-section-icon">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="9" y="9" width="13" height="13" rx="2" />
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                  </svg>
+                </span>
+                <div>
+                  <h4>导入方式</h4>
+                  <p>选择项目中的 Skill 如何关联源文件</p>
+                </div>
+              </div>
               <div class="import-mode-options">
                 <label class="import-mode-option" :class="{ active: importMode === 'copy' }">
                   <input type="radio" value="copy" v-model="importMode" />
-                  <span>复制</span>
+                  <span class="import-mode-icon">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <rect x="9" y="9" width="13" height="13" rx="2" />
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                    </svg>
+                  </span>
+                  <span class="import-mode-content"><strong>复制</strong><small>创建独立副本，修改互不影响</small></span>
+                  <span class="import-mode-radio" />
                 </label>
                 <label class="import-mode-option" :class="{ active: importMode === 'symlink' }">
                   <input type="radio" value="symlink" v-model="importMode" />
-                  <span>软链接</span>
+                  <span class="import-mode-icon">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                    </svg>
+                  </span>
+                  <span class="import-mode-content"><strong>软链接</strong><small>跟随我的 Skill 源文件实时更新</small></span>
+                  <span class="import-mode-radio" />
                 </label>
               </div>
-            </div>
+            </section>
           </div>
 
           <div class="modal-toolbar">
@@ -1288,34 +1486,32 @@ async function confirmImportFromMy() {
                 :class="{ selected: selectedImportIds.has(skill.id), disabled: isAlreadyInProject(skill) }"
                 @click="!isAlreadyInProject(skill) && toggleImportSelect(skill)"
               >
-                <div class="modal-skill-top">
-                  <div class="modal-skill-avatar" :style="{ background: getAvatarColor(skill.name) }">
-                    {{ skill.name.charAt(0).toUpperCase() }}
-                  </div>
-                  <div class="modal-skill-check" :class="{ checked: selectedImportIds.has(skill.id) }">
-                    <svg
-                      v-if="selectedImportIds.has(skill.id)"
-                      width="12"
-                      height="12"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="3"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    >
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                  </div>
+                <div class="modal-skill-check" :class="{ checked: selectedImportIds.has(skill.id) || isAlreadyInProject(skill) }">
+                  <svg
+                    v-if="selectedImportIds.has(skill.id) || isAlreadyInProject(skill)"
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="3"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                </div>
+                <div class="modal-skill-avatar" :style="{ background: getAvatarColor(skill.name) }">
+                  {{ skill.name.charAt(0).toUpperCase() }}
                 </div>
                 <div class="modal-skill-info">
                   <div class="modal-skill-name">
                     {{ skill.name }}
+                    <span v-if="isAlreadyInProject(skill)" class="badge-already">已在项目中</span>
                   </div>
                   <div class="modal-skill-desc">
-                    {{ skill.description || '暂无描述' }}
+                    {{ skill.description || '项目技能描述未解析成功' }}
                   </div>
-                  <span v-if="isAlreadyInProject(skill)" class="badge-already">已在项目中</span>
                 </div>
               </div>
             </div>
@@ -1365,6 +1561,24 @@ async function confirmImportFromMy() {
       @confirm="uninstallSkillFromProject"
       @cancel="confirmUninstallSkill = null"
     />
+    <ConfirmModal
+      v-if="confirmImportSkill"
+      title="确认导入 Skill"
+      :message="`确定要将 <strong>${confirmImportSkill.manifest?.name || confirmImportSkill.name}</strong> 导入到我的 Skill 吗？`"
+      confirm-text="导入"
+      @confirm="importSkill(confirmImportSkill)"
+      @cancel="confirmImportSkill = null"
+    />
+
+    <ConfirmModal
+      v-if="showBatchImportConfirm"
+      title="批量导入 Skill"
+      :message="`确定要将选中的 <strong>${selectedIds.size}</strong> 个 Skill 导入到我的 Skill 吗？`"
+      confirm-text="导入"
+      @confirm="batchImportToMySkills"
+      @cancel="showBatchImportConfirm = false"
+    />
+
     <ConfirmModal
       v-if="confirmDeleteProjectId"
       title="删除项目"
@@ -1921,23 +2135,23 @@ async function confirmImportFromMy() {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: hsl(0 0% 0% / 0.5);
+  background: hsl(var(--background) / 0.6);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
-  backdrop-filter: blur(4px);
+  backdrop-filter: blur(8px);
 }
 .modal {
-  width: 560px;
-  max-width: 90vw;
-  max-height: 80vh;
+  width: min(920px, 92vw);
+  max-height: 86vh;
   background: hsl(var(--card));
   border: 1px solid hsl(var(--border));
-  border-radius: 20px;
+  border-radius: 16px;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 24px 64px hsl(0 0% 0% / 0.2);
+  overflow: hidden;
+  box-shadow: var(--shadow-lg);
 }
 .modal-body {
   flex: 1;
@@ -1983,64 +2197,153 @@ async function confirmImportFromMy() {
   color: hsl(var(--foreground));
 }
 .modal-advanced-toggle {
+  width: calc(100% - 48px);
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   margin: 12px 24px 0;
-  padding: 8px 12px;
+  padding: 10px 12px;
   font-size: 12px;
   font-weight: 600;
-  color: hsl(var(--muted-foreground));
+  color: hsl(var(--foreground));
+  background: hsl(var(--muted) / 0.28);
   cursor: pointer;
   user-select: none;
   border-radius: 8px;
   transition: all var(--duration-base) var(--ease-standard);
-  border: 1px solid transparent;
+  border: 1px solid hsl(var(--border));
+  font-family: inherit;
+  text-align: left;
 }
 .modal-advanced-toggle:hover {
-  color: hsl(var(--foreground));
-  background: hsl(var(--muted));
+  border-color: hsl(var(--primary) / 0.35);
+  background: hsl(var(--muted) / 0.5);
 }
-.modal-advanced-toggle svg {
+.modal-advanced-toggle.open {
+  border-color: hsl(var(--primary) / 0.3);
+  background: hsl(var(--primary) / 0.04);
+}
+.modal-advanced-icon {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  color: hsl(var(--primary));
+  background: hsl(var(--primary) / 0.1);
+}
+.modal-advanced-label {
+  font-weight: 650;
+}
+.modal-advanced-summary {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 500;
+  color: hsl(var(--muted-foreground));
+}
+.modal-advanced-toggle > svg {
   transition: transform var(--duration-base);
   flex-shrink: 0;
 }
-.modal-advanced-toggle svg.rotated {
+.modal-advanced-toggle > svg.rotated {
   transform: rotate(90deg);
 }
 .modal-advanced-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: 12px;
   margin: 8px 24px 0;
-  padding: 12px;
-  border-radius: 10px;
-  background: hsl(var(--muted) / 0.3);
-  border: 1px solid hsl(var(--border));
 }
-.import-targets {
+.advanced-section {
+  min-width: 0;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+}
+.advanced-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 9px;
   margin-bottom: 12px;
 }
-.import-targets-label {
+.advanced-section-heading h4 {
+  margin: 0;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
+  color: hsl(var(--foreground));
+}
+.advanced-section-heading p {
+  margin: 2px 0 0;
+  font-size: 10px;
+  line-height: 1.4;
   color: hsl(var(--muted-foreground));
-  display: block;
+}
+.advanced-section-count {
+  margin-left: auto;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  font-size: 10px;
+  font-weight: 700;
+}
+.advanced-section-icon {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  border-radius: 8px;
+  color: hsl(var(--primary));
+  background: hsl(var(--primary) / 0.08);
+}
+.import-target-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   margin-bottom: 8px;
+  padding: 7px 9px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 9px;
+  color: hsl(var(--muted-foreground));
+  background: hsl(var(--background));
+}
+.import-target-search:focus-within {
+  border-color: hsl(var(--ring));
+  box-shadow: 0 0 0 2px hsl(var(--ring) / 0.1);
+}
+.import-target-search input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  color: hsl(var(--foreground));
+  background: transparent;
+  font-size: 11px;
 }
 .import-target-options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+.import-target-options.is-scrollable {
+  max-height: 188px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
 }
 .import-target-option {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border-radius: 8px;
+  gap: 9px;
+  min-width: 0;
+  padding: 9px 10px;
+  border-radius: 10px;
   border: 1px solid hsl(var(--border));
   background: hsl(var(--card));
   cursor: pointer;
-  font-size: 12px;
-  color: hsl(var(--foreground));
   transition: all var(--duration-base) var(--ease-standard);
   user-select: none;
 }
@@ -2052,46 +2355,86 @@ async function confirmImportFromMy() {
   background: hsl(var(--primary) / 0.06);
 }
 .import-target-option input[type='checkbox'] {
-  width: 14px;
-  height: 14px;
-  accent-color: hsl(var(--primary));
-  cursor: pointer;
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.import-target-check {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  border: 1.5px solid hsl(var(--border));
+  border-radius: 5px;
+  color: transparent;
+}
+.import-target-option:has(input:checked) .import-target-check {
+  border-color: hsl(var(--primary));
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+.import-target-icon {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  border-radius: 8px;
+  color: hsl(var(--foreground));
+  background: hsl(var(--muted));
+}
+.import-target-option:has(input:checked) .import-target-icon {
+  color: hsl(var(--primary));
+  background: hsl(var(--primary) / 0.1);
+}
+.import-target-content {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 .import-target-path {
-  font-family: monospace;
+  overflow: hidden;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 11px;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.import-target-meta {
+  margin-top: 2px;
+  font-size: 9px;
+  color: hsl(var(--muted-foreground));
 }
 .import-target-agent {
+  margin-left: auto;
   font-size: 10px;
   color: hsl(var(--muted-foreground));
   background: hsl(var(--muted));
   padding: 1px 6px;
-  border-radius: 4px;
+  border-radius: 5px;
 }
-.import-mode {
-}
-.import-mode-label {
-  font-size: 12px;
-  font-weight: 600;
+.import-target-empty {
+  grid-column: 1 / -1;
+  padding: 18px;
+  text-align: center;
   color: hsl(var(--muted-foreground));
-  display: block;
-  margin-bottom: 8px;
+  font-size: 11px;
 }
 .import-mode-options {
-  display: flex;
-  gap: 6px;
+  display: grid;
+  gap: 8px;
 }
 .import-mode-option {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  border-radius: 8px;
+  gap: 9px;
+  padding: 9px 10px;
+  border-radius: 10px;
   border: 1px solid hsl(var(--border));
   background: hsl(var(--card));
   cursor: pointer;
-  font-size: 12px;
-  color: hsl(var(--foreground));
   transition: all var(--duration-base) var(--ease-standard);
   user-select: none;
 }
@@ -2103,24 +2446,51 @@ async function confirmImportFromMy() {
   background: hsl(var(--primary) / 0.06);
 }
 .import-mode-option input {
-  display: none;
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
 }
-.import-mode-option span {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.import-mode-option span::before {
-  content: '';
-  display: inline-block;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  border: 2px solid hsl(var(--border));
-  transition: all var(--duration-base) var(--ease-standard);
+.import-mode-icon {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
   flex-shrink: 0;
+  border-radius: 8px;
+  color: hsl(var(--muted-foreground));
+  background: hsl(var(--muted));
 }
-.import-mode-option.active span::before {
+.import-mode-option.active .import-mode-icon {
+  color: hsl(var(--primary));
+  background: hsl(var(--primary) / 0.1);
+}
+.import-mode-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.import-mode-content strong {
+  font-size: 11px;
+  color: hsl(var(--foreground));
+}
+.import-mode-content small {
+  margin-top: 1px;
+  overflow: hidden;
+  font-size: 9px;
+  color: hsl(var(--muted-foreground));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.import-mode-radio {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 1.5px solid hsl(var(--border));
+  transition: all var(--duration-base) var(--ease-standard);
+}
+.import-mode-option.active .import-mode-radio {
   border-color: hsl(var(--primary));
   background: hsl(var(--primary));
   box-shadow: inset 0 0 0 3px hsl(var(--card));
@@ -2185,9 +2555,11 @@ async function confirmImportFromMy() {
 }
 .modal-skill-card {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
   gap: 10px;
-  padding: 14px;
+  min-height: 58px;
+  padding: 10px 12px;
   border-radius: 12px;
   border: 1px solid hsl(var(--border));
   background: hsl(var(--card));
@@ -2206,15 +2578,10 @@ async function confirmImportFromMy() {
   opacity: 0.5;
   cursor: default;
 }
-.modal-skill-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
 .modal-skill-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2224,8 +2591,8 @@ async function confirmImportFromMy() {
   flex-shrink: 0;
 }
 .modal-skill-check {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   border-radius: 6px;
   border: 2px solid hsl(var(--border));
   display: flex;
@@ -2240,6 +2607,7 @@ async function confirmImportFromMy() {
   color: #fff;
 }
 .modal-skill-info {
+  flex: 1;
   min-width: 0;
 }
 .modal-skill-name {
@@ -2259,14 +2627,10 @@ async function confirmImportFromMy() {
   white-space: nowrap;
 }
 .badge-already {
-  display: inline-block;
-  margin-top: 4px;
+  margin-left: 6px;
   font-size: 10px;
   font-weight: 500;
-  padding: 2px 8px;
-  border-radius: 6px;
-  background: hsl(var(--muted));
-  color: hsl(var(--muted-foreground));
+  color: hsl(var(--primary));
 }
 .modal-footer {
   display: flex;
@@ -2304,6 +2668,21 @@ async function confirmImportFromMy() {
 .modal-btn.confirm:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+@media (max-width: 720px) {
+  .modal {
+    width: 94vw;
+  }
+  .modal-advanced-body {
+    grid-template-columns: 1fr;
+  }
+  .modal-skill-grid {
+    grid-template-columns: 1fr;
+  }
+  .modal-advanced-summary {
+    display: none;
+  }
 }
 
 @keyframes spin {

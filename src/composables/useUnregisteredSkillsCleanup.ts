@@ -1,6 +1,7 @@
 import { ref } from 'vue'
 import { storage } from '../utils/storage'
 import { isRegisteredSkillsRepoFolder } from '../utils/skill-path'
+import type { ShowToast } from '../inject-keys'
 
 /**
  * Settings: scan / clean skills-repo folders not present in downloaded skills.
@@ -35,10 +36,10 @@ export function useUnregisteredSkillsCleanup() {
     showCleanupSelect.value = true
   }
 
-  function onCleanupDeleted(count: number, showToast: (msg: string, type?: 'success' | 'error' | 'info' | 'warning') => void) {
+  function onCleanupDeleted(count: number, showToast: ShowToast) {
     cleanupResult.value = { found: unregisteredDirs.value.length, deleted: count }
     showCleanupSelect.value = false
-    showToast(`已清理 ${count} 个未在已下载列表中的技能文件夹`, 'success')
+    showToast({ type: 'success', message: `已清理 ${count} 个未在已下载列表中的技能文件夹` })
   }
 
   return {

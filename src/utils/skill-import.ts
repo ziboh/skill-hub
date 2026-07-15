@@ -85,6 +85,10 @@ export function finalizeImportedSkill(opts: FinalizeImportedSkillOptions): Skill
     }
   }
 
+  if (skill.repo && skill.name) {
+    skill.canonicalId = `${skill.repo}/${skill.name}`
+  }
+
   // path = source path, never skills-repo targetDir
   // - relative (repo path): keep as-is
   // - absolute missing: use location if absolute, else keep existing

@@ -60,6 +60,12 @@ interface CacheEntry {
 }
 
 const responseCache = new Map<string, CacheEntry>()
+let responseCacheEnabled = true
+
+export function setGitHubResponseCacheEnabled(enabled: boolean) {
+  responseCacheEnabled = enabled
+  if (!enabled) responseCache.clear()
+}
 
 function getCacheTtlMs(url: string): number {
   if (url.includes('/git/trees/')) return 15 * 60 * 1000
@@ -96,13 +102,15 @@ export async function githubFetch(
     timeout?: number
     parseJson?: boolean
     responseType?: 'text' | 'arraybuffer'
+    signal?: AbortSignal
+    method?: string
   },
 ): Promise<any> {
-  const { headers = {}, cache = true, timeout = 15000, parseJson = false, responseType = 'text' } = options
-  const method = options as any
-  const isGet = !method.method || method.method === 'GET'
+  const { headers = {}, cache = true, timeout = 15000, parseJson = false, responseType = 'text', signal } = options
+  const method = options.method || 'GET'
+  const isGet = method === 'GET'
 
-  if (cache && isGet && responseType === 'text') {
+  if (cache && responseCacheEnabled && isGet && responseType === 'text') {
     const cached = getCached(url)
     if (cached !== undefined) return cached
   }
@@ -111,6 +119,11 @@ export async function githubFetch(
   if (waitMs > 0) await sleep(waitMs)
 
   const controller = new AbortController()
+  const abortFromCaller = () => controller.abort()
+  if (signal) {
+    if (signal.aborted) controller.abort()
+    else signal.addEventListener('abort', abortFromCaller, { once: true })
+  }
   const timer = setTimeout(() => controller.abort(), timeout)
 
   const allHeaders: Record<string, string> = { 'User-Agent': 'skill-hub', ...headers }
@@ -118,15 +131,16 @@ export async function githubFetch(
   let lastError: Error | null = null
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const resp = await fetch(url, { headers: allHeaders, signal: controller.signal })
+       const resp = await fetch(url, { method, headers: allHeaders, signal: controller.signal })
       updateRateLimitFromHeaders(resp.headers)
 
       if (resp.ok) {
         clearTimeout(timer)
+        signal?.removeEventListener('abort', abortFromCaller)
         let result: any
         if (responseType === 'arraybuffer') result = await resp.arrayBuffer()
         else result = parseJson ? await resp.json() : await resp.text()
-        if (cache && isGet && responseType === 'text') setCache(url, result)
+        if (cache && responseCacheEnabled && isGet && responseType === 'text') setCache(url, result)
         return result
       }
 
@@ -145,6 +159,7 @@ export async function githubFetch(
     } catch (err: any) {
       if (err.name === 'AbortError') {
         clearTimeout(timer)
+        signal?.removeEventListener('abort', abortFromCaller)
         throw new Error('GitHub API 请求超时')
       }
       if (err.message?.includes(': 404')) throw err
@@ -153,12 +168,20 @@ export async function githubFetch(
     }
   }
   clearTimeout(timer)
+  signal?.removeEventListener('abort', abortFromCaller)
   throw lastError || new Error('GitHub API 请求失败')
 }
 
 // --- Public API ---
 
-export async function fetchGitHubFile(owner: string, repo: string, path: string, branch = 'main', token?: string): Promise<string> {
+export async function fetchGitHubFile(
+  owner: string,
+  repo: string,
+  path: string,
+  branch = 'main',
+  token?: string,
+  signal?: AbortSignal,
+): Promise<string> {
   const branches = [branch, 'main', 'master']
   const tried = new Set<string>()
   for (const b of branches) {
@@ -168,8 +191,10 @@ export async function fetchGitHubFile(owner: string, repo: string, path: string,
     const headers: Record<string, string> = {}
     if (token) headers.Authorization = `Bearer ${token}`
     try {
-      return await githubFetch(url, { headers, cache: true, parseJson: false })
-    } catch {}
+      return await githubFetch(url, { headers, cache: true, parseJson: false, signal })
+    } catch (error) {
+      if (signal?.aborted) throw error
+    }
   }
   throw new Error(`获取文件失败: ${path}`)
 }

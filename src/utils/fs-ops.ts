@@ -67,12 +67,19 @@ export function atomicReplaceDir(sourceDir: string, targetDir: string): void {
     svc.atomicReplaceDir(sourceDir, targetDir)
     return
   }
+  if (typeof svc.renamePath !== 'function') throw new Error('当前 Preload 不支持安全目录替换，请重新加载插件')
+  const tempDir = `${targetDir}.skill-hub-tmp-${Date.now()}`
+  const backupDir = `${targetDir}.skill-hub-backup-${Date.now()}`
   try {
-    if (svc.pathExists(targetDir)) svc.removeFile(targetDir)
+    svc.copyFile(sourceDir, tempDir)
+    if (svc.pathExists(targetDir)) svc.renamePath(targetDir, backupDir)
+    svc.renamePath(tempDir, targetDir)
+    if (svc.pathExists(backupDir)) svc.removeFile(backupDir)
   } catch (e) {
-    console.warn('[fs-ops] remove before replace failed:', targetDir, e)
+    if (svc.pathExists(tempDir)) svc.removeFile(tempDir)
+    if (!svc.pathExists(targetDir) && svc.pathExists(backupDir)) svc.renamePath(backupDir, targetDir)
+    throw e
   }
-  svc.copyFile(sourceDir, targetDir)
 }
 
 export function atomicWriteDir(targetDir: string, files: Map<string, string> | Record<string, string> | Iterable<[string, string]>): void {
@@ -81,19 +88,32 @@ export function atomicWriteDir(targetDir: string, files: Map<string, string> | R
     svc.atomicWriteDir(targetDir, files)
     return
   }
-  try {
-    if (svc.pathExists(targetDir)) svc.removeFile(targetDir)
-  } catch (e) {
-    console.warn('[fs-ops] remove before writeDir failed:', targetDir, e)
-  }
-  svc.mkdir(targetDir)
+  if (typeof svc.renamePath !== 'function') throw new Error('当前 Preload 不支持安全目录写入，请重新加载插件')
+  const tempDir = `${targetDir}.skill-hub-tmp-${Date.now()}`
+  const backupDir = `${targetDir}.skill-hub-backup-${Date.now()}`
+  svc.mkdir(tempDir)
   for (const [rel, content] of iterFiles(files)) {
     if (rel == null || rel === '') continue
     const relStr = String(rel)
     if (relStr.includes('..') || relStr.startsWith('/') || relStr.startsWith('\\') || /^[a-zA-Z]:[\\/]/.test(relStr)) {
       throw new Error(`Path escapes base directory: "${relStr}"`)
     }
-    const fullPath = typeof svc.safeJoin === 'function' ? svc.safeJoin(targetDir, relStr) : svc.pathJoin(targetDir, relStr)
+    const fullPath = typeof svc.safeJoin === 'function' ? svc.safeJoin(tempDir, relStr) : svc.pathJoin(tempDir, relStr)
     svc.writeFile(fullPath, content)
+  }
+  const skillPath = typeof svc.safeJoin === 'function' ? svc.safeJoin(tempDir, 'SKILL.md') : svc.pathJoin(tempDir, 'SKILL.md')
+  const lowerSkillPath = typeof svc.safeJoin === 'function' ? svc.safeJoin(tempDir, 'skill.md') : svc.pathJoin(tempDir, 'skill.md')
+  if (!svc.pathExists(skillPath) && !svc.pathExists(lowerSkillPath)) {
+    svc.removeFile(tempDir)
+    throw new Error('SKILL.md not found in downloaded files')
+  }
+  try {
+    if (svc.pathExists(targetDir)) svc.renamePath(targetDir, backupDir)
+    svc.renamePath(tempDir, targetDir)
+    if (svc.pathExists(backupDir)) svc.removeFile(backupDir)
+  } catch (e) {
+    if (svc.pathExists(tempDir)) svc.removeFile(tempDir)
+    if (!svc.pathExists(targetDir) && svc.pathExists(backupDir)) svc.renamePath(backupDir, targetDir)
+    throw e
   }
 }

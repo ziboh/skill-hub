@@ -113,21 +113,21 @@ function deleteSkills() {
   }
 
   if (failCount && okCount) {
-    showToast(`${okCount} 个已删除，${failCount} 个失败`, 'warning')
+    showToast({ type: 'warning', message: `${okCount} 个已删除，${failCount} 个失败` })
   } else if (failCount && !okCount) {
-    showToast(`删除失败（${failCount} 个），请检查文件权限`, 'error')
+    showToast({ type: 'error', message: `删除失败（${failCount} 个），请检查文件权限` })
     return
   } else if (distFail) {
-    showToast(`技能已删除，${distFail} 处分发文件删除失败`, 'warning')
+    showToast({ type: 'warning', message: `技能已删除，${distFail} 处分发文件删除失败` })
   }
   const warning = formatSkillLifecycleWarnings('uninstall', lifecycleWarnings)
-  if (warning) showToast(warning, 'warning')
+  if (warning) showToast({ type: 'warning', message: warning })
   emit('deleted')
 }
 </script>
 
 <template>
-  <div class="confirm-overlay" @click.self="emit('close')">
+  <div class="confirm-overlay">
     <div class="confirm-modal">
       <div class="confirm-header">
         <div class="confirm-icon">

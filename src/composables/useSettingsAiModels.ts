@@ -5,7 +5,7 @@ import { useSettings } from './useSettings'
 import { fetchAvailableModels, chatCompletion } from '../utils/ai'
 import type { QuickSwitcherItem } from '../components/QuickSwitcher.vue'
 
-type ShowToast = (msg: string, type?: 'success' | 'error' | 'info' | 'warning') => void
+import type { ShowToast } from '../inject-keys'
 
 export interface ModelGroup {
   name: string
@@ -269,17 +269,6 @@ export function useSettingsAiModels(showToast: ShowToast) {
     }
   }
 
-  function _getModelUrl(model: any): string {
-    const base = (model.baseUrl || '').replace(/\/+$/, '')
-    const path = model.apiPath || '/v1/chat/completions'
-    return `${base}${path}`
-  }
-
-  function _getModelsEndpoint(model: any): string {
-    const base = (model.baseUrl || '').replace(/\/+$/, '')
-    return `${base}/v1/models`
-  }
-
   function expandAllGroups(providerId: string) {
     const provider = settings.aiModels.find((m) => m.id === providerId)
     if (provider?.models) {
@@ -294,10 +283,6 @@ export function useSettingsAiModels(showToast: ShowToast) {
     const allEnabled = provider.models.every((m: any) => m.enabled)
     provider.models.forEach((m: any) => (m.enabled = !allEnabled))
     updateSettings({ aiModels: [...settings.aiModels] })
-  }
-
-  function _startEditApiKey(provider: any) {
-    showApiKey.value[provider.id] = true
   }
 
   function addApiKey(providerIndex: number) {
@@ -331,7 +316,7 @@ export function useSettingsAiModels(showToast: ShowToast) {
     }
     updateSettings({ aiModels: [...settings.aiModels] })
     showApiKeyModal.value = false
-    showToast('密钥已保存', 'success')
+    showToast({ type: 'success', message: '密钥已保存' })
   }
 
   function deleteApiKey(providerIndex: number, keyIndex: number) {
@@ -343,7 +328,7 @@ export function useSettingsAiModels(showToast: ShowToast) {
     }
     updateSettings({ aiModels: [...settings.aiModels] })
     confirmDeleteApiKey.value = null
-    showToast('密钥已删除', 'success')
+    showToast({ type: 'success', message: '密钥已删除' })
   }
 
   function toggleApiKeyEnabled(providerIndex: number, keyIndex: number) {
@@ -351,10 +336,6 @@ export function useSettingsAiModels(showToast: ShowToast) {
     const target = provider.apiKeys[keyIndex]
     target.enabled = !target.enabled
     updateSettings({ aiModels: [...settings.aiModels] })
-  }
-
-  function _getActiveApiKey(provider: any): string {
-    return provider.apiKeys?.find((k: any) => k.enabled)?.key || ''
   }
 
   const showApiKey = ref<Record<string, boolean>>({})
@@ -403,7 +384,7 @@ export function useSettingsAiModels(showToast: ShowToast) {
   function saveModel() {
     if (!modelForm.value.name.trim()) return
     if (!modelForm.value.provider) {
-      showToast('请选择供应商类型', 'error')
+      showToast({ type: 'error', message: '请选择供应商类型' })
       return
     }
     // Auto-fill API path from preset if empty
@@ -422,7 +403,7 @@ export function useSettingsAiModels(showToast: ShowToast) {
     }
     updateSettings({ aiModels: models })
     showModelModal.value = false
-    showToast(editingModelIndex.value !== null ? '供应商已更新' : '供应商已添加', 'success')
+    showToast({ type: 'success', message: editingModelIndex.value !== null ? '供应商已更新' : '供应商已添加' })
   }
 
   function _deleteModel(index: number) {
@@ -431,8 +412,8 @@ export function useSettingsAiModels(showToast: ShowToast) {
       models[0].isDefault = true
     }
     const deletedProviderId = settings.aiModels[index]?.id
-    if (settings.translationModelId === deletedProviderId || settings.translationModelId.startsWith(deletedProviderId + '::')) {
-      updateSettings({ aiModels: models, translationModelId: models.find((m) => m.isDefault)?.id || '' })
+    if (settings.translationModelId.startsWith(deletedProviderId + '::')) {
+      updateSettings({ aiModels: models, translationModelId: '' })
     } else {
       updateSettings({ aiModels: models })
     }
@@ -444,7 +425,7 @@ export function useSettingsAiModels(showToast: ShowToast) {
     provider.models = (provider.models || []).filter((m) => m.id !== modelId)
     models[providerIndex] = provider
     const compoundKey = provider.id + '::' + modelId
-    if (settings.translationModelId === modelId || settings.translationModelId === compoundKey) {
+    if (settings.translationModelId === compoundKey) {
       updateSettings({ aiModels: models, translationModelId: '' })
     } else {
       updateSettings({ aiModels: models })
@@ -464,7 +445,7 @@ export function useSettingsAiModels(showToast: ShowToast) {
     if (
       !newEnabled &&
       settings.translationModelId &&
-      groupModels.some((mm) => settings.translationModelId === mm.id || settings.translationModelId === m.id + '::' + mm.id)
+      groupModels.some((mm) => settings.translationModelId === m.id + '::' + mm.id)
     ) {
       patch.translationModelId = ''
     }
@@ -474,7 +455,6 @@ export function useSettingsAiModels(showToast: ShowToast) {
   function deleteGroupModels(providerIndex: number, groupName: string) {
     const models = [...settings.aiModels]
     const m = { ...models[providerIndex] }
-    const deletedIds = new Set((m.models || []).filter((mm) => (mm.owned_by || '其他') === groupName).map((mm) => mm.id))
     const deletedCompoundKeys = new Set(
       (m.models || []).filter((mm) => (mm.owned_by || '其他') === groupName).map((mm) => m.id + '::' + mm.id),
     )
@@ -483,7 +463,7 @@ export function useSettingsAiModels(showToast: ShowToast) {
     const patch: Partial<AppSettings> = { aiModels: models }
     if (
       settings.translationModelId &&
-      (deletedIds.has(settings.translationModelId) || deletedCompoundKeys.has(settings.translationModelId))
+      deletedCompoundKeys.has(settings.translationModelId)
     ) {
       patch.translationModelId = ''
     }
@@ -494,20 +474,20 @@ export function useSettingsAiModels(showToast: ShowToast) {
   function deleteProvider(id: string) {
     const provider = settings.aiModels.find((m) => m.id === id)
     if (provider?.isBuiltin) {
-      showToast('内置供应商不能删除', 'error')
+      showToast({ type: 'error', message: '内置供应商不能删除' })
       return
     }
     const models = settings.aiModels.filter((m) => m.id !== id)
     if (models.length && !models.some((m) => m.isDefault)) {
       models[0].isDefault = true
     }
-    if (settings.translationModelId === id || settings.translationModelId.startsWith(id + '::')) {
-      updateSettings({ aiModels: models, translationModelId: models.find((m) => m.isDefault)?.id || '' })
+    if (settings.translationModelId.startsWith(id + '::')) {
+      updateSettings({ aiModels: models, translationModelId: '' })
     } else {
       updateSettings({ aiModels: models })
     }
     confirmDeleteProviderId.value = null
-    showToast('供应商已删除', 'success')
+    showToast({ type: 'success', message: '供应商已删除' })
   }
 
   function doDeleteApiKey() {
@@ -558,29 +538,6 @@ export function useSettingsAiModels(showToast: ShowToast) {
     updateSettings({ translationModelId: modelId })
   }
 
-  function _getTranslationModelName(): string {
-    if (!settings.translationModelId) {
-      return '未配置'
-    }
-    const sepIdx = settings.translationModelId.lastIndexOf('::')
-    if (sepIdx >= 0) {
-      const providerId = settings.translationModelId.substring(0, sepIdx)
-      const modelId = settings.translationModelId.substring(sepIdx + 2)
-      const provider = settings.aiModels.find((m) => m.id === providerId)
-      if (provider) {
-        const model = provider.models?.find((m) => m.id === modelId)
-        if (model) return `${model.name || model.id} (${provider.name || getProviderInfo(provider.provider)?.name})`
-      }
-      return '未找到'
-    }
-    // 兼容旧格式：按供应商 ID 查找
-    const byProvider = settings.aiModels.find((m) => m.id === settings.translationModelId)
-    if (byProvider) {
-      return `${byProvider.name || getProviderInfo(byProvider.provider)?.name} (供应商)`
-    }
-    return '未找到'
-  }
-
   async function openFetchModels(index: number) {
     let baseUrl = ''
     let apiKey = ''
@@ -607,11 +564,11 @@ export function useSettingsAiModels(showToast: ShowToast) {
         showFetchModal.value = true
       } else {
         fetchError.value = result.error || '获取失败'
-        showToast(fetchError.value, 'error')
+        showToast({ type: 'error', message: fetchError.value })
       }
     } catch (err: unknown) {
       fetchError.value = (err as any)?.message || '获取失败'
-      showToast(fetchError.value, 'error')
+      showToast({ type: 'error', message: fetchError.value })
     }
     fetchLoading.value = false
   }
@@ -743,7 +700,7 @@ export function useSettingsAiModels(showToast: ShowToast) {
       models[modelIndex] = m
       const patch: Partial<AppSettings> = { aiModels: models }
       const compoundKey = m.id + '::' + modelId
-      if (!modelList[idx].enabled && (settings.translationModelId === modelId || settings.translationModelId === compoundKey)) {
+      if (!modelList[idx].enabled && settings.translationModelId === compoundKey) {
         patch.translationModelId = ''
       }
       updateSettings(patch)
@@ -757,9 +714,9 @@ export function useSettingsAiModels(showToast: ShowToast) {
   async function copyApiKey(apiKey: string) {
     try {
       await navigator.clipboard.writeText(apiKey)
-      showToast('已复制到剪贴板', 'success')
+      showToast({ type: 'success', message: '已复制到剪贴板' })
     } catch {
-      showToast('复制失败', 'error')
+      showToast({ type: 'error', message: '复制失败' })
     }
   }
 
@@ -780,15 +737,12 @@ export function useSettingsAiModels(showToast: ShowToast) {
   const hasValidTranslationModel = computed(() => {
     if (!settings.translationModelId) return false
     const sepIdx = settings.translationModelId.lastIndexOf('::')
-    if (sepIdx >= 0) {
-      const providerId = settings.translationModelId.substring(0, sepIdx)
-      const modelId = settings.translationModelId.substring(sepIdx + 2)
-      const provider = settings.aiModels.find((m) => m.id === providerId && m.enabled)
-      if (!provider) return false
-      return provider.models?.some((m) => m.id === modelId && m.enabled) ?? false
-    }
-    const provider = settings.aiModels.find((m) => m.id === settings.translationModelId && m.enabled)
-    return !!provider
+    if (sepIdx < 0) return false
+    const providerId = settings.translationModelId.substring(0, sepIdx)
+    const modelId = settings.translationModelId.substring(sepIdx + 2)
+    const provider = settings.aiModels.find((m) => m.id === providerId && m.enabled)
+    if (!provider) return false
+    return provider.models?.some((m) => m.id === modelId && m.enabled) ?? false
   })
 
   const translationModelItems = computed<QuickSwitcherItem[]>(() => {
@@ -847,7 +801,7 @@ export function useSettingsAiModels(showToast: ShowToast) {
     const modelId = newModelName.value.trim()
     const existingIndex = modelList.findIndex((m) => m.id === modelId)
     if (existingIndex >= 0) {
-      showToast('模型已存在', 'warning')
+      showToast({ type: 'warning', message: '模型已存在' })
       return
     }
     modelList.push({
@@ -858,7 +812,7 @@ export function useSettingsAiModels(showToast: ShowToast) {
     models[addModelTargetIndex.value] = { ...provider, models: modelList }
     updateSettings({ aiModels: models })
     showAddModelModal.value = false
-    showToast('模型已添加', 'success')
+    showToast({ type: 'success', message: '模型已添加' })
   }
 
 

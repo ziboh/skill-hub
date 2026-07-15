@@ -1,4 +1,5 @@
 import type { Skill } from '../types'
+import { completeStoreSkill } from './store-skill-normalize'
 
 export interface WellKnownSkillResult {
   skillMd: string
@@ -89,12 +90,12 @@ async function fetchText(url: string): Promise<string | null> {
 }
 
 interface WellKnownIndexV1 {
-  skills: Array<{ name: string; description: string; files: string[] }>
+  skills: Array<{ name: string; description?: string; summary?: string; files?: string[] }>
 }
 
 interface WellKnownIndexV2 {
   $schema: string
-  skills: Array<{ name: string; type: string; description: string; url: string; digest: string }>
+  skills: Array<{ name: string; type?: string; description?: string; summary?: string; url: string; digest?: string }>
 }
 
 export async function downloadSkillFromWebsite(skill: Skill): Promise<WellKnownSkillResult | null> {
@@ -130,7 +131,7 @@ export async function downloadSkillFromWebsite(skill: Skill): Promise<WellKnownS
       const files = new Map<string, string>()
 
       // 并行下载所有文件
-      const filePromises = entry.files.map(async (filePath) => {
+      const filePromises = (entry.files || []).map(async (filePath) => {
         const fileUrl = `${skillBaseUrl}/${filePath}`
         const content = await fetchText(fileUrl)
         return { path: filePath, content }
@@ -205,31 +206,36 @@ export async function fetchWellKnownIndex(url: string): Promise<Skill[]> {
 
     // v0.2.0 格式（带 $schema）
     if (typeof data.$schema === 'string' && data.$schema.includes('0.2.0')) {
-      return (data as WellKnownIndexV2).skills.map((e) => ({
-        id: `${repoPrefix}/${e.name}`,
-        name: e.name,
-        description: e.description || '',
-        author: '',
-        tags: [],
-        source: 'well-known-index',
-        repo: `${repoPrefix}/${e.name}`,
-        sourceUrl: fetchUrl,
-        path: e.name,
-      }))
+      return (data as WellKnownIndexV2).skills.map((e) =>
+        completeStoreSkill(
+          {
+            id: `${repoPrefix}/${e.name}`,
+            name: e.name,
+            source: 'well-known-index',
+            repo: `${repoPrefix}/${e.name}`,
+            sourceUrl: fetchUrl,
+            path: e.name,
+            installUrl: e.url ? new URL(e.url, fetchUrl).href : undefined,
+          },
+          e,
+        ),
+      )
     }
 
     // v0.1.0 格式
-    return (data as WellKnownIndexV1).skills.map((e) => ({
-      id: `${repoPrefix}/${e.name}`,
-      name: e.name,
-      description: e.description || '',
-      author: '',
-      tags: [],
-      source: 'well-known-index' as any,
-      repo: `${repoPrefix}/${e.name}`,
-      sourceUrl: fetchUrl,
-      path: e.name,
-    }))
+    return (data as WellKnownIndexV1).skills.map((e) =>
+      completeStoreSkill(
+        {
+          id: `${repoPrefix}/${e.name}`,
+          name: e.name,
+          source: 'well-known-index',
+          repo: `${repoPrefix}/${e.name}`,
+          sourceUrl: fetchUrl,
+          path: e.name,
+        },
+        e,
+      ),
+    )
   }
   return []
 }

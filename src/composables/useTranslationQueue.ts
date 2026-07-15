@@ -16,6 +16,8 @@ export interface TranslationQueueItem {
   /** consecutive failures; after MAX_RETRIES item is dropped */
   retries?: number
   lastError?: string
+  /** Waiting for an explicit cache/model change; prevents immediate re-promotion. */
+  blocked?: boolean
 }
 
 export const MAX_CONCURRENT = 2
@@ -100,7 +102,9 @@ function promoteNext() {
   while (true) {
     const translatingCount = queue.value.filter((i) => i.status === 'translating').length
     if (translatingCount >= MAX_CONCURRENT) break
-    const pendingItems = queue.value.filter((i) => i.status === 'pending').sort((a, b) => a.startedAt - b.startedAt)
+    const pendingItems = queue.value
+      .filter((i) => i.status === 'pending' && !i.blocked)
+      .sort((a, b) => a.startedAt - b.startedAt)
     if (pendingItems.length === 0) break
     const next = pendingItems[0]
     next.status = 'translating'
@@ -132,6 +136,7 @@ function addTranslation(hash: string, type: 'content' | 'desc', skillName?: stri
     if (skillId && !existing.skillId) existing.skillId = skillId
     // re-queue if was stuck pending with failures under limit
     if (existing.status === 'pending') {
+      existing.blocked = false
       promoteNext()
       cacheVersion.value++
     }
@@ -150,6 +155,7 @@ function addTranslation(hash: string, type: 'content' | 'desc', skillName?: stri
     startedAt: Date.now(),
     text,
     retries: 0,
+    blocked: false,
   }
   queue.value.push(item)
   saveQueue(queue.value)
@@ -181,13 +187,6 @@ function getTranslationModel(): ModelConfig | null {
     const provider = providers.find((m) => m.id === providerId)
     if (provider && provider.enabled !== false && provider.models?.some((m) => m.id === mId && m.enabled)) {
       return { ...provider, model: mId } as ModelConfig
-    }
-  } else {
-    for (const provider of providers) {
-      if (provider.models) {
-        const model = provider.models.find((m) => m.id === modelId && m.enabled)
-        if (model && provider.enabled !== false) return { ...provider, model: model.id } as ModelConfig
-      }
     }
   }
   return null
@@ -317,7 +316,7 @@ watch(
             removeTranslation(item.hash, item.type)
             return
           }
-          // retry or skip: back to pending (or drop after max retries)
+          // Retry failures normally; skipped jobs wait for an explicit resume signal.
           const current = queue.value.find((i) => i.hash === item.hash && i.type === item.type)
           if (!current) return
           if (result === 'retry') {
@@ -328,9 +327,12 @@ watch(
             }
           }
           current.status = 'pending'
+          current.blocked = result === 'skip'
           saveQueue(queue.value)
-          promoteNext()
-          cacheVersion.value++
+          if (result === 'retry') {
+            promoteNext()
+            cacheVersion.value++
+          }
         })
         .catch((e) => {
           console.error('[translation-queue] unexpected', e)
@@ -378,6 +380,10 @@ export function useTranslationQueue() {
   }
 
   function notifyCacheChanged() {
+    for (const item of queue.value) {
+      if (item.status === 'pending') item.blocked = false
+    }
+    promoteNext()
     cacheVersion.value++
   }
 
@@ -407,6 +413,7 @@ export function useTranslationQueue() {
           changed = true
         }
       }
+      item.blocked = false
       // reset retry budget for explicit resume
       if ((item.retries || 0) > 0) {
         item.retries = 0

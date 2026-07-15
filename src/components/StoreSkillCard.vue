@@ -18,6 +18,7 @@ const props = withDefaults(
     isDownloaded?: boolean
     isDownloading?: boolean
     skillUrl?: string
+    emptyDescriptionReason?: string
   }>(),
   {
     loadingDescription: false,
@@ -30,6 +31,7 @@ const props = withDefaults(
     isDownloaded: false,
     isDownloading: false,
     skillUrl: undefined,
+    emptyDescriptionReason: '索引暂未返回描述',
   },
 )
 
@@ -37,6 +39,7 @@ const emit = defineEmits<{
   (e: 'click'): void
   (e: 'download'): void
   (e: 'delete'): void
+  (e: 'locate'): void
 }>()
 
 const extraSourceTag = computed(() => {
@@ -60,6 +63,7 @@ const showChineseTag = computed(() => props.showLanguageTags && isChineseContent
     :short-description="skill.shortDescription"
     :loading-description="loadingDescription"
     :description-error="descriptionError"
+    :empty-description-reason="emptyDescriptionReason"
     :avatar-icon="skill.iconUrl"
     :badges="badges"
     :source-tag="sourceTag"
@@ -87,6 +91,26 @@ const showChineseTag = computed(() => props.showLanguageTags && isChineseContent
       </a>
       <button
         v-if="mode === 'imported' || isDownloaded"
+        class="card-action-btn"
+        title="前往我的 Skill"
+        @click.stop="emit('locate')"
+      >
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M5 12h14" />
+          <path d="m13 6 6 6-6 6" />
+        </svg>
+      </button>
+      <button
+        v-if="mode === 'imported'"
         class="card-action-btn danger"
         title="删除"
         @click.stop="emit('delete')"
@@ -106,7 +130,7 @@ const showChineseTag = computed(() => props.showLanguageTags && isChineseContent
         </svg>
       </button>
       <button
-        v-else
+        v-else-if="!isDownloaded"
         class="card-action-btn"
         :disabled="isDownloading"
         @click.stop="emit('download')"

@@ -136,8 +136,14 @@ const html = computed(() => renderMarkdown(props.content))
   min-width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  margin: 12px 0;
+  margin: 0;
   font-size: 13px;
+}
+
+.markdown-body :deep(.markdown-table-scroll) {
+  max-width: 100%;
+  margin: 12px 0;
+  overflow-x: auto;
 }
 
 .markdown-body :deep(th),

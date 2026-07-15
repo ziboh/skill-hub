@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, inject } from 'vue'
+import { ref, inject, computed } from 'vue'
 import { KeyRefreshCounts, KeyShowToast } from '../inject-keys'
 import { storage } from '../utils/storage'
 import { parseGitHubUrl, fetchGitHubRepoTree, fetchGitHubFile, detectSkillDirectories, githubFetch } from '../utils/github'
@@ -9,6 +9,9 @@ import { getAvatarColor } from '../utils/color'
 import { getSkillsRepoDir, skillIdSlug } from '../utils/skill-path'
 import { atomicReplaceDir } from '../utils/fs-ops'
 import { finalizeImportedSkill } from '../utils/skill-import'
+import { skillsShareIdentity } from '../utils/skill-identity'
+import { sortProcessedSkillsLast } from '../utils/skill-modal-sort'
+import UiIcon, { type UiIconName } from './UiIcon.vue'
 
 const emit = defineEmits(['close', 'imported', 'navigate'])
 const refreshCounts = inject(KeyRefreshCounts)
@@ -21,18 +24,19 @@ const gitSkillPath = ref('')
 const scanning = ref(false)
 const scanError = ref('')
 const scannedSkills = ref<Skill[]>([])
+const sortedGitHubSkills = computed(() => sortProcessedSkillsLast(scannedSkills.value, isSkillImported))
 const selectedIds = ref<Set<string>>(new Set())
 const importing = ref(false)
 const localRoot = ref('')
 
-const methods = [
-  { id: 'git', icon: '📦', title: '从 GitHub 导入', desc: '输入仓库和 skill 名称，或扫描后选择' },
-  { id: 'local', icon: '📁', title: '从本地导入', desc: '选择文件夹，自动识别单个或多个技能' },
+const methods: { id: string; icon: UiIconName; title: string; desc: string }[] = [
+  { id: 'git', icon: 'package', title: '从 GitHub 导入', desc: '输入仓库和 skill 名称，或扫描后选择' },
+  { id: 'local', icon: 'folder', title: '从本地导入', desc: '选择文件夹，自动识别单个或多个技能' },
 ]
 
 function showError(message: string) {
   scanError.value = message
-  showToast(message, 'error')
+  showToast({ type: 'error', message: message })
 }
 
 function clearError() {
@@ -83,6 +87,7 @@ async function scanGit() {
           : []
         skills.push({
           id: `${info.owner}/${info.repo}/${dirName}`,
+          canonicalId: `${info.owner}/${info.repo}/${fm.name || dirName}`,
           name: fm.name || dirName,
           description: fm.description || '',
           author: fm.author || '',
@@ -151,6 +156,7 @@ function isSkillImported(skill: Skill): boolean {
   const localPath = normalizeLocalPath(skill.sourceUrl || skill.path || '')
   return storage.getDownloadedSkills().some((s) => {
     if (!downloaded.has(s.id)) return false
+    if (skill.source === 'github') return skillsShareIdentity(skill, s)
     if (skill.source === 'local' && localPath) {
       return [s.sourceUrl, s.path].some((p) => normalizeLocalPath(p || '') === localPath)
     }
@@ -241,7 +247,7 @@ async function importGitSkills(skills: Skill[]) {
   const targetNames: string[] = []
   const downloadedIds = storage.getDownloadedIds()
   for (const skill of skills) {
-    if (downloadedIds.includes(skill.id) || !skill.repo) {
+    if (isSkillImported(skill) || !skill.repo) {
       errors.push(`「${skill.name}」已导入，跳过`)
       continue
     }
@@ -292,7 +298,7 @@ async function importGitSkills(skills: Skill[]) {
   importing.value = false
   if (importedCount) {
     const msg = targetNames.length === 1 ? `已导入「${targetNames[0]}」` : `已导入 ${targetNames.length} 个技能`
-    showToast(msg, 'success')
+    showToast({ type: 'success', message: msg })
   }
   if (errors.length) {
     showError(errors[errors.length - 1])
@@ -395,7 +401,7 @@ async function importLocalSelected() {
     }
   }
   if (targetNames.length)
-    showToast(targetNames.length === 1 ? `已导入「${targetNames[0]}」` : `已导入 ${targetNames.length} 个技能`, 'success')
+    showToast({ type: 'success', message: targetNames.length === 1 ? `已导入「${targetNames[0]}」` : `已导入 ${targetNames.length} 个技能` })
   importing.value = false
   emit('imported')
   if (targetNames.length) emit('close')
@@ -403,10 +409,22 @@ async function importLocalSelected() {
 </script>
 
 <template>
-  <div class="modal-overlay" @click.self="emit('close')">
+  <div class="modal-overlay">
     <div class="modal">
       <div class="modal-header">
-        <h3>添加技能</h3>
+        <div class="modal-title">
+          <button
+            v-if="step !== 'choose'"
+            class="back-btn"
+            type="button"
+            title="返回选择添加方式"
+            aria-label="返回选择添加方式"
+            @click="step = 'choose'"
+          >
+            <UiIcon name="arrow-left" :size="18" />
+          </button>
+          <h3>添加技能</h3>
+        </div>
         <button class="close-btn" @click="emit('close')">×</button>
       </div>
       <div class="modal-body">
@@ -414,9 +432,7 @@ async function importLocalSelected() {
           <p class="hint">选择添加技能的方式：</p>
           <div class="method-list">
             <button v-for="m in methods" :key="m.id" class="method-item" @click="chooseMethod(m.id)">
-              <div class="method-icon">
-                {{ m.icon }}
-              </div>
+              <div class="method-icon"><UiIcon :name="m.icon" :size="24" /></div>
               <div class="method-info">
                 <div class="method-title">
                   {{ m.title }}
@@ -458,7 +474,7 @@ async function importLocalSelected() {
               </button>
             </div>
             <div class="skill-select-list">
-              <label v-for="skill in scannedSkills" :key="skill.id" class="skill-select-item" :class="{ imported: isSkillImported(skill) }">
+              <label v-for="skill in sortedGitHubSkills" :key="skill.id" class="skill-select-item" :class="{ imported: isSkillImported(skill) }">
                 <input
                   type="checkbox"
                   :checked="isSkillImported(skill) || selectedIds.has(skill.id)"
@@ -468,7 +484,7 @@ async function importLocalSelected() {
                 <div class="skill-avatar" :style="{ background: getAvatarColor(skill.name) }">{{ skill.name.charAt(0).toUpperCase() }}</div>
                 <div class="skill-info">
                   <div class="skill-name">{{ skill.name }} <span v-if="isSkillImported(skill)" class="imported-badge">已导入</span></div>
-                  <div class="skill-desc">{{ skill.description || skill.path || '暂无描述' }}</div>
+                  <div class="skill-desc">{{ skill.description || skill.path || '描述未解析成功' }}</div>
                 </div>
               </label>
             </div>
@@ -500,7 +516,7 @@ async function importLocalSelected() {
                 <div class="skill-avatar" :style="{ background: getAvatarColor(skill.name) }">{{ skill.name.charAt(0).toUpperCase() }}</div>
                 <div class="skill-info">
                   <div class="skill-name">{{ skill.name }} <span v-if="isSkillImported(skill)" class="imported-badge">已导入</span></div>
-                  <div class="skill-desc">{{ skill.description || skill.path || '暂无描述' }}</div>
+                  <div class="skill-desc">{{ skill.description || skill.path || '描述未解析成功' }}</div>
                 </div>
               </label>
             </div>
@@ -508,9 +524,8 @@ async function importLocalSelected() {
         </template>
       </div>
 
-      <div v-if="step === 'git-input' || step === 'local-input'" class="modal-footer">
+      <div v-if="scannedSkills.length && (step === 'git-input' || step === 'local-input')" class="modal-footer">
         <div class="scan-actions">
-          <button class="back-link" @click="step = 'choose'">← 返回</button>
           <button
             v-if="step === 'git-input' && scannedSkills.length"
             class="import-btn"
@@ -565,6 +580,32 @@ async function importLocalSelected() {
   font-size: 18px;
   font-weight: 700;
   color: hsl(var(--foreground));
+}
+.modal-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.back-btn {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 32px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  transition:
+    color var(--duration-base) var(--ease-standard),
+    background var(--duration-base) var(--ease-standard);
+}
+.back-btn:hover {
+  color: hsl(var(--foreground));
+  background: hsl(var(--muted));
 }
 .close-btn {
   width: 32px;
@@ -689,18 +730,6 @@ async function importLocalSelected() {
   opacity: 0.5;
   cursor: default;
 }
-.back-link {
-  background: none;
-  border: none;
-  color: hsl(var(--muted-foreground));
-  font-size: 13px;
-  cursor: pointer;
-  padding: 4px 0;
-  transition: color var(--duration-base) var(--ease-standard);
-}
-.back-link:hover {
-  color: hsl(var(--primary));
-}
 .scan-header {
   display: flex;
   align-items: center;
@@ -793,7 +822,7 @@ async function importLocalSelected() {
 .modal-footer .scan-actions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   margin-top: 16px;
 }
 .import-btn {

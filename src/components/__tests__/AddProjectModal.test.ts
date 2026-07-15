@@ -74,10 +74,10 @@ describe('AddProjectModal', () => {
     expect(wrapper.find('.modal-error').text()).toContain('Already exists')
   })
 
-  test('overlay click emits close', async () => {
+  test('点击遮罩不会关闭弹窗', async () => {
     wrapper = mount(AddProjectModal)
     await wrapper.find('.modal-overlay').trigger('click')
-    expect(wrapper.emitted('close')).toHaveLength(1)
+    expect(wrapper.emitted('close')).toBeUndefined()
   })
 
   test('close button emits close', async () => {

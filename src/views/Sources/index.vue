@@ -18,7 +18,7 @@ import { KeyShowToast } from '../../inject-keys'
 import { validateStoreUrl } from '../../utils/validate-store'
 
 const emit = defineEmits(['navigate'])
-const showToast = inject(KeyShowToast, (_msg: string, _type?: 'success' | 'error' | 'info' | 'warning') => {})
+const showToast = inject(KeyShowToast, () => {})
 
 const { settings, updateSettings } = useSettings()
 
@@ -97,11 +97,11 @@ async function handleAddOrSave() {
   validating.value = true
   const result = await validateStoreUrl(sourceUrl.value.trim(), sourceType.value)
   if (!result.valid) {
-    showToast(result.message, 'error')
+    showToast({ type: 'error', message: result.message })
     validating.value = false
     return
   }
-  showToast(result.message, 'success')
+  showToast({ type: 'success', message: result.message })
   const data = {
     type: sourceType.value,
     name: sourceName.value.trim(),
@@ -148,7 +148,7 @@ function _getSourceIcon(type: string): string {
       'git-repo': ICON_GITHUB,
       'local-dir': ICON_FOLDER,
       github: ICON_GITHUB,
-      'skills-sh': '📦',
+      'skills-sh': 'store:skills-sh',
     }[type] || ICON_STORE
   )
 }

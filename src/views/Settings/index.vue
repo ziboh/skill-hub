@@ -16,6 +16,7 @@ import { useSettings } from '../../composables/useSettings'
 import { useTheme } from '../../composables/useTheme'
 import { useSettingsAiModels } from '../../composables/useSettingsAiModels'
 import ProviderIcon from '../../components/ProviderIcon.vue'
+import UiIcon, { type UiIconName } from '../../components/UiIcon.vue'
 import StoreIconPicker from '../../components/StoreIconPicker.vue'
 import ConfirmModal from '../../components/ConfirmModal.vue'
 import CleanupSelectModal from '../../components/CleanupSelectModal.vue'
@@ -60,18 +61,14 @@ const {
   confirmDeleteModel,
   confirmDeleteModelLabel,
   showAddModelModal,
-  addModelTargetIndex,
   newModelName,
   newModelCustomName,
   showModelModal,
   editingModelIndex,
   modelForm,
-  modelExtraBodyText,
-  modelExtraBodyError,
   translationExtraBodyText,
   translationExtraBodyError,
   translationTimeoutError,
-  providerExtraBodyTexts,
   providerExtraBodyErrors,
   objectToJsonString,
   getProviderExtraBodyText,
@@ -89,18 +86,14 @@ const {
   selectedFetchIds,
   expandedFetchGroups,
   fetchSearchQuery,
-  fetchFilteredModels,
   fetchModelGroups,
   toggleFetchGroup,
   toggleAllFetchGroups,
   handleFetchModelToggle,
   toggleFetchGroupSelection,
   getGroupColor,
-  testResult,
-  modelTestResults,
   showApiKeyModal,
   editingKeyIndex,
-  editingProviderIndex,
   apiKeyForm,
   maskKey,
   expandAllGroups,
@@ -108,7 +101,6 @@ const {
   addApiKey,
   editApiKey,
   saveApiKey,
-  deleteApiKey,
   toggleApiKeyEnabled,
   showApiKey,
   expandedSections,
@@ -116,9 +108,7 @@ const {
   openEditModel,
   applyProviderPreset,
   saveModel,
-  deleteModelFromProvider,
   toggleGroupModels,
-  deleteGroupModels,
   deleteProvider,
   doDeleteApiKey,
   doDeleteGroup,
@@ -128,8 +118,6 @@ const {
   confirmFetchModels,
   testSingleModel,
   testAllModels,
-  getModelTestKey,
-  getModelTestResult,
   isModelTestLoading,
   isModelTestSuccess,
   isModelTestFail,
@@ -138,7 +126,6 @@ const {
   copyApiKey,
   toggleExpandedSection,
   enabledProviders,
-  allEnabledProviders,
   hasValidTranslationModel,
   translationModelItems,
   pendingProviders,
@@ -196,13 +183,13 @@ function startSidebarResize(e: MouseEvent | TouchEvent) {
   document.body.style.userSelect = 'none'
 }
 
-const sections = [
-  { id: 'general', label: '通用设置', icon: '⚙' },
-  { id: 'appearance', label: '显示设置', icon: '🎨' },
-  { id: 'ai', label: '模型设置', icon: '🧠' },
-  { id: 'default-model', label: '翻译设置', icon: '🌐' },
-  { id: 'agent', label: 'Agent 设置', icon: '🤖' },
-  { id: 'data', label: '数据管理', icon: '💾' },
+const sections: { id: string; label: string; icon: UiIconName }[] = [
+  { id: 'general', label: '通用设置', icon: 'settings' },
+  { id: 'appearance', label: '显示设置', icon: 'palette' },
+  { id: 'ai', label: '模型设置', icon: 'cpu' },
+  { id: 'default-model', label: '翻译设置', icon: 'globe' },
+  { id: 'agent', label: 'Agent 设置', icon: 'bot' },
+  { id: 'data', label: '数据管理', icon: 'database' },
 ]
 
 const visibleSections = computed(() => {
@@ -219,10 +206,10 @@ watch(
   },
 )
 
-const themeModes: { id: ThemeMode; label: string; icon: string }[] = [
-  { id: 'light', label: '浅色', icon: '☀️' },
-  { id: 'dark', label: '深色', icon: '🌙' },
-  { id: 'auto', label: '跟随系统', icon: '🖥' },
+const themeModes: { id: ThemeMode; label: string; icon: UiIconName }[] = [
+  { id: 'light', label: '浅色', icon: 'sun' },
+  { id: 'dark', label: '深色', icon: 'moon' },
+  { id: 'auto', label: '跟随系统', icon: 'monitor' },
 ]
 
 const fontSizeOptions: { id: FontSize; label: string; size: string }[] = [
@@ -354,7 +341,7 @@ function onPlatformSubmit(data: { id?: string; name: string; defaultPath: string
   loadPlatforms()
   showAddPlatformModal.value = false
   editingPlatform.value = null
-  showToast(data.id ? '平台已更新' : '平台已添加', 'success')
+  showToast({ type: 'success', message: data.id ? '平台已更新' : '平台已添加' })
 }
 
 function requestDeletePlatform(p: PlatformInfo) {
@@ -372,7 +359,7 @@ function confirmDeletePlatform() {
   savePlatforms()
   confirmDeletePlatformId.value = null
   confirmDeletePlatformName.value = ''
-  showToast('平台已删除', 'success')
+  showToast({ type: 'success', message: '平台已删除' })
 }
 
 function setThemeMode(mode: ThemeMode) {
@@ -636,7 +623,7 @@ function getPlatformOsPath(platform: PlatformInfo): string {
           :class="{ active: activeSection === s.id }"
           @click="activeSection = s.id"
         >
-          <span class="settings-nav-icon">{{ s.icon }}</span>
+          <span class="settings-nav-icon"><UiIcon :name="s.icon" :size="16" /></span>
           <span class="settings-nav-label">{{ s.label }}</span>
         </button>
       </nav>
@@ -698,7 +685,7 @@ function getPlatformOsPath(platform: PlatformInfo): string {
                   :class="{ active: settings.themeMode === m.id }"
                   @click="setThemeMode(m.id)"
                 >
-                  <span class="segment-icon">{{ m.icon }}</span>
+                  <span class="segment-icon"><UiIcon :name="m.icon" :size="16" /></span>
                   <span>{{ m.label }}</span>
                 </button>
               </div>
@@ -925,7 +912,7 @@ function getPlatformOsPath(platform: PlatformInfo): string {
                   :class="{ active: settings.defaultInstallMode === 'copy' }"
                   @click="updateSettings({ defaultInstallMode: 'copy' })"
                 >
-                  <span class="mode-icon">📄</span>
+                  <span class="mode-icon"><UiIcon name="file" :size="24" /></span>
                   <span class="mode-name">复制</span>
                   <span class="mode-desc">每个平台独立副本</span>
                 </button>
@@ -934,7 +921,7 @@ function getPlatformOsPath(platform: PlatformInfo): string {
                   :class="{ active: settings.defaultInstallMode === 'symlink' }"
                   @click="updateSettings({ defaultInstallMode: 'symlink' })"
                 >
-                  <span class="mode-icon">🔗</span>
+                  <span class="mode-icon"><UiIcon name="link" :size="24" /></span>
                   <span class="mode-name">软链接</span>
                   <span class="mode-desc">共享编辑，同步更新</span>
                 </button>
@@ -1136,7 +1123,7 @@ function getPlatformOsPath(platform: PlatformInfo): string {
                             <input type="checkbox" :checked="ak.enabled" @change="toggleApiKeyEnabled(getModelIndex(m.id), ki)" />
                             <span class="provider-toggle-slider" />
                           </label>
-                          <span class="apikey-lock">🔒</span>
+                          <span class="apikey-lock"><UiIcon name="lock" :size="14" /></span>
                           <span v-if="!showApiKey[ak.id]" class="apikey-text">{{ maskKey(ak.key) }}</span>
                           <span v-else class="apikey-text apikey-text-visible">{{ ak.key }}</span>
                         </div>
@@ -1311,7 +1298,7 @@ function getPlatformOsPath(platform: PlatformInfo): string {
                         <div v-show="expandedGroups[m.id]?.has(group.name)" class="model-group-items">
                           <div v-for="model in group.models" :key="model.id" class="model-list-item">
                             <div class="model-list-item-left">
-                              <span class="model-item-icon">🤖</span>
+                              <span class="model-item-icon"><UiIcon name="bot" :size="14" /></span>
                               <span class="model-item-name">{{ model.name }}</span>
                             </div>
                             <div class="model-list-item-right">
@@ -1466,7 +1453,7 @@ function getPlatformOsPath(platform: PlatformInfo): string {
                             <input type="checkbox" :checked="ak.enabled" @change="toggleApiKeyEnabled(getModelIndex(m.id), ki)" />
                             <span class="provider-toggle-slider" />
                           </label>
-                          <span class="apikey-lock">🔒</span>
+                          <span class="apikey-lock"><UiIcon name="lock" :size="14" /></span>
                           <span v-if="!showApiKey[ak.id]" class="apikey-text">{{ maskKey(ak.key) }}</span>
                           <span v-else class="apikey-text apikey-text-visible">{{ ak.key }}</span>
                         </div>
@@ -1639,7 +1626,7 @@ function getPlatformOsPath(platform: PlatformInfo): string {
                         <div v-show="expandedGroups[m.id]?.has(group.name)" class="model-group-items">
                           <div v-for="model in group.models" :key="model.id" class="model-list-item">
                             <div class="model-list-item-left">
-                              <span class="model-item-icon">🤖</span>
+                              <span class="model-item-icon"><UiIcon name="bot" :size="14" /></span>
                               <span class="model-item-name">{{ model.name }}</span>
                             </div>
                             <div class="model-list-item-right">
@@ -1793,7 +1780,7 @@ function getPlatformOsPath(platform: PlatformInfo): string {
                             <input type="checkbox" :checked="ak.enabled" @change="toggleApiKeyEnabled(getModelIndex(m.id), ki)" />
                             <span class="provider-toggle-slider" />
                           </label>
-                          <span class="apikey-lock">🔒</span>
+                          <span class="apikey-lock"><UiIcon name="lock" :size="14" /></span>
                           <span v-if="!showApiKey[ak.id]" class="apikey-text">{{ maskKey(ak.key) }}</span>
                           <span v-else class="apikey-text apikey-text-visible">{{ ak.key }}</span>
                         </div>
@@ -1967,7 +1954,7 @@ function getPlatformOsPath(platform: PlatformInfo): string {
                         <div v-show="expandedGroups[m.id]?.has(group.name)" class="model-group-items">
                           <div v-for="model in group.models" :key="model.id" class="model-list-item">
                             <div class="model-list-item-left">
-                              <span class="model-item-icon">🤖</span>
+                              <span class="model-item-icon"><UiIcon name="bot" :size="14" /></span>
                               <span class="model-item-name">{{ model.name }}</span>
                             </div>
                             <div class="model-list-item-right">
@@ -2115,7 +2102,7 @@ function getPlatformOsPath(platform: PlatformInfo): string {
       </div>
 
       <!-- Icon Picker Modal -->
-      <div v-if="showIconPicker" class="modal-overlay" style="z-index: 1100" @click.self="showIconPicker = false">
+      <div v-if="showIconPicker" class="modal-overlay" style="z-index: 1100">
         <div class="modal modal-sm" style="width: 440px; max-height: min(85vh, 720px); display: flex; flex-direction: column">
           <div class="modal-header">
             <h3 class="modal-title">选择图标</h3>
@@ -2704,4 +2691,3 @@ function getPlatformOsPath(platform: PlatformInfo): string {
 </template>
 
 <style src="../../styles/settings-page.css"></style>
-

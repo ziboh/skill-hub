@@ -97,9 +97,9 @@ describe('CleanupSelectModal', () => {
     expect(wrapper.emitted('close')).toHaveLength(1)
   })
 
-  test('overlay click emits close', async () => {
+  test('点击遮罩不会关闭弹窗', async () => {
     const wrapper = createWrapper()
     await wrapper.find('.cleanup-overlay').trigger('click')
-    expect(wrapper.emitted('close')).toHaveLength(1)
+    expect(wrapper.emitted('close')).toBeUndefined()
   })
 })

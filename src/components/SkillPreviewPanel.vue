@@ -81,15 +81,6 @@ const translationModel = computed(() => {
     if (provider && provider.models?.some((m) => m.id === modelId && m.enabled)) {
       return { ...provider, model: modelId }
     }
-  } else {
-    const byProvider = settings.aiModels.find((m) => m.id === settings.translationModelId && m.enabled)
-    if (byProvider) return byProvider
-    for (const provider of settings.aiModels) {
-      const matchedModel = provider.models?.find((m) => m.id === settings.translationModelId && m.enabled)
-      if (matchedModel) {
-        return { ...provider, model: matchedModel.id }
-      }
-    }
   }
   return null
 })
@@ -197,7 +188,7 @@ function handleTranslate() {
     return
   }
   if (!translationModel.value) {
-    showToast('请先在设置中配置 AI 模型', 'error')
+    showToast({ type: 'error', message: '请先在设置中配置 AI 模型' })
     return
   }
   const ch = fileHash.value
@@ -207,7 +198,7 @@ function handleTranslate() {
   if (cached?.translatedContent) {
     translatedContent.value = cached.translatedContent
     showTranslation.value = true
-    showToast(`${props.skillName || props.skill.name} 内容翻译完成`, 'success')
+    showToast({ type: 'success', message: `${props.skillName || props.skill.name} 内容翻译完成` })
     return
   }
 
@@ -225,12 +216,12 @@ function handleTranslate() {
       showTranslation.value = true
       isTranslating.value = false
       isPendingInQueue.value = false
-      showToast(`${props.skillName || props.skill.name} 内容翻译完成`, 'success')
+      showToast({ type: 'success', message: `${props.skillName || props.skill.name} 内容翻译完成` })
       unwatch()
     } else if (!isTranslatingInQueue(ch, 'content')) {
       isTranslating.value = false
       isPendingInQueue.value = false
-      showToast('内容翻译失败', 'error')
+      showToast({ type: 'error', message: '内容翻译失败' })
       unwatch()
     }
   })
@@ -247,7 +238,7 @@ function handleReTranslate() {
   }
 
   if (!translationModel.value) {
-    showToast('请先在设置中配置 AI 模型', 'error')
+    showToast({ type: 'error', message: '请先在设置中配置 AI 模型' })
     return
   }
   const ch = fileHash.value
@@ -271,12 +262,12 @@ function handleReTranslate() {
       showTranslation.value = true
       isTranslating.value = false
       isPendingInQueue.value = false
-      showToast(`${props.skillName || props.skill.name} 内容翻译完成`, 'success')
+      showToast({ type: 'success', message: `${props.skillName || props.skill.name} 内容翻译完成` })
       unwatch()
     } else if (!isTranslatingInQueue(ch, 'content')) {
       isTranslating.value = false
       isPendingInQueue.value = false
-      showToast('内容翻译失败', 'error')
+      showToast({ type: 'error', message: '内容翻译失败' })
       unwatch()
     }
   })
@@ -301,7 +292,7 @@ function handleTranslateDesc() {
   }
 
   if (!translationModel.value) {
-    showToast('请先在设置中配置 AI 模型', 'error')
+    showToast({ type: 'error', message: '请先在设置中配置 AI 模型' })
     return
   }
 
@@ -313,7 +304,7 @@ function handleTranslateDesc() {
     translatedDesc.value = cached
     descTranslationDone.value = true
     showDescTranslation.value = true
-    showToast(`${props.skillName || props.skill.name} 描述翻译完成`, 'success')
+    showToast({ type: 'success', message: `${props.skillName || props.skill.name} 描述翻译完成` })
     return
   }
 
@@ -332,12 +323,12 @@ function handleTranslateDesc() {
       showDescTranslation.value = true
       isTranslatingDesc.value = false
       isPendingDescInQueue.value = false
-      showToast(`${props.skillName || props.skill.name} 描述翻译完成`, 'success')
+      showToast({ type: 'success', message: `${props.skillName || props.skill.name} 描述翻译完成` })
       unwatch()
     } else if (!isTranslatingInQueue(fh, 'desc')) {
       isTranslatingDesc.value = false
       isPendingDescInQueue.value = false
-      showToast('描述翻译失败', 'error')
+      showToast({ type: 'error', message: '描述翻译失败' })
       unwatch()
     }
   })
@@ -357,7 +348,7 @@ function handleReTranslateDesc() {
   }
 
   if (!translationModel.value) {
-    showToast('请先在设置中配置 AI 模型', 'error')
+    showToast({ type: 'error', message: '请先在设置中配置 AI 模型' })
     return
   }
 
@@ -383,12 +374,12 @@ function handleReTranslateDesc() {
       showDescTranslation.value = true
       isTranslatingDesc.value = false
       isPendingDescInQueue.value = false
-      showToast(`${props.skillName || props.skill.name} 描述翻译完成`, 'success')
+      showToast({ type: 'success', message: `${props.skillName || props.skill.name} 描述翻译完成` })
       unwatch()
     } else if (!isTranslatingInQueue(fh, 'desc')) {
       isTranslatingDesc.value = false
       isPendingDescInQueue.value = false
-      showToast('描述翻译失败', 'error')
+      showToast({ type: 'error', message: '描述翻译失败' })
       unwatch()
     }
   })
@@ -483,7 +474,7 @@ function handleReTranslateDesc() {
       </div>
       <div class="panel-card desc-panel">
         <p class="desc-text">
-          {{ descTranslationDone && showDescTranslation ? translatedDesc : skillDesc || skill.description || '暂无描述' }}
+          {{ descTranslationDone && showDescTranslation ? translatedDesc : skillDesc || skill.description || '描述暂未解析成功' }}
         </p>
       </div>
     </section>

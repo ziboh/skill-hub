@@ -23,7 +23,7 @@ const props = defineProps<{
   agentPlatformSkills?: Skill[]
 }>()
 
-const { queue, addTranslation, isTranslating: isInQueue, cacheVersion } = useTranslationQueue()
+const { queue, addTranslation, isTranslating: isInQueue, cacheVersion, notifyCacheChanged } = useTranslationQueue()
 
 const translateScope = ref<'current' | 'all' | 'project' | 'agent'>('all')
 const translateType = ref<'desc' | 'content' | 'both'>('both')
@@ -71,6 +71,7 @@ const localModelId = ref(storage.getSettings().translationModelId)
 function onModelChange(modelId: string) {
   localModelId.value = modelId
   storage.saveSettings({ translationModelId: modelId })
+  notifyCacheChanged()
 }
 
 const hashCache = new Map<string, { fileHash: string | null; content: string | null }>()
@@ -397,7 +398,7 @@ function getStatusLabel(status: string) {
 </script>
 
 <template>
-  <div class="translate-panel-overlay" @click.self="emit('close')">
+  <div class="translate-panel-overlay">
     <div class="translate-panel">
       <div class="panel-header">
         <div class="panel-title-group">

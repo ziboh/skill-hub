@@ -15,30 +15,56 @@ function doAtomicReplaceDir(sourceDir, targetDir) {
   if (!hasSkill) {
     throw new Error('SKILL.md not found in source directory')
   }
-  if (fs.existsSync(fullTarget)) {
-    fs.rmSync(fullTarget, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
-  } else {
-    fs.mkdirSync(path.dirname(fullTarget), { recursive: true })
+  const tempDir = createTempSibling(fullTarget)
+  try {
+    fs.cpSync(fullSrc, tempDir, { recursive: true, dereference: true })
+    replaceDirectory(tempDir, fullTarget)
+  } catch (error) {
+    removeIfExists(tempDir)
+    throw error
   }
-  fs.cpSync(fullSrc, fullTarget, { recursive: true, dereference: true })
 }
 
 function doAtomicWriteDir(targetDir, files) {
   const fullTarget = assertWritable(targetDir)
   assertWritable(path.dirname(fullTarget))
-  if (fs.existsSync(fullTarget)) {
-    fs.rmSync(fullTarget, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
-  }
-  fs.mkdirSync(fullTarget, { recursive: true })
+  const tempDir = createTempSibling(fullTarget)
   const entries = files instanceof Map ? files.entries() : Object.entries(files)
-  for (const [rel, content] of entries) {
-    const full = safeResolveWithin(fullTarget, rel)
-    fs.mkdirSync(path.dirname(full), { recursive: true })
-    fs.writeFileSync(full, content, { encoding: 'utf-8' })
+  try {
+    fs.mkdirSync(tempDir, { recursive: true })
+    for (const [rel, content] of entries) {
+      const full = safeResolveWithin(tempDir, rel)
+      fs.mkdirSync(path.dirname(full), { recursive: true })
+      fs.writeFileSync(full, content, { encoding: 'utf-8' })
+    }
+    const hasSkill = ['SKILL.md', 'skill.md'].some((f) => fs.existsSync(path.join(tempDir, f)))
+    if (!hasSkill) throw new Error('SKILL.md not found in downloaded files')
+    replaceDirectory(tempDir, fullTarget)
+  } catch (error) {
+    removeIfExists(tempDir)
+    throw error
   }
-  const hasSkill = ['SKILL.md', 'skill.md'].some((f) => fs.existsSync(path.join(fullTarget, f)))
-  if (!hasSkill) {
-    throw new Error('SKILL.md not found in downloaded files')
+}
+
+function createTempSibling(targetDir) {
+  return `${targetDir}.skill-hub-tmp-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+function removeIfExists(target) {
+  if (fs.existsSync(target)) fs.rmSync(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+}
+
+function replaceDirectory(tempDir, targetDir) {
+  const backupDir = `${targetDir}.skill-hub-backup-${process.pid}-${Date.now()}`
+  const hadTarget = fs.existsSync(targetDir)
+  try {
+    if (hadTarget) fs.renameSync(targetDir, backupDir)
+    fs.renameSync(tempDir, targetDir)
+    if (hadTarget) removeIfExists(backupDir)
+  } catch (error) {
+    removeIfExists(targetDir)
+    if (hadTarget && fs.existsSync(backupDir)) fs.renameSync(backupDir, targetDir)
+    throw error
   }
 }
 
@@ -105,6 +131,13 @@ function writeFile(filePath, content) {
   assertWritable(parent)
   fs.mkdirSync(parent, { recursive: true })
   fs.writeFileSync(full, content, { encoding: 'utf-8' })
+}
+
+function renamePath(sourcePath, targetPath) {
+  const fullSource = assertWritable(sourcePath)
+  const fullTarget = assertWritable(targetPath)
+  assertWritable(path.dirname(fullTarget))
+  fs.renameSync(fullSource, fullTarget)
 }
 
 function removeFile(filePath) {
@@ -202,7 +235,7 @@ function writeSvgFile(svgContent, fileName) {
   const iconsDir = path.join(window.ztools.getPath('userData'), 'store-icons')
   mkdir(iconsDir)
   const name = fileName || `icon-${Date.now()}.svg`
-  const dest = path.join(iconsDir, name)
+  const dest = safeResolveWithin(iconsDir, name)
   fs.writeFileSync(dest, svgContent, 'utf-8')
   return dest
 }
@@ -265,6 +298,67 @@ function createSymlink(target, linkPath) {
   return fullLink
 }
 
+const DISABLED_SKILL_FILE_NAME = 'SKILL.md.disabled'
+const DISABLED_LINK_SUFFIX = '.skillhub-disabled'
+
+function createSkillDirectoryLink(target, linkPath) {
+  if (isWindows()) {
+    const stats = fs.statSync(target)
+    fs.symlinkSync(target, linkPath, stats.isDirectory() ? 'junction' : 'file')
+  } else {
+    fs.symlinkSync(target, linkPath)
+  }
+}
+
+function setSkillEnabled(skillDir, enabled) {
+  const fullDir = assertWritable(skillDir)
+  assertWritable(path.dirname(fullDir))
+  const activeFile = path.join(fullDir, 'SKILL.md')
+  const disabledFile = path.join(fullDir, DISABLED_SKILL_FILE_NAME)
+  const disabledLinkFile = `${fullDir}${DISABLED_LINK_SUFFIX}`
+
+  if (enabled) {
+    if (fs.existsSync(disabledLinkFile)) {
+      if (fs.existsSync(fullDir) || fs.existsSync(activeFile)) {
+        throw new Error(`无法启用 Skill：目标路径已存在: ${fullDir}`)
+      }
+      const target = fs.readFileSync(disabledLinkFile, 'utf-8').trim()
+      if (!target) throw new Error('无法启用 Skill：软链接目标为空')
+      createSkillDirectoryLink(expandPath(target), fullDir)
+      fs.rmSync(disabledLinkFile, { force: true })
+      return { enabled: true, path: fullDir }
+    }
+
+    if (fs.existsSync(activeFile)) return { enabled: true, path: fullDir }
+    if (!fs.existsSync(disabledFile)) throw new Error(`无法启用 Skill：未找到 ${DISABLED_SKILL_FILE_NAME}`)
+    fs.renameSync(disabledFile, activeFile)
+    return { enabled: true, path: fullDir }
+  }
+
+  if (fs.existsSync(disabledLinkFile)) return { enabled: false, path: fullDir }
+
+  let stats
+  try {
+    stats = fs.lstatSync(fullDir)
+  } catch {
+    throw new Error(`无法停用 Skill：目录不存在: ${fullDir}`)
+  }
+
+  if (stats.isSymbolicLink()) {
+    const rawTarget = fs.readlinkSync(fullDir)
+    const target = path.isAbsolute(rawTarget)
+      ? rawTarget
+      : path.resolve(path.dirname(fullDir), rawTarget)
+    fs.writeFileSync(disabledLinkFile, target, 'utf-8')
+    fs.rmSync(fullDir, { recursive: true, force: true })
+    return { enabled: false, path: fullDir }
+  }
+
+  if (fs.existsSync(disabledFile)) return { enabled: false, path: fullDir }
+  if (!fs.existsSync(activeFile)) throw new Error(`无法停用 Skill：未找到 SKILL.md: ${fullDir}`)
+  fs.renameSync(activeFile, disabledFile)
+  return { enabled: false, path: fullDir }
+}
 module.exports = {
   doAtomicReplaceDir,
   doAtomicWriteDir,
@@ -275,6 +369,7 @@ module.exports = {
   readDir,
   readFileText,
   writeFile,
+  renamePath,
   removeFile,
   removeEmptyAncestors,
   copyFile,
@@ -284,4 +379,5 @@ module.exports = {
   listIconFiles,
   readFileAsDataUri,
   createSymlink,
+  setSkillEnabled,
 }

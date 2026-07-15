@@ -1,18 +1,19 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { parseIcon, resolveIcon, type IconValue, type ResolvedIcon } from '../icons'
+import UiIcon, { type UiIconName } from './UiIcon.vue'
 
 const props = withDefaults(
   defineProps<{
     icon?: string | IconValue
     size?: number
     variant?: 'avatar' | 'mono'
-    fallback?: string
+    fallback?: UiIconName
   }>(),
   {
     size: 20,
     variant: 'avatar',
-    fallback: '⚙',
+    fallback: 'settings',
   },
 )
 
@@ -44,7 +45,7 @@ watch(
   >
     <span v-if="resolved.mode === 'svg'" v-html="resolved.svg" :class="['pi-avatar-icon', { 'pi-store-icon': isStoreIcon }]" />
     <img v-else-if="resolved.mode === 'img'" :src="resolved.src" class="pi-avatar-img" />
-    <span v-else class="pi-fallback">{{ fallback }}</span>
+    <span v-else class="pi-fallback"><UiIcon :name="fallback" :size="Math.max(12, size * 0.7)" /></span>
   </span>
   <span
     v-else-if="resolved.mode === 'svg'"
@@ -58,7 +59,7 @@ watch(
     class="pi-mono-img"
     :style="{ width: size + 'px', height: size + 'px' }"
   />
-  <span v-else class="pi-fallback-mono">{{ fallback }}</span>
+  <span v-else class="pi-fallback-mono"><UiIcon :name="fallback" :size="Math.max(12, size * 0.7)" /></span>
 </template>
 
 <style scoped>

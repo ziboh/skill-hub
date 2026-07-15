@@ -1,9 +1,16 @@
-import { describe, test, expect, beforeEach } from 'vitest'
+import { describe, test, expect, beforeEach, vi } from 'vitest'
 import { useTranslationQueue, processingHashes, MAX_CONCURRENT } from '../useTranslationQueue'
 
 beforeEach(() => {
   processingHashes.clear()
   window.ztools.dbStorage.clear()
+  window.ztools.dbStorage.setItem(
+    'sm_settings',
+    JSON.stringify({
+      translationModelId: 'test-provider::test-model',
+      aiModels: [{ id: 'test-provider', enabled: true, models: [{ id: 'test-model', enabled: true }] }],
+    }),
+  )
   const { clearAll } = useTranslationQueue()
   clearAll()
 })
@@ -25,6 +32,27 @@ describe('useTranslationQueue', () => {
       status: 'translating',
     })
     expect(queue.value[0].skillId).toBeUndefined()
+  })
+
+  test('blocks a task after discovering that no translation model is configured', async () => {
+    const { addTranslation, queue } = useTranslationQueue()
+    window.ztools.dbStorage.removeItem('sm_settings')
+    addTranslation('no-model', 'content', 'No Model')
+    await vi.waitFor(() => {
+      expect(queue.value[0]).toMatchObject({ status: 'pending', blocked: true })
+    })
+  })
+
+  test('does not promote a blocked task when another task leaves the queue', () => {
+    const { queue, removeTranslation } = useTranslationQueue()
+    queue.value = [
+      { hash: 'blocked', type: 'content', status: 'pending', startedAt: 1, blocked: true },
+      { hash: 'running', type: 'content', status: 'translating', startedAt: 2 },
+    ]
+
+    removeTranslation('running', 'content')
+
+    expect(queue.value[0]).toMatchObject({ hash: 'blocked', status: 'pending', blocked: true })
   })
 
   test('addTranslation persists to dbStorage', () => {

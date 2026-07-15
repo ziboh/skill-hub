@@ -21,6 +21,7 @@ const {
   readDir,
   readFileText,
   writeFile,
+  renamePath,
   removeFile,
   removeEmptyAncestors,
   copyFile,
@@ -30,10 +31,11 @@ const {
   listIconFiles,
   readFileAsDataUri,
   createSymlink,
+  setSkillEnabled,
 } = require('./lib/fs')
 const { downloadFile } = require('./lib/github-http')
 const { extractBufferZip } = require('./lib/zip')
-const { scanForSkills, scanForSkillFiles, parseSkillFile } = require('./lib/scan')
+const { scanForSkills, scanForSkillFiles, scanForSkillFilesIncludingDisabled, parseSkillFile } = require('./lib/scan')
 const { deployPlatformSkill, uninstallPlatformSkill } = require('./lib/platform-deploy')
 const {
   getLatestCommitSha,
@@ -77,6 +79,7 @@ window.services = {
   readDir,
   readFileText,
   writeFile,
+  renamePath,
   removeFile,
   removeEmptyAncestors,
   copyFile,
@@ -86,10 +89,12 @@ window.services = {
   listIconFiles,
   readFileAsDataUri,
   createSymlink,
+  setSkillEnabled,
   downloadFile,
   extractBufferZip,
   scanForSkills,
   scanForSkillFiles,
+  scanForSkillFilesIncludingDisabled,
   parseSkillFile,
   deployPlatformSkill,
   uninstallPlatformSkill,

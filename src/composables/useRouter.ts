@@ -13,6 +13,7 @@ export interface NavigateParams {
   platformId?: string
   context?: DetailContext
   anchor?: string
+  targetSkillId?: string
   duplicateSkills?: SkillScanResult[]
 }
 
@@ -25,6 +26,7 @@ export function useRouter() {
   const selectedAgentPlatformId = ref('')
   const selectedDuplicateSkills = ref<SkillScanResult[] | null>(null)
   const settingsAnchor = ref('')
+  const targetMySkillId = ref('')
   const storeSubId = ref(storage.getPageState('skill-store')?.presetId || 'claude')
 
   const activeRoute = computed(() => {
@@ -49,6 +51,7 @@ export function useRouter() {
   function navigate(code: RouteName, params?: NavigateParams) {
     route.value = code
     settingsAnchor.value = ''
+    targetMySkillId.value = ''
     if (params) {
       subRoute.value = params.sub || ''
       if (params.skill && 'id' in params.skill) selectedSkill.value = params.skill
@@ -56,6 +59,7 @@ export function useRouter() {
       if ('platformId' in params) selectedAgentPlatformId.value = params.platformId || ''
       if (params.context) detailContext.value = params.context
       if (params.anchor) settingsAnchor.value = params.anchor
+      if (params.targetSkillId) targetMySkillId.value = params.targetSkillId
       if (code === 'agent-skill-detail' && params.skill) {
         selectedAgentSkill.value = params.skill as SkillScanResult
       }
@@ -83,6 +87,7 @@ export function useRouter() {
     selectedAgentPlatformId,
     selectedDuplicateSkills,
     settingsAnchor,
+    targetMySkillId,
     storeSubId,
     activeRoute,
     isSettings,

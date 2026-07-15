@@ -1,10 +1,21 @@
 <script setup lang="ts">
 import { ref, watch, onUnmounted } from 'vue'
+import type { LegacyNotificationType, NotificationOptions, NotificationType, ShowToast } from '../inject-keys'
+
+const DEFAULT_DURATIONS: Record<NotificationType, number> = {
+  notification: 3000,
+  success: 3000,
+  warning: 5000,
+  error: 8000,
+}
 
 export interface ToastItem {
   id: string
   message: string
-  type: 'success' | 'error' | 'info' | 'warning'
+  type: NotificationType
+  title: string
+  duration: number
+  action?: NotificationOptions['action']
   leaving?: boolean
 }
 
@@ -14,39 +25,88 @@ const exitTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
 let idCounter = 0
 
-function showToast(message: string, type: ToastItem['type'] = 'success') {
-  const id = `${Date.now()}-${++idCounter}`
-  toasts.value.push({ id, message, type })
+function normalizeType(type?: LegacyNotificationType): NotificationType {
+  return type === 'info' ? 'notification' : type || 'notification'
+}
 
-  const autoTimer = setTimeout(() => {
+function clearToastTimers(id: string) {
+  const autoTimer = exitTimers.get(id + ':auto')
+  if (autoTimer) {
+    clearTimeout(autoTimer)
     exitTimers.delete(id + ':auto')
-    const t = toasts.value.find((t) => t.id === id)
-    if (t) t.leaving = true
-    exitTimers.set(
-      id,
-      setTimeout(() => {
-        toasts.value = toasts.value.filter((t) => t.id !== id)
-        exitTimers.delete(id)
-      }, 160),
-    )
-  }, 3000)
-  exitTimers.set(id + ':auto', autoTimer)
+  }
+
+  const exitTimer = exitTimers.get(id)
+  if (exitTimer) {
+    clearTimeout(exitTimer)
+    exitTimers.delete(id)
+  }
+}
+
+function removeToast(id: string) {
+  toasts.value = toasts.value.filter((t) => t.id !== id)
+  if (expandedMessageId.value === id) expandedMessageId.value = null
+  clearToastTimers(id)
+}
+
+function scheduleRemoval(id: string) {
+  const exitTimer = setTimeout(() => removeToast(id), 160)
+  exitTimers.set(id, exitTimer)
 }
 
 function closeToast(id: string) {
-  const t = toasts.value.find((t) => t.id === id)
-  if (t) t.leaving = true
-  exitTimers.set(
+  const toast = toasts.value.find((t) => t.id === id)
+  if (!toast || toast.leaving) return
+
+  const autoTimer = exitTimers.get(id + ':auto')
+  if (autoTimer) {
+    clearTimeout(autoTimer)
+    exitTimers.delete(id + ':auto')
+  }
+
+  toast.leaving = true
+  scheduleRemoval(id)
+}
+
+function handleAction(toast: ToastItem) {
+  try {
+    toast.action?.onClick()
+  } finally {
+    closeToast(toast.id)
+  }
+}
+
+const showToast: ShowToast = (input: string | NotificationOptions, legacyType?: LegacyNotificationType) => {
+  const rawOptions: NotificationOptions = typeof input === 'string' ? { message: input } : input
+  const type = normalizeType(typeof input === 'string' ? legacyType : input.type)
+  const id = `${Date.now()}-${++idCounter}`
+  const toast: ToastItem = {
     id,
-    setTimeout(() => {
-      toasts.value = toasts.value.filter((t) => t.id !== id)
-      exitTimers.delete(id)
-    }, 160),
-  )
+    message: rawOptions.message,
+    type,
+    title: rawOptions.title || '',
+    duration: rawOptions.duration ?? DEFAULT_DURATIONS[type],
+    action: rawOptions.action,
+  }
+
+  toasts.value.push(toast)
+
+  if (toast.duration > 0) {
+    const autoTimer = setTimeout(() => {
+      exitTimers.delete(id + ':auto')
+      const currentToast = toasts.value.find((t) => t.id === id)
+      if (currentToast && !currentToast.leaving) {
+        currentToast.leaving = true
+        scheduleRemoval(id)
+      }
+    }, toast.duration)
+    exitTimers.set(id + ':auto', autoTimer)
+  }
 }
 
 onUnmounted(() => {
   exitTimers.forEach(clearTimeout)
+  exitTimers.clear()
 })
 
 defineExpose({ showToast })
@@ -67,7 +127,7 @@ watch(expandedMessageId, (id) => {
     <div class="toast-container">
       <TransitionGroup name="toast">
         <div v-for="t in toasts" :key="t.id" class="toast-item" :class="[`toast-${t.type}`, { 'toast-leaving': t.leaving }]">
-          <div class="toast-icon">
+          <div class="toast-icon" aria-hidden="true">
             <svg
               v-if="t.type === 'success'"
               width="18"
@@ -128,14 +188,20 @@ watch(expandedMessageId, (id) => {
               <line x1="12" y1="8" x2="12.01" y2="8" />
             </svg>
           </div>
-          <span
-            class="toast-message"
-            :class="{ expanded: expandedMessageId === t.id }"
-            :title="expandedMessageId === t.id ? '' : t.message"
-            @click="expandedMessageId = expandedMessageId === t.id ? null : t.id"
-            >{{ t.message }}</span
-          >
-          <button class="toast-close" @click="closeToast(t.id)">
+          <div class="toast-content">
+            <div v-if="t.title" class="toast-title">{{ t.title }}</div>
+            <span
+              class="toast-message"
+              :class="{ expanded: expandedMessageId === t.id }"
+              :title="expandedMessageId === t.id ? '' : t.message"
+              @click="expandedMessageId = expandedMessageId === t.id ? null : t.id"
+              >{{ t.message }}</span
+            >
+          </div>
+          <button v-if="t.action" class="toast-action" type="button" @click="handleAction(t)">
+            {{ t.action.label }}
+          </button>
+          <button class="toast-close" type="button" :aria-label="t.title ? `关闭${t.title}` : '关闭提示'" @click="closeToast(t.id)">
             <svg
               width="14"
               height="14"
@@ -181,7 +247,7 @@ watch(expandedMessageId, (id) => {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   pointer-events: auto;
-  min-width: 200px;
+  min-width: 260px;
   max-width: 520px;
 }
 
@@ -189,6 +255,9 @@ watch(expandedMessageId, (id) => {
   flex-shrink: 0;
   display: flex;
   align-items: center;
+}
+.toast-notification .toast-icon {
+  color: hsl(var(--primary));
 }
 .toast-success .toast-icon {
   color: hsl(var(--success));
@@ -199,15 +268,27 @@ watch(expandedMessageId, (id) => {
 .toast-warning .toast-icon {
   color: hsl(var(--warning));
 }
-.toast-info .toast-icon {
-  color: hsl(var(--primary));
+
+.toast-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.toast-title {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: hsl(var(--foreground));
 }
 
 .toast-message {
   font-size: 13px;
   font-weight: 500;
+  line-height: 1.45;
   color: hsl(var(--foreground));
-  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -218,6 +299,21 @@ watch(expandedMessageId, (id) => {
   white-space: normal;
   overflow: visible;
   text-overflow: clip;
+}
+
+.toast-action {
+  flex-shrink: 0;
+  padding: 5px 9px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 7px;
+  background: transparent;
+  color: hsl(var(--primary));
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.toast-action:hover {
+  background: hsl(var(--accent));
 }
 
 .toast-close {

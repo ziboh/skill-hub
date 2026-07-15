@@ -69,10 +69,10 @@ describe('DeployModal', () => {
     expect(wrapper.emitted('close')).toBeTruthy()
   })
 
-  test('click overlay emits close', async () => {
+  test('点击遮罩不会关闭弹窗', async () => {
     const wrapper = createWrapper()
     await wrapper.find('.deploy-overlay').trigger('click')
-    expect(wrapper.emitted('close')).toBeTruthy()
+    expect(wrapper.emitted('close')).toBeUndefined()
   })
 
   test('shows platform selection grid', () => {

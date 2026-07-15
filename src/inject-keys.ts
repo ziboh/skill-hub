@@ -2,7 +2,28 @@ import type { InjectionKey, Ref } from 'vue'
 import type { RegisteredProject, SkillScanResult, PlatformInfo } from './types'
 import type { RouteName } from './composables/useRouter'
 
-export const KeyShowToast: InjectionKey<(msg: string, type?: 'success' | 'error' | 'info' | 'warning') => void> = Symbol('showToast')
+export type NotificationType = 'notification' | 'success' | 'warning' | 'error'
+export type LegacyNotificationType = NotificationType | 'info'
+
+export interface NotificationAction {
+  label: string
+  onClick: () => void
+}
+
+export interface NotificationOptions {
+  message: string
+  type?: NotificationType
+  title?: string
+  duration?: number
+  action?: NotificationAction
+}
+
+export type ShowToast = {
+  (options: NotificationOptions): void
+  (message: string, type?: LegacyNotificationType): void
+}
+
+export const KeyShowToast: InjectionKey<ShowToast> = Symbol('showToast')
 export const KeyRefreshCounts: InjectionKey<() => void> = Symbol('refreshCounts')
 export const KeyRefreshMySkills: InjectionKey<() => void> = Symbol('refreshMySkills')
 export const KeyOpenImportModal: InjectionKey<() => void> = Symbol('openImportModal')

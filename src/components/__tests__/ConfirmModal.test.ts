@@ -35,10 +35,10 @@ describe('ConfirmModal', () => {
     expect(wrapper.emitted('cancel')).toHaveLength(1)
   })
 
-  test('emits cancel on overlay click', () => {
+  test('点击遮罩不会取消弹窗', async () => {
     const wrapper = createWrapper()
-    wrapper.find('.confirm-overlay').trigger('click')
-    expect(wrapper.emitted('cancel')).toHaveLength(1)
+    await wrapper.find('.confirm-overlay').trigger('click')
+    expect(wrapper.emitted('cancel')).toBeUndefined()
   })
 
   test('does not emit cancel on modal click', () => {
@@ -62,5 +62,12 @@ describe('ConfirmModal', () => {
   test('renders message as HTML', () => {
     const wrapper = createWrapper({ message: '删除 <strong>test</strong>？' })
     expect(wrapper.html()).toContain('<strong>test</strong>')
+  })
+
+  test('escapes untrusted markup while preserving strong text', () => {
+    const wrapper = createWrapper({ message: '删除 <strong>test</strong><img src=x onerror=alert(1)>？' })
+    expect(wrapper.html()).toContain('<strong>test</strong>')
+    expect(wrapper.html()).not.toContain('<img')
+    expect(wrapper.html()).toContain('&lt;img')
   })
 })

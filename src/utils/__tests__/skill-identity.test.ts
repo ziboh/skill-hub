@@ -2,6 +2,8 @@ import { describe, test, expect } from 'vitest'
 import {
   normalizeSkillNameKey,
   getSkillDisplayName,
+  getSkillIdentityKey,
+  skillsShareIdentity,
   dedupeByNameKey,
   skillMatchesInstalled,
 } from '../skill-identity'
@@ -30,6 +32,49 @@ describe('getSkillDisplayName', () => {
 
   test('empty when both missing', () => {
     expect(getSkillDisplayName({})).toBe('')
+  })
+})
+
+describe('canonical skill identity', () => {
+  test('matches source-specific ids through canonicalId', () => {
+    const githubSkill = {
+      id: 'vercel-labs/agent-skills/react-best-practices',
+      canonicalId: 'vercel-labs/agent-skills/vercel-react-best-practices',
+    }
+    const skillsShSkill = { id: 'vercel-labs/agent-skills/vercel-react-best-practices' }
+
+    expect(getSkillIdentityKey(githubSkill)).toBe('vercel-labs/agent-skills/vercel-react-best-practices')
+    expect(skillsShareIdentity(githubSkill, skillsShSkill)).toBe(true)
+  })
+
+  test('matches an unresolved GitHub folder id to a prefixed SKILL.md name in the same repository', () => {
+    const githubCard = {
+      id: 'vercel-labs/agent-skills/react-best-practices',
+      repo: 'vercel-labs/agent-skills',
+      path: 'skills/react-best-practices',
+    }
+    const skillsShDownload = {
+      id: 'vercel-labs/agent-skills/vercel-react-best-practices',
+      canonicalId: 'vercel-labs/agent-skills/vercel-react-best-practices',
+      repo: 'vercel-labs/agent-skills',
+    }
+
+    expect(skillsShareIdentity(githubCard, skillsShDownload)).toBe(true)
+  })
+
+  test('does not fuzzy-match aliases from different repositories', () => {
+    expect(
+      skillsShareIdentity(
+        {
+          id: 'other/repo/react-best-practices',
+          repo: 'other/repo',
+        },
+        {
+          id: 'vercel-labs/agent-skills/vercel-react-best-practices',
+          repo: 'vercel-labs/agent-skills',
+        },
+      ),
+    ).toBe(false)
   })
 })
 

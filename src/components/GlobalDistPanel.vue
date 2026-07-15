@@ -124,19 +124,19 @@ async function uninstall() {
     scope: 'global',
   })
   if (!result.ok) {
-    showToast(toastUninstallError(result.error), 'error')
+    showToast({ type: 'error', message: toastUninstallError(result.error) })
     cancelUninstall()
     return
   }
   const uninstallWarning = formatSkillLifecycleWarnings('uninstall', result.warnings)
-  if (uninstallWarning) showToast(uninstallWarning, 'warning')
+  if (uninstallWarning) showToast({ type: 'warning', message: uninstallWarning })
   loadInstallStatus()
   refreshTick.value++
   const stillExists = distributeRecords.value.some((r) => r.platformId === pid)
   if (stillExists) {
-    showToast('卸载失败：记录删除异常', 'error')
+    showToast({ type: 'error', message: '卸载失败：记录删除异常' })
   } else {
-    showToast(`已从 ${pid} 卸载`, 'success')
+    showToast({ type: 'success', message: `已从 ${pid} 卸载` })
   }
   cancelUninstall()
 }
@@ -158,14 +158,14 @@ function addLog(platform: string, status: 'ok' | 'error' | 'pending', msg: strin
 
 async function install() {
   if (!selectedPlatforms.value.length) {
-    showToast('请先选择平台', 'error')
+    showToast({ type: 'error', message: '请先选择平台' })
     return
   }
   emit('install-started')
   installLog.value = []
   const sourceDir = resolveSkillSourceDir(props.skill)
   if (!sourceDir) {
-    showToast(toastSourceMissing(props.skill.name), 'error')
+    showToast({ type: 'error', message: toastSourceMissing(props.skill.name) })
     emit('install-finished')
     return
   }
@@ -184,7 +184,7 @@ async function install() {
     if (result.ok) {
       addLog(pid, 'ok', `${props.installMode === 'symlink' ? 'Symlink' : 'Copied'}: ${result.targetDir}`)
       const warning = formatSkillLifecycleWarnings('install', result.warnings)
-      if (warning) showToast(warning, 'warning')
+      if (warning) showToast({ type: 'warning', message: warning })
       installedNames.push(platform.name)
     } else {
       addLog(pid, 'error', result.message)
@@ -194,7 +194,7 @@ async function install() {
   if (installedNames.length) {
     updateItem(queueItem.id, { status: 'success' })
     const detail = installedNames.length === 1 ? installedNames[0] : `${installedNames.length} 个平台：${installedNames.join('、')}`
-    showToast(`已将 ${props.skill.name} 分发到${detail}`, 'success')
+    showToast({ type: 'success', message: `已将 ${props.skill.name} 分发到${detail}` })
   } else {
     updateItem(queueItem.id, { status: 'error', error: '安装失败' })
     storage.addFailureRecord({ type: 'distribution', skillId: props.skill.id, skillName: props.skill.name, error: '所有平台分发均失败' })

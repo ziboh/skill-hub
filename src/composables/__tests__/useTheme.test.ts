@@ -13,7 +13,6 @@ beforeEach(() => {
     compactMode: false,
     defaultInstallMode: 'copy',
     githubToken: '',
-    theme: 'auto',
     aiModels: [],
     translationModelId: '',
     autoTranslate: false,

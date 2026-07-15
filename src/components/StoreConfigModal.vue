@@ -13,7 +13,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits(['close', 'saved'])
-const showToast = inject(KeyShowToast, (_msg: string, _type?: 'success' | 'error' | 'info' | 'warning') => {})
+const showToast = inject(KeyShowToast, () => {})
 
 const editingId = ref<string | null>(props.editSource?.id || null)
 const sourceType = ref<StoreSourceType>((props.editSource?.type as StoreSourceType) || 'git-repo')
@@ -67,11 +67,11 @@ async function handleSave() {
   validating.value = true
   const result = await validateStoreUrl(sourceUrl.value.trim(), sourceType.value)
   if (!result.valid) {
-    showToast(result.message, 'error')
+    showToast({ type: 'error', message: result.message })
     validating.value = false
     return
   }
-  showToast(result.message, 'success')
+  showToast({ type: 'success', message: result.message })
   const data = {
     type: sourceType.value,
     name: sourceName.value.trim(),
@@ -96,7 +96,7 @@ async function handleSave() {
 </script>
 
 <template>
-  <div class="store-config-overlay" @click.self="emit('close')">
+  <div class="store-config-overlay">
     <div class="store-config-modal">
       <div class="modal-header">
         <div class="modal-header-left">

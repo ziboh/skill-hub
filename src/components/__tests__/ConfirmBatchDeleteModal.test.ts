@@ -33,10 +33,10 @@ describe('ConfirmBatchDeleteModal', () => {
     expect(items[1].text()).toBe('Test Skill 2')
   })
 
-  test('click overlay emits close', async () => {
+  test('点击遮罩不会关闭弹窗', async () => {
     const wrapper = createWrapper()
     await wrapper.find('.confirm-overlay').trigger('click')
-    expect(wrapper.emitted('close')).toBeTruthy()
+    expect(wrapper.emitted('close')).toBeUndefined()
   })
 
   test('click close button emits close', async () => {

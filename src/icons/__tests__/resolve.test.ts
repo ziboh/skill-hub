@@ -32,6 +32,15 @@ describe('resolveIcon', () => {
     if (r.mode === 'svg') expect(r.svg).toMatch(/id="c\d+-a"/)
   })
 
+  test('removes executable SVG content before rendering', async () => {
+    const r = await resolveIcon(parseIcon('<svg onload="alert(1)"><script>alert(2)</script><path /></svg>'))
+    expect(r.mode).toBe('svg')
+    if (r.mode === 'svg') {
+      expect(r.svg).not.toContain('onload')
+      expect(r.svg).not.toContain('<script')
+    }
+  })
+
   test('src', async () => {
     expect(await resolveIcon(parseIcon('https://x/a.png'))).toEqual({
       mode: 'img',

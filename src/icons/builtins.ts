@@ -24,57 +24,47 @@ import {
   ICON_LOCK,
   ICON_SHEETS,
 } from './skill-builtin-assets'
-import skillsShIcon from '../assets/platforms/skills-sh-favicon.ico'
+import skillsShIcon from '../assets/platforms/skills-sh-favicon.ico?inline'
 import claudeCodeIcon from '../assets/platforms/claude.svg?raw'
-import codexIcon from '../assets/platforms/codex.png'
+import codexIcon from '../assets/platforms/codex.png?inline'
 
 const providerModules = import.meta.glob<string>('/src/assets/providers/*.svg', {
   query: '?raw',
   import: 'default',
 })
 
-const platformSvgModules = import.meta.glob<string>('/src/assets/platforms/*.svg', {
-  query: '?raw',
-  import: 'default',
-})
+const platformSvgModules = import.meta.glob<string>(
+  ['/src/assets/platforms/*.svg', '!/src/assets/platforms/claude.svg'],
+  { query: '?raw', import: 'default' },
+)
 
-const platformPngModules = import.meta.glob<string>('/src/assets/platforms/*.{png,ico}', {
-  import: 'default',
-})
+const platformPngModules = import.meta.glob<string>(
+  [
+    '/src/assets/platforms/*.{png,ico}',
+    '!/src/assets/platforms/codex.png',
+    '!/src/assets/platforms/skills-sh-favicon.ico',
+  ],
+  { import: 'default' },
+)
 
 function basename(path: string): string {
   const file = path.split('/').pop() || ''
   return file.replace(/\.(svg|png|ico)$/i, '')
 }
 
-async function loadIconModule(loader?: () => Promise<unknown>): Promise<string> {
-  if (!loader) return ''
-  const mod = await loader()
-  return ((mod as { default?: string })?.default ?? mod) as string
-}
-
 for (const path of Object.keys(providerModules)) {
   const id = basename(path)
-  registerIcon('providers', id, {
-    type: 'module-svg',
-    load: () => loadIconModule(providerModules[path]),
-  })
+  registerIcon('providers', id, { type: 'module-svg', load: providerModules[path] as () => Promise<string> })
 }
 
 for (const path of Object.keys(platformSvgModules)) {
   const id = basename(path)
-  registerIcon('platforms', id, {
-    type: 'module-svg',
-    load: () => loadIconModule(platformSvgModules[path]),
-  })
+  registerIcon('platforms', id, { type: 'module-svg', load: platformSvgModules[path] as () => Promise<string> })
 }
 
 for (const path of Object.keys(platformPngModules)) {
   const id = basename(path)
-  registerIcon('platforms', id, {
-    type: 'module-url',
-    load: () => loadIconModule(platformPngModules[path]),
-  })
+  registerIcon('platforms', id, { type: 'module-url', load: platformPngModules[path] as () => Promise<string> })
 }
 
 // Explicit store/platform presets (stable ids used by STORE_ICONS)
