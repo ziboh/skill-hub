@@ -12,9 +12,10 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 
-async function createWrapper() {
+async function createWrapper(position?: 'center-bottom' | 'center-top' | 'top-right') {
   const wrapper = mount(AppToast, {
     attachTo: document.body,
+    props: position ? { position } : {},
   })
   await nextTick()
   return wrapper
@@ -25,6 +26,15 @@ function toastEls() {
 }
 
 describe('AppToast', () => {
+  test.each([
+    ['center-bottom', 'toast-position-center-bottom'],
+    ['center-top', 'toast-position-center-top'],
+    ['top-right', 'toast-position-top-right'],
+  ] as const)('renders the %s position class', async (position, className) => {
+    await createWrapper(position)
+    expect(document.querySelector('.toast-container')?.classList).toContain(className)
+  })
+
   test('starts with no toasts', async () => {
     await createWrapper()
     expect(toastEls()).toHaveLength(0)

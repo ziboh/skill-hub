@@ -11,6 +11,7 @@ describe('useSettings', () => {
     expect(settings.themeMode).toBe('auto')
     expect(settings.themeColor).toBe('blue')
     expect(settings.fontSize).toBe('medium')
+    expect(settings.toastPosition).toBe('center-bottom')
     expect(settings.defaultInstallMode).toBe('copy')
   })
 

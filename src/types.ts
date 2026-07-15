@@ -1,6 +1,7 @@
 export type SkillSource = 'builtin' | 'github' | 'skills-sh' | 'local' | 'marketplace-json' | 'well-known-index' | 'git-repo' | 'local-dir'
 export type StoreSourceType = 'marketplace-json' | 'well-known-index' | 'git-repo' | 'local-dir'
 export type InstallMode = 'symlink' | 'copy'
+export type ToastPosition = 'center-bottom' | 'center-top' | 'top-right'
 
 export interface Skill {
   id: string
@@ -113,6 +114,7 @@ export interface AppSettings {
   themeColor: string
   fontSize: FontSize
   motionPreference: MotionPreference
+  toastPosition: ToastPosition
   compactMode: boolean
   aiModels: ModelConfig[]
   translationModelId: string

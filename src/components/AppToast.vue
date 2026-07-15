@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { ref, watch, onUnmounted } from 'vue'
 import type { LegacyNotificationType, NotificationOptions, NotificationType, ShowToast } from '../inject-keys'
+import type { ToastPosition } from '../types'
+
+const props = withDefaults(defineProps<{ position?: ToastPosition }>(), {
+  position: 'center-bottom',
+})
 
 const DEFAULT_DURATIONS: Record<NotificationType, number> = {
   notification: 3000,
@@ -124,7 +129,7 @@ watch(expandedMessageId, (id) => {
 
 <template>
   <Teleport to="body">
-    <div class="toast-container">
+    <div class="toast-container" :class="`toast-position-${props.position}`">
       <TransitionGroup name="toast">
         <div v-for="t in toasts" :key="t.id" class="toast-item" :class="[`toast-${t.type}`, { 'toast-leaving': t.leaving }]">
           <div class="toast-icon" aria-hidden="true">
@@ -225,14 +230,29 @@ watch(expandedMessageId, (id) => {
 <style scoped>
 .toast-container {
   position: fixed;
-  bottom: 24px;
-  left: 50%;
-  transform: translateX(-50%);
   z-index: 99999;
   display: flex;
   flex-direction: column;
   gap: 10px;
   pointer-events: none;
+}
+
+.toast-position-center-bottom {
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.toast-position-center-top {
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.toast-position-top-right {
+  top: 24px;
+  right: 24px;
+  align-items: flex-end;
 }
 
 .toast-item {

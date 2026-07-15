@@ -353,7 +353,7 @@ const currentPageSkills = computed<Skill[]>(() => {
         }
       "
     />
-    <AppToast ref="appToast" />
+    <AppToast ref="appToast" :position="settings.toastPosition" />
     <div class="app-content">
       <aside class="rail-sidebar">
         <div class="rail-logo" title="技能管理器" style="cursor: pointer" @click="navigate('my')">

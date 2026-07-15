@@ -28,6 +28,7 @@ function createDefaultSettings(): AppSettings {
     themeColor: 'blue',
     fontSize: 'medium',
     motionPreference: 'standard',
+    toastPosition: 'center-bottom',
     compactMode: false,
     aiModels: [],
     translationModelId: '',

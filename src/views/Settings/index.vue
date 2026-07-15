@@ -10,7 +10,7 @@ import {
 } from '../../data/platforms'
 import { storage } from '../../utils/storage'
 import { getMandiThemes, hexToHsl } from '../../utils/theme'
-import type { PlatformInfo, ThemeMode, FontSize, MotionPreference } from '../../types'
+import type { PlatformInfo, ThemeMode, FontSize, MotionPreference, ToastPosition } from '../../types'
 import { MORANDI_THEMES } from '../../types'
 import { useSettings } from '../../composables/useSettings'
 import { useTheme } from '../../composables/useTheme'
@@ -224,6 +224,12 @@ const motionOptions: { id: MotionPreference; label: string; desc: string }[] = [
   { id: 'standard', label: '标准', desc: '完整动画' },
 ]
 
+const toastPositionOptions: { id: ToastPosition; label: string }[] = [
+  { id: 'center-bottom', label: '中间底部' },
+  { id: 'center-top', label: '中间顶部' },
+  { id: 'top-right', label: '右上角' },
+]
+
 const morandiThemes = getMandiThemes()
 
 onMounted(() => {
@@ -372,6 +378,11 @@ function setFontSize(size: FontSize) {
 
 function setMotion(pref: MotionPreference) {
   updateSettings({ motionPreference: pref })
+}
+
+function setToastPosition(position: ToastPosition) {
+  updateSettings({ toastPosition: position })
+  showToast({ type: 'success', message: '提示位置已更新' })
 }
 
 function setCompactMode(val: boolean) {
@@ -811,6 +822,24 @@ function getPlatformOsPath(platform: PlatformInfo): string {
                 >
                   <span class="option-label">{{ f.label }}</span>
                   <span class="option-meta">{{ f.size }}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Toast Position -->
+          <div class="setting-section">
+            <h3 class="setting-section-title">提示位置</h3>
+            <div class="setting-card">
+              <div class="segmented-control">
+                <button
+                  v-for="position in toastPositionOptions"
+                  :key="position.id"
+                  class="segment-btn"
+                  :class="{ active: settings.toastPosition === position.id }"
+                  @click="setToastPosition(position.id)"
+                >
+                  <span>{{ position.label }}</span>
                 </button>
               </div>
             </div>
