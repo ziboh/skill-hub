@@ -23,6 +23,7 @@ const sourceBranch = ref(props.editSource?.branch || '')
 const sourceDirectory = ref(props.editSource?.directory || '')
 const sourceIcon = ref(props.editSource?.icon || '')
 const validating = ref(false)
+const showIconPicker = ref(false)
 
 const isEditing = computed(() => !!editingId.value)
 
@@ -55,11 +56,17 @@ watch(
       sourceDirectory.value = src.directory || ''
       sourceIcon.value = src.icon || ''
     }
+    showIconPicker.value = false
   },
 )
 
 function canAdd(): boolean {
   return !!(sourceName.value.trim() && sourceUrl.value.trim())
+}
+
+function handleIconSelected(value: string) {
+  sourceIcon.value = value
+  showIconPicker.value = false
 }
 
 async function handleSave() {
@@ -150,7 +157,7 @@ async function handleSave() {
             >
               <div class="type-card-header">
                 <span class="type-icon">
-                  <ProviderIcon :icon="option.icon" :size="18" />
+                  <ProviderIcon :icon="option.icon" :size="18" variant="mono" />
                 </span>
                 <span class="type-label">{{ option.label }}</span>
               </div>
@@ -173,7 +180,21 @@ async function handleSave() {
           <input v-model="sourceBranch" type="text" placeholder="分支（可选）" class="form-input" />
           <input v-model="sourceDirectory" type="text" placeholder="目录（可选）" class="form-input" />
         </div>
-        <StoreIconPicker v-model="sourceIcon" :defaultIcon="getDefaultStoreIcon(sourceType)" />
+        <div class="icon-field">
+          <div class="section-label">商店图标</div>
+          <button type="button" class="icon-picker-trigger" @click="showIconPicker = true">
+            <span class="icon-picker-preview">
+              <ProviderIcon :icon="sourceIcon || getDefaultStoreIcon(sourceType)" :size="28" variant="mono" />
+            </span>
+            <span class="icon-picker-info">
+              <span class="icon-picker-title">{{ sourceIcon ? '自定义图标' : '使用默认图标' }}</span>
+              <span class="icon-picker-hint">点击选择图标</span>
+            </span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+          </button>
+        </div>
         <div class="examples-box">
           <div class="examples-label">
             {{ examples[sourceType]?.label || 'Example' }}
@@ -189,6 +210,30 @@ async function handleSave() {
         <button class="modal-btn save" :disabled="!canAdd() || validating" @click="handleSave">
           {{ validating ? '验证中...' : isEditing ? '保存' : '添加' }}
         </button>
+      </div>
+    </div>
+  </div>
+
+  <div v-if="showIconPicker" class="store-config-overlay icon-overlay">
+    <div class="store-config-modal icon-picker-modal">
+      <div class="modal-header icon-picker-header">
+        <button class="modal-back" type="button" @click="showIconPicker = false">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M19 12H5" />
+            <path d="M12 19l-7-7 7-7" />
+          </svg>
+          <span>返回</span>
+        </button>
+        <h3 class="modal-title">选择商店图标</h3>
+      </div>
+      <div class="modal-body icon-picker-body">
+        <StoreIconPicker
+          v-model="sourceIcon"
+          library="all"
+          :preview-size="48"
+          :defaultIcon="getDefaultStoreIcon(sourceType)"
+          @update:modelValue="handleIconSelected"
+        />
       </div>
     </div>
   </div>
@@ -209,7 +254,7 @@ async function handleSave() {
 .store-config-modal {
   width: 560px;
   max-width: 90vw;
-  max-height: 85vh;
+  height: min(720px, calc(100vh - 32px));
   background: hsl(var(--card));
   border: 1px solid hsl(var(--border));
   border-radius: 16px;
@@ -225,6 +270,7 @@ async function handleSave() {
   justify-content: space-between;
   padding: 16px 20px;
   border-bottom: 1px solid hsl(var(--border));
+  flex-shrink: 0;
 }
 
 .modal-header-left {
@@ -271,14 +317,136 @@ async function handleSave() {
   color: hsl(var(--foreground));
 }
 
+.modal-back {
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px 0 4px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  font-size: 12px;
+  transition: all var(--duration-base) var(--ease-standard);
+}
+
+.modal-back:hover {
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+}
+
 .modal-body {
   padding: 20px;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.icon-field {
+  margin-bottom: 18px;
+  flex-shrink: 0;
+}
+
+.icon-picker-trigger {
+  width: 100%;
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+  cursor: pointer;
+  text-align: left;
+  transition: all var(--duration-base) var(--ease-standard);
+}
+
+.icon-picker-trigger:hover {
+  border-color: hsl(var(--primary));
+  background: hsl(var(--primary) / 0.04);
+}
+
+.icon-picker-preview {
+  width: 52px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 9px;
+  background: transparent;
+}
+
+.icon-picker-info {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.icon-picker-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+
+.icon-picker-hint {
+  font-size: 11px;
+  color: hsl(var(--muted-foreground));
+}
+
+.icon-overlay {
+  z-index: 1100;
+}
+
+.icon-picker-modal {
+  height: min(720px, calc(100vh - 32px));
+}
+
+.icon-picker-header {
+  position: relative;
+  justify-content: center;
+}
+
+.icon-picker-header .modal-back {
+  position: absolute;
+  left: 20px;
+}
+
+.icon-picker-body {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.icon-picker-body :deep(.store-icon-picker) {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+
+.icon-picker-body :deep(.sip-preview) {
+  padding: 16px 18px;
+}
+
+.icon-picker-body :deep(.sip-preview-icon) {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
 }
 
 .form-section {
   margin-bottom: 18px;
+  flex-shrink: 0;
 }
 
 .section-label {
@@ -338,14 +506,14 @@ async function handleSave() {
   align-items: center;
   justify-content: center;
   border-radius: 8px;
-  background: hsl(var(--muted));
+  background: transparent;
   color: hsl(var(--muted-foreground));
   flex-shrink: 0;
   transition: all var(--duration-base) var(--ease-standard);
 }
 
 .type-card.active .type-icon {
-  background: hsl(var(--primary) / 0.12);
+  background: transparent;
   color: hsl(var(--primary));
 }
 
@@ -369,6 +537,7 @@ async function handleSave() {
   display: flex;
   gap: 10px;
   margin-bottom: 12px;
+  flex-shrink: 0;
 }
 
 .form-input {
@@ -401,6 +570,7 @@ async function handleSave() {
   background: hsl(var(--muted));
   border-radius: 10px;
   min-width: 0;
+  flex-shrink: 0;
   border: 1px solid hsl(var(--border) / 0.5);
 }
 
@@ -454,6 +624,7 @@ async function handleSave() {
   gap: 8px;
   padding: 14px 20px;
   border-top: 1px solid hsl(var(--border));
+  flex-shrink: 0;
 }
 
 .modal-btn {

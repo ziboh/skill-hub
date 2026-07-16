@@ -260,7 +260,7 @@ function getSourceLabel(type: string): string {
         <input v-model="sourceBranch" type="text" placeholder="分支（可选）" class="form-input" />
         <input v-model="sourceDirectory" type="text" placeholder="目录（可选）" class="form-input" />
       </div>
-      <StoreIconPicker v-model="sourceIcon" :defaultIcon="getDefaultStoreIcon(sourceType)" />
+      <StoreIconPicker v-model="sourceIcon" library="all" :defaultIcon="getDefaultStoreIcon(sourceType)" />
       <div class="form-actions">
         <div class="examples-box">
           <div class="examples-label">

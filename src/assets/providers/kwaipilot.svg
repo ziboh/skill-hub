@@ -1,14 +1,1 @@
-<svg width="120" height="120" viewBox="0 0 120 120" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-<path d="M60.3031 18.8139C37.3753 18.8139 18.7852 37.4037 18.7852 60.3311C18.7852 72.8483 24.3278 84.071 33.0858 91.6859L53.6245 49.5696H76.6004L51.559 100.919C54.3819 101.525 57.3011 101.842 60.3031 101.842C83.231 101.842 101.821 83.2516 101.821 60.3243C101.821 37.3968 83.231 18.807 60.3031 18.807V18.8139Z" fill="url(#paint0_linear_35_26679)"/>
-<path d="M33.0858 91.679L55.7451 45.2183C55.8071 45.0875 55.8691 44.9567 55.9379 44.8258L56.2478 44.1855H56.2614C60.2755 36.6601 68.2006 31.5376 77.3234 31.5376C87.2383 31.5376 95.7416 37.5896 99.3495 46.196C93.5726 30.2225 78.2667 18.807 60.3031 18.807C37.3753 18.807 18.7852 37.3968 18.7852 60.3243C18.7852 72.8415 24.3278 84.0642 33.0858 91.679Z" fill="url(#paint1_linear_35_26679)"/>
-<defs>
-<linearGradient id="paint0_linear_35_26679" x1="66.37" y1="35.8832" x2="63.126" y2="94.5778" gradientUnits="userSpaceOnUse">
-<stop offset="0.313072" stop-color="#9EC0E0"/>
-<stop offset="1" stop-color="white"/>
-</linearGradient>
-<linearGradient id="paint1_linear_35_26679" x1="67.3329" y1="33.7684" x2="38.5146" y2="80.631" gradientUnits="userSpaceOnUse">
-<stop stop-color="white"/>
-<stop offset="1" stop-color="#BCD5EC"/>
-</linearGradient>
-</defs>
-</svg>
+<svg height="1em" style="flex:none;line-height:1" viewBox="0 0 24 24" width="1em" xmlns="http://www.w3.org/2000/svg"><title>Kwaipilot</title><path d="M11.765.03C5.327.03.108 5.25.108 11.686c0 3.514 1.556 6.665 4.015 8.804L9.89 8.665h6.451L9.31 23.083c.807.173 1.63.26 2.455.26 6.438 0 11.657-5.22 11.657-11.658S18.202.028 11.765.028V.03z" fill="url(#lobe-icons-kwaipilot-0-_R_0_)"></path><path d="M4.123 20.489l6.362-13.046c.017-.036.035-.073.055-.11l.086-.18h.005a6.697 6.697 0 015.913-3.551c2.784 0 5.171 1.7 6.184 4.116-1.622-4.485-5.92-7.69-10.963-7.69C5.327.028.108 5.247.108 11.685c0 3.514 1.556 6.666 4.015 8.804z" fill="url(#lobe-icons-kwaipilot-1-_R_0_)"></path><defs><linearGradient gradientUnits="userSpaceOnUse" id="lobe-icons-kwaipilot-0-_R_0_" x1="13.469" x2="12.557" y1="4.823" y2="21.302"><stop offset=".313" stop-color="#9EC0E0"></stop><stop offset="1" stop-color="#fff"></stop></linearGradient><linearGradient gradientUnits="userSpaceOnUse" id="lobe-icons-kwaipilot-1-_R_0_" x1="13.739" x2="5.647" y1="4.229" y2="17.386"><stop stop-color="#fff"></stop><stop offset="1" stop-color="#BCD5EC"></stop></linearGradient></defs></svg>

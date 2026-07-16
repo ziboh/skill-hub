@@ -151,7 +151,6 @@ export const AVAILABLE_ICONS = [
   'huggingface',
   'hyperbolic',
   'ideogram',
-  'ima',
   'inceptionlabs',
   'infini',
   'inflection',

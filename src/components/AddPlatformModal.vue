@@ -388,7 +388,7 @@ function handleSubmit() {
 }
 
 .icon-panel {
-  width: 440px;
+  width: min(560px, 90vw);
   height: min(720px, calc(100vh - 32px));
   max-height: min(720px, calc(100vh - 32px));
   display: flex;

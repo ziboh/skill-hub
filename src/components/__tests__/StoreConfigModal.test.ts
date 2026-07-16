@@ -122,4 +122,23 @@ describe('StoreConfigModal', () => {
       expect(card.attributes('disabled')).toBeDefined()
     })
   })
+
+  test('shows a compact icon trigger instead of embedding the full icon library', () => {
+    const wrapper = createWrapper()
+    expect(wrapper.find('.icon-picker-trigger').exists()).toBe(true)
+    expect(wrapper.find('.icon-picker-modal').exists()).toBe(false)
+  })
+
+  test('opens the icon picker in a separate modal', async () => {
+    const wrapper = createWrapper()
+    await wrapper.find('.icon-picker-trigger').trigger('click')
+    expect(wrapper.find('.icon-picker-modal').exists()).toBe(true)
+    expect(wrapper.find('.icon-picker-modal .store-icon-picker').exists()).toBe(true)
+    expect(wrapper.find('.icon-picker-modal .modal-back').text()).toContain('返回')
+    expect(wrapper.find('.icon-picker-modal .modal-close').exists()).toBe(false)
+    expect(wrapper.find('.icon-picker-modal .modal-footer').exists()).toBe(false)
+
+    await wrapper.find('.icon-picker-modal .sip-grid-item[title="openai"]').trigger('click')
+    expect(wrapper.find('.icon-picker-modal').exists()).toBe(false)
+  })
 })

@@ -15,12 +15,14 @@ const props = withDefaults(
   defineProps<{
     modelValue?: string
     defaultIcon?: string
+    previewSize?: number
     /** providers = AI 供应商；platforms = Agent 平台；all = 两者 */
     library?: IconLibraryPreset
   }>(),
   {
     modelValue: '',
     defaultIcon: '',
+    previewSize: 32,
     library: 'providers',
   },
 )
@@ -41,7 +43,6 @@ const platformNameById = computed(() => {
   map.set('kilo-light', 'Kilo')
   map.set('codebuddy-light', 'CodeBuddy')
   map.set('skills-sh', 'skills.sh')
-  map.set('qoderwork', 'Qoder Work')
   return map
 })
 
@@ -120,9 +121,9 @@ const librarySearchPlaceholder = computed(() => {
   return '搜索图标...'
 })
 
-/** Store-type shortcuts; skip any that equal the current default. */
+/** Store-source shortcuts belong only in the combined icon library. */
 const storeShortcutIcons = computed(() => {
-  if (props.library === 'platforms') return [] as { id: string; label: string }[]
+  if (props.library !== 'all') return [] as { id: string; label: string }[]
   const all = [
     { id: 'store:git-repo', label: 'Git' },
     { id: 'store:marketplace-json', label: 'Market' },
@@ -210,9 +211,12 @@ function clearIcon() {
 
 <template>
   <div class="store-icon-picker">
-    <div class="sip-header">
-      <span class="sip-label">图标</span>
-      <button class="sip-clear" :class="{ hidden: !modelValue }" title="清除图标" @click="clearIcon">
+    <div class="sip-preview">
+      <div class="sip-preview-icon">
+        <ProviderIcon :icon="previewIcon" :size="previewSize" variant="mono" />
+      </div>
+      <span class="sip-preview-hint">{{ modelValue ? '当前图标' : '使用默认图标' }}</span>
+      <button v-if="modelValue" class="sip-clear" title="清除图标" @click="clearIcon">
         <svg
           width="12"
           height="12"
@@ -228,13 +232,6 @@ function clearIcon() {
         </svg>
         清除
       </button>
-    </div>
-
-    <div class="sip-preview">
-      <div class="sip-preview-icon">
-        <ProviderIcon :icon="previewIcon" :size="32" />
-      </div>
-      <span class="sip-preview-hint">{{ modelValue ? '当前图标' : '使用默认图标' }}</span>
     </div>
 
     <div class="sip-tabs">
@@ -275,37 +272,43 @@ function clearIcon() {
         </div>
         <div class="sip-grid">
           <!-- 始终第一项：默认（清空自定义 = 使用 defaultIcon） -->
-          <div
+          <button
+            type="button"
             class="sip-grid-item"
             :class="{ active: !modelValue }"
+            :aria-pressed="!modelValue"
             title="默认"
             @click="selectDefault"
           >
-            <ProviderIcon :icon="resolvedDefaultIcon" :size="24" />
+            <span class="sip-grid-icon"><ProviderIcon :icon="resolvedDefaultIcon" :size="40" variant="mono" /></span>
             <span class="sip-grid-label">默认</span>
-          </div>
-          <div
+          </button>
+          <button
             v-for="s in storeShortcutIcons"
             :key="s.id"
+            type="button"
             class="sip-grid-item"
             :class="{ active: modelValue === s.id }"
+            :aria-pressed="modelValue === s.id"
             :title="s.label"
             @click="selectIcon(s.id)"
           >
-            <ProviderIcon :icon="s.id" :size="24" />
+            <span class="sip-grid-icon"><ProviderIcon :icon="s.id" :size="40" variant="mono" /></span>
             <span class="sip-grid-label">{{ s.label }}</span>
-          </div>
-          <div
+          </button>
+          <button
             v-for="name in filteredIcons"
             :key="name"
+            type="button"
             class="sip-grid-item"
             :class="{ active: modelValue === name || modelValue === `platforms:${name}` }"
+            :aria-pressed="modelValue === name || modelValue === `platforms:${name}`"
             :title="iconLabel(name)"
             @click="selectIcon(name)"
           >
-            <ProviderIcon :icon="name" :size="24" />
+            <span class="sip-grid-icon"><ProviderIcon :icon="name" :size="40" variant="mono" /></span>
             <span class="sip-grid-label">{{ iconLabel(name) }}</span>
-          </div>
+          </button>
         </div>
       </template>
 
@@ -322,17 +325,19 @@ function clearIcon() {
           </button>
         </div>
         <div v-if="userIcons.length" class="sip-grid">
-          <div
-            v-for="icon in userIcons"
-            :key="icon.id"
-            class="sip-grid-item sip-user-icon"
-            :class="{ active: modelValue === icon.path }"
-            :title="icon.name"
-            @click="selectIcon(icon.path)"
-          >
-            <ProviderIcon :icon="icon.path" :size="24" />
-            <span class="sip-grid-label">{{ icon.name }}</span>
-            <button class="sip-user-icon-del" title="删除" @click.stop="deleteUserIcon(icon.id)">
+          <div v-for="icon in userIcons" :key="icon.id" class="sip-user-icon">
+            <button
+              type="button"
+              class="sip-grid-item"
+              :class="{ active: modelValue === icon.path }"
+              :aria-pressed="modelValue === icon.path"
+              :title="icon.name"
+              @click="selectIcon(icon.path)"
+            >
+              <span class="sip-grid-icon"><ProviderIcon :icon="icon.path" :size="40" variant="mono" /></span>
+              <span class="sip-grid-label">{{ icon.name }}</span>
+            </button>
+            <button type="button" class="sip-user-icon-del" title="删除" @click="deleteUserIcon(icon.id)">
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <line x1="18" y1="6" x2="6" y2="18" />
                 <line x1="6" y1="6" x2="18" y2="18" />
@@ -376,23 +381,8 @@ function clearIcon() {
   overflow: hidden;
 }
 
-.sip-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 14px;
-  flex-shrink: 0;
-}
-
-.sip-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: hsl(var(--muted-foreground));
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
 .sip-clear {
+  margin-left: auto;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -404,11 +394,6 @@ function clearIcon() {
   border-radius: 6px;
   cursor: pointer;
   transition: opacity 0.15s;
-}
-
-.sip-clear.hidden {
-  visibility: hidden;
-  pointer-events: none;
 }
 
 .sip-clear:hover {
@@ -432,7 +417,7 @@ function clearIcon() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: hsl(var(--card));
+  background: transparent;
   border-radius: 10px;
   flex-shrink: 0;
   overflow: hidden;
@@ -513,47 +498,86 @@ function clearIcon() {
 
 .sip-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
-  gap: 4px;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  grid-auto-rows: 92px;
+  align-content: start;
+  gap: 8px;
   flex: 1;
   min-height: 160px;
-  max-height: min(320px, 50vh);
+  max-height: min(390px, 55vh);
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
-  padding: 4px;
+  padding: 2px;
   -webkit-overflow-scrolling: touch;
 }
 
 .sip-grid-item {
-  display: flex;
-  flex-direction: column;
+  appearance: none;
+  width: 100%;
+  min-width: 0;
+  height: 92px;
+  display: grid;
+  grid-template-rows: 48px minmax(0, auto);
   align-items: center;
-  gap: 3px;
-  padding: 6px 4px;
+  justify-items: center;
+  gap: 6px;
+  padding: 9px 8px 8px;
+  color: hsl(var(--foreground));
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
   border-radius: 8px;
   cursor: pointer;
-  transition: background 0.1s;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    box-shadow 0.15s;
   position: relative;
 }
 
 .sip-grid-item:hover {
-  background: hsl(var(--accent));
+  background: hsl(var(--accent) / 0.55);
+  border-color: hsl(var(--ring) / 0.55);
 }
 
 .sip-grid-item.active {
-  background: hsl(var(--primary) / 0.12);
-  outline: 2px solid hsl(var(--primary));
-  outline-offset: -2px;
+  background: hsl(var(--primary) / 0.1);
+  border-color: hsl(var(--primary));
+  box-shadow: 0 0 0 1px hsl(var(--primary));
+}
+
+.sip-grid-item:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+.sip-grid-icon {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: hsl(var(--foreground));
+}
+
+.sip-grid-icon :deep(.pi-avatar),
+.sip-preview-icon :deep(.pi-avatar) {
+  background: transparent;
+}
+
+.sip-grid-icon :deep(.pi-avatar-icon svg),
+.sip-preview-icon :deep(.pi-avatar-icon svg) {
+  transform: none;
 }
 
 .sip-grid-label {
-  font-size: 9px;
-  color: hsl(var(--muted-foreground));
+  width: 100%;
+  min-width: 0;
+  font-size: 12px;
+  color: hsl(var(--foreground));
   text-align: center;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 50px;
   white-space: nowrap;
 }
 
@@ -600,7 +624,13 @@ function clearIcon() {
   transition: opacity 0.15s;
 }
 
-.sip-user-icon:hover .sip-user-icon-del {
+.sip-user-icon {
+  position: relative;
+  min-width: 0;
+}
+
+.sip-user-icon:hover .sip-user-icon-del,
+.sip-user-icon:focus-within .sip-user-icon-del {
   opacity: 1;
 }
 

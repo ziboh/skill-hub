@@ -1,6 +1,6 @@
-import skillsShIcon from '../assets/platforms/skills-sh-favicon.ico?inline'
+import skillsShIcon from '../assets/providers/vercel.svg?raw'
 import claudeIcon from '../assets/platforms/claude.svg?inline'
-import codexIcon from '../assets/platforms/codex.png?inline'
+import codexIcon from '../assets/platforms/codex.svg?inline'
 import { parseIcon, getIconAsset, resolveIconKey } from '../icons'
 import {
   ICON_GITHUB,

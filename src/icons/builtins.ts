@@ -1,12 +1,5 @@
 import { registerIcon, registerAlias } from './registry'
-import {
-  ICON_GITHUB,
-  ICON_GITEE,
-  ICON_MARKETPLACE,
-  ICON_WELL_KNOWN,
-  ICON_FOLDER,
-  ICON_STORE,
-} from './store-default-svgs'
+import { ICON_GITHUB, ICON_GITEE, ICON_MARKETPLACE, ICON_WELL_KNOWN, ICON_FOLDER, ICON_STORE } from './store-default-svgs'
 import {
   ICON_OPENAI,
   ICON_GITHUB as SKILL_ICON_GITHUB,
@@ -25,28 +18,40 @@ import {
   ICON_LOCK,
   ICON_SHEETS,
 } from './skill-builtin-assets'
-import skillsShIcon from '../assets/platforms/skills-sh-favicon.ico?inline'
+import skillsShIcon from '../assets/providers/vercel.svg?raw'
 import claudeCodeIcon from '../assets/platforms/claude.svg?raw'
-import codexIcon from '../assets/platforms/codex.png?inline'
 
-const providerModules = import.meta.glob<string>('/src/assets/providers/*.svg', {
-  query: '?raw',
-  import: 'default',
-})
-
-const platformSvgModules = import.meta.glob<string>(
-  ['/src/assets/platforms/*.svg', '!/src/assets/platforms/claude.svg'],
+const providerModules = import.meta.glob<string>(
+  [
+    '/src/assets/providers/*.svg',
+    '!/src/assets/providers/vercel.svg',
+    '!/src/assets/providers/dola.svg',
+    '!/src/assets/providers/querit.svg',
+    '!/src/assets/providers/think-any.svg',
+    '!/src/assets/providers/xiaoyi.svg',
+    '!/src/assets/providers/you.svg',
+    '!/src/assets/providers/zhida.svg',
+  ],
   { query: '?raw', import: 'default' },
 )
 
-const platformPngModules = import.meta.glob<string>(
+// These bundled SVG wrappers contain data-URI bitmaps, which the inline SVG sanitizer intentionally removes.
+const rasterBackedProviderModules = import.meta.glob<string>(
   [
-    '/src/assets/platforms/*.{png,ico}',
-    '!/src/assets/platforms/codex.png',
-    '!/src/assets/platforms/skills-sh-favicon.ico',
+    '/src/assets/providers/dola.svg',
+    '/src/assets/providers/querit.svg',
+    '/src/assets/providers/think-any.svg',
+    '/src/assets/providers/xiaoyi.svg',
+    '/src/assets/providers/you.svg',
+    '/src/assets/providers/zhida.svg',
   ],
-  { import: 'default' },
+  { query: '?url', import: 'default' },
 )
+
+const platformSvgModules = import.meta.glob<string>(['/src/assets/platforms/*.svg', '!/src/assets/platforms/claude.svg'], {
+  query: '?raw',
+  import: 'default',
+})
 
 function basename(path: string): string {
   const file = path.split('/').pop() || ''
@@ -57,26 +62,26 @@ for (const path of Object.keys(providerModules)) {
   const id = basename(path)
   registerIcon('providers', id, { type: 'module-svg', load: providerModules[path] as () => Promise<string> })
 }
+for (const path of Object.keys(rasterBackedProviderModules)) {
+  const id = basename(path)
+  registerIcon('providers', id, { type: 'module-url', load: rasterBackedProviderModules[path] as () => Promise<string> })
+}
+registerIcon('providers', 'vercel', { type: 'inline-svg', svg: skillsShIcon })
 
 for (const path of Object.keys(platformSvgModules)) {
   const id = basename(path)
-  registerIcon('platforms', id, { type: 'module-svg', load: platformSvgModules[path] as () => Promise<string> })
-}
-
-for (const path of Object.keys(platformPngModules)) {
-  const id = basename(path)
-  registerIcon('platforms', id, { type: 'module-url', load: platformPngModules[path] as () => Promise<string> })
+  const load = platformSvgModules[path] as () => Promise<string>
+  registerIcon('platforms', id, { type: 'module-svg', load })
+  if (id === 'codex') registerIcon('store', 'codex', { type: 'module-svg', load })
 }
 
 // Explicit store/platform presets (stable ids used by STORE_ICONS)
 // platforms:claude = Claude Code product icon (not Anthropic/company mark)
-registerIcon('platforms', 'skills-sh', { type: 'src', src: skillsShIcon })
+registerIcon('platforms', 'skills-sh', { type: 'inline-svg', svg: skillsShIcon })
 registerIcon('platforms', 'claude', { type: 'inline-svg', svg: claudeCodeIcon })
-registerIcon('platforms', 'codex', { type: 'src', src: codexIcon })
 
-registerIcon('store', 'skills-sh', { type: 'src', src: skillsShIcon })
+registerIcon('store', 'skills-sh', { type: 'inline-svg', svg: skillsShIcon })
 registerIcon('store', 'claude', { type: 'inline-svg', svg: claudeCodeIcon })
-registerIcon('store', 'codex', { type: 'src', src: codexIcon })
 
 const storeDefaults: Record<string, string> = {
   'git-repo': ICON_GITHUB,

@@ -2149,7 +2149,10 @@ function getPlatformOsPath(platform: PlatformInfo): string {
 
       <!-- Icon Picker Modal -->
       <div v-if="showIconPicker" class="modal-overlay" style="z-index: 1100">
-        <div class="modal modal-sm" style="width: 440px; max-height: min(85vh, 720px); display: flex; flex-direction: column">
+        <div
+          class="modal modal-sm"
+          style="width: min(560px, 90vw); height: min(720px, calc(100vh - 32px)); max-height: min(85vh, 720px); display: flex; flex-direction: column"
+        >
           <div class="modal-header">
             <h3 class="modal-title">选择图标</h3>
             <button class="modal-close" @click="showIconPicker = false">
