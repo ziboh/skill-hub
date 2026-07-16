@@ -3,6 +3,7 @@ import { useProjectState } from './useProjectState'
 import { storage } from '../utils/storage'
 import { getAllPlatformDefinitions } from '../data/platforms'
 import { syncAllowedWriteRoots } from '../utils/write-roots'
+import { isValidGlobalSkillPath } from '../utils/path'
 import type { RegisteredProject, SkillScanResult } from '../types'
 import type { ShowToast } from '../inject-keys'
 
@@ -68,11 +69,33 @@ export function useProjectManager(opts: { showToast: ShowToast; navigate: (code:
     }, 300)
   }
 
+  function validateProjectRoot(root: string): string | null {
+    if (!isValidGlobalSkillPath(root)) {
+      return '项目根目录路径格式无效，请填写当前系统支持的绝对路径或 ~ 路径。'
+    }
+
+    try {
+      const result = window.services.stat(root)
+      if (!result.exists) return '项目根目录不存在，请检查路径。'
+      if (!result.isDirectory) return '项目根目录必须是文件夹。'
+    } catch {
+      return '无法访问项目根目录，请检查路径是否有效且有访问权限。'
+    }
+
+    return null
+  }
+
   function addProject(project: { name: string; rootDir: string; scanPaths: string[] }) {
     try {
       const root = project.rootDir.trim()
       const name = project.name.trim()
       if (!root || !name) return
+
+      const rootError = validateProjectRoot(root)
+      if (rootError) {
+        addProjectError.value = rootError
+        return
+      }
 
       const hasConflict = registeredProjects.value.some((p) => p.rootDir.toLowerCase() === root.toLowerCase())
       if (hasConflict) {
@@ -109,9 +132,18 @@ export function useProjectManager(opts: { showToast: ShowToast; navigate: (code:
       const name = data.name.trim()
       if (!root || !name) return
 
+      const rootError = validateProjectRoot(root)
+      if (rootError) {
+        addProjectError.value = rootError
+        return
+      }
+
       const hasConflict = registeredProjects.value.some((p) => p.id !== id && p.rootDir.toLowerCase() === root.toLowerCase())
       if (hasConflict) {
-        showEditProjectModal.value = false
+        const conflict = registeredProjects.value.find((p) => p.id !== id && p.rootDir.toLowerCase() === root.toLowerCase())
+        addProjectError.value = conflict
+          ? `根目录已存在，与项目「${conflict.name}」冲突（${conflict.rootDir}）`
+          : '该项目根目录已存在，请选择其他目录或删除已有项目'
         return
       }
 
@@ -131,7 +163,7 @@ export function useProjectManager(opts: { showToast: ShowToast; navigate: (code:
         scanProject(selectedProject.value)
       }
     } catch (err) {
-      console.error('[ProjectManager] updateProject failed:', err)
+      addProjectError.value = err instanceof Error ? err.message : '更新项目时发生未知错误'
     }
   }
 

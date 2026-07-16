@@ -600,11 +600,15 @@ function onClearSearch() {
 }
 
 function onToggleCache() {
-  cacheEnabled.value = !cacheEnabled.value
-  storage.saveSettings({ storeCacheEnabled: cacheEnabled.value })
+  const nextEnabled = !cacheEnabled.value
+  if (!storage.saveSettings({ storeCacheEnabled: nextEnabled })) {
+    showToast({ type: 'error', message: '商店缓存设置保存失败，请稍后重试' })
+    return
+  }
+  cacheEnabled.value = nextEnabled
   setGitHubResponseCacheEnabled(cacheEnabled.value)
   fetchCurrentSkills(true)
-  showToast(cacheEnabled.value ? '商店缓存已开启' : '商店缓存已关闭', 'info')
+  showToast({ type: 'notification', message: cacheEnabled.value ? '商店缓存已开启' : '商店缓存已关闭' })
 }
 
 function buildSourceTag(mode: 'available' | 'imported') {

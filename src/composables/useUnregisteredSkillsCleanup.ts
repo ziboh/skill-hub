@@ -36,10 +36,16 @@ export function useUnregisteredSkillsCleanup() {
     showCleanupSelect.value = true
   }
 
-  function onCleanupDeleted(count: number, showToast: ShowToast) {
+  function onCleanupDeleted(count: number, failed: number, showToast: ShowToast) {
     cleanupResult.value = { found: unregisteredDirs.value.length, deleted: count }
     showCleanupSelect.value = false
-    showToast({ type: 'success', message: `已清理 ${count} 个未在已下载列表中的技能文件夹` })
+    if (failed && count) {
+      showToast({ type: 'warning', message: `已清理 ${count} 个文件夹，${failed} 个删除失败，请检查文件权限` })
+    } else if (failed) {
+      showToast({ type: 'error', message: `${failed} 个文件夹删除失败，请检查文件权限` })
+    } else {
+      showToast({ type: 'success', message: `已清理 ${count} 个未在已下载列表中的技能文件夹` })
+    }
   }
 
   return {

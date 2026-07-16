@@ -8,7 +8,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   close: []
-  deleted: [count: number]
+  deleted: [count: number, failed: number]
 }>()
 
 interface UnregisteredSkill {
@@ -76,10 +76,7 @@ function deleteSelected() {
     }
     deleted++
   }
-  if (failed && deleted) {
-    // partial — still report actual deleted count
-  }
-  emit('deleted', deleted)
+  emit('deleted', deleted, failed)
 }
 </script>
 

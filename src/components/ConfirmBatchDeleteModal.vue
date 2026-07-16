@@ -67,6 +67,7 @@ function deleteSkills() {
   let okCount = 0
   let failCount = 0
   let distFail = 0
+  let ancestorCleanupFail = 0
   const lifecycleWarnings: string[] = []
 
   for (const skill of props.skills) {
@@ -87,6 +88,7 @@ function deleteSkills() {
       window.services.removeEmptyAncestors?.(dir)
     } catch (e) {
       console.warn('[ConfirmBatchDeleteModal] removeEmptyAncestors failed:', dir, e)
+      ancestorCleanupFail++
     }
 
     if (removeDistributed.value && selectedPlatforms.value.size > 0) {
@@ -113,12 +115,17 @@ function deleteSkills() {
   }
 
   if (failCount && okCount) {
-    showToast({ type: 'warning', message: `${okCount} 个已删除，${failCount} 个失败` })
+    const cleanupSuffix = ancestorCleanupFail ? `，${ancestorCleanupFail} 个空目录清理失败` : ''
+    showToast({ type: 'warning', message: `${okCount} 个已删除，${failCount} 个失败${cleanupSuffix}` })
   } else if (failCount && !okCount) {
     showToast({ type: 'error', message: `删除失败（${failCount} 个），请检查文件权限` })
     return
-  } else if (distFail) {
+  }
+  if (distFail) {
     showToast({ type: 'warning', message: `技能已删除，${distFail} 处分发文件删除失败` })
+  }
+  if (ancestorCleanupFail && !(failCount && okCount)) {
+    showToast({ type: 'warning', message: `技能已删除，但 ${ancestorCleanupFail} 个空目录清理失败` })
   }
   const warning = formatSkillLifecycleWarnings('uninstall', lifecycleWarnings)
   if (warning) showToast({ type: 'warning', message: warning })

@@ -1,13 +1,16 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, inject } from 'vue'
 import type { PlatformInfo } from '../types'
+import { KeyShowToast } from '../inject-keys'
 import ProviderIcon from './ProviderIcon.vue'
-import StoreIconPicker from './StoreIconPicker.vue'
+import IconPickerModal from './IconPickerModal.vue'
 import { platformDisplayIcon } from '../data/platforms'
+import { isValidGlobalSkillPath, isValidProjectRelativePath } from '../utils/path'
 
 const props = defineProps<{
   platform?: PlatformInfo | null
 }>()
+const showToast = inject(KeyShowToast, () => {})
 
 const emit = defineEmits<{
   (e: 'close'): void
@@ -27,7 +30,6 @@ const name = ref('')
 const defaultPath = ref('')
 const projectPath = ref('')
 const icon = ref('')
-const error = ref('')
 const isSubmitting = ref(false)
 const showIconPicker = ref(false)
 
@@ -47,7 +49,6 @@ watch(
       projectPath.value = ''
       icon.value = ''
     }
-    error.value = ''
     isSubmitting.value = false
     showIconPicker.value = false
   },
@@ -60,7 +61,7 @@ async function selectFolder() {
   try {
     const dialog = window.ztools?.showOpenDialog
     if (!dialog) {
-      error.value = '文件选择对话框不可用，请手动输入路径。'
+      showToast({ type: 'error', message: '文件选择对话框不可用，请手动输入路径。' })
       return
     }
     const dirs = dialog({
@@ -69,13 +70,12 @@ async function selectFolder() {
     })
     if (dirs && dirs.length > 0) {
       defaultPath.value = dirs[0]
-      error.value = ''
       if (!name.value) {
         name.value = dirs[0].split(/[/\\]/).filter(Boolean).pop() || ''
       }
     }
   } catch {
-    error.value = '选择文件夹失败，请手动输入路径。'
+    showToast({ type: 'error', message: '选择文件夹失败，请手动输入路径。' })
   }
 }
 
@@ -83,20 +83,28 @@ function handleSubmit() {
   const n = name.value.trim()
   const path = defaultPath.value.trim()
   if (!n) {
-    error.value = '请输入平台名称。'
+    showToast({ type: 'error', message: '请输入平台名称。' })
     return
   }
   if (!path) {
-    error.value = '请输入全局技能目录路径。'
+    showToast({ type: 'error', message: '请输入全局技能目录路径。' })
     return
   }
-  error.value = ''
+  if (!isValidGlobalSkillPath(path)) {
+    showToast({ type: 'error', message: '全局技能目录路径格式无效，请填写当前系统支持的绝对路径或 ~ 路径。' })
+    return
+  }
+  const project = projectPath.value.trim()
+  if (project && !isValidProjectRelativePath(project)) {
+    showToast({ type: 'error', message: '项目相对路径必须以 ./ 或文件夹名开头，且不能包含绝对路径或 ..。' })
+    return
+  }
   isSubmitting.value = true
   emit('submit', {
     id: props.platform?.id,
     name: n,
     defaultPath: path,
-    projectPath: projectPath.value.trim() || undefined,
+    projectPath: project || undefined,
     icon: icon.value.trim() || undefined,
   })
 }
@@ -134,7 +142,7 @@ function handleSubmit() {
 
         <div class="field">
           <label class="field-label">项目相对路径（可选）</label>
-          <input v-model="projectPath" type="text" class="field-input" placeholder="例如 .my-agent/skills/" />
+          <input v-model="projectPath" type="text" class="field-input" placeholder="例如 .my-agent/skills/ 或 ./skills/" />
         </div>
 
         <div class="field">
@@ -149,7 +157,6 @@ function handleSubmit() {
         </div>
       </div>
       <div class="modal-footer">
-        <div v-if="error" class="modal-error">{{ error }}</div>
         <button class="btn-cancel" type="button" @click="emit('close')">取消</button>
         <button class="btn-primary" type="button" :disabled="isSubmitting || !name.trim() || !defaultPath.trim()" @click="handleSubmit">
           {{ isSubmitting ? '保存中…' : isEdit ? '保存' : '添加平台' }}
@@ -158,24 +165,14 @@ function handleSubmit() {
     </div>
   </div>
 
-  <div v-if="showIconPicker" class="modal-overlay icon-overlay">
-    <div class="modal-panel icon-panel">
-      <div class="modal-header">
-        <h2 class="modal-title">选择图标</h2>
-        <button class="modal-close" type="button" @click="showIconPicker = false">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M18 6L6 18M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
-      <div class="modal-body icon-body">
-        <StoreIconPicker v-model="icon" library="platforms" default-icon="_generic" />
-      </div>
-      <div class="modal-footer">
-        <button class="btn-primary" type="button" @click="showIconPicker = false">完成</button>
-      </div>
-    </div>
-  </div>
+  <IconPickerModal
+    v-if="showIconPicker"
+    v-model="icon"
+    title="选择图标"
+    library="platforms"
+    default-icon="_generic"
+    @close="showIconPicker = false"
+  />
 </template>
 
 <style scoped>
@@ -340,13 +337,6 @@ function handleSubmit() {
   border-top: 1px solid hsl(var(--border));
 }
 
-.modal-error {
-  flex: 1;
-  font-size: 12px;
-  color: hsl(var(--destructive));
-  margin-right: 8px;
-}
-
 .btn-cancel,
 .btn-primary {
   height: 36px;
@@ -381,32 +371,5 @@ function handleSubmit() {
 
 .btn-primary:not(:disabled):hover {
   filter: brightness(1.05);
-}
-
-.icon-overlay {
-  z-index: 1100;
-}
-
-.icon-panel {
-  width: min(560px, 90vw);
-  height: min(720px, calc(100vh - 32px));
-  max-height: min(720px, calc(100vh - 32px));
-  display: flex;
-  flex-direction: column;
-}
-
-.icon-body {
-  flex: 1;
-  min-height: 0;
-  padding: 12px 16px;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.icon-body :deep(.store-icon-picker) {
-  flex: 1;
-  min-height: 0;
-  height: 100%;
 }
 </style>

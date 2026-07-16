@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { inject, ref, watch } from 'vue'
 import type { RegisteredProject } from '../types'
+import { KeyShowToast } from '../inject-keys'
 
 const props = defineProps<{
   project?: RegisteredProject | null
   submitError?: string
 }>()
+
+const showToast = inject(KeyShowToast, () => {})
 
 const emit = defineEmits<{
   (e: 'close'): void
@@ -16,7 +19,6 @@ const rootDir = ref('')
 const projectName = ref('')
 const scanPaths = ref<string[]>([])
 const newScanPath = ref('')
-const error = ref('')
 const isSubmitting = ref(false)
 
 const isEdit = () => !!props.project
@@ -33,7 +35,6 @@ watch(
       projectName.value = ''
       scanPaths.value = []
     }
-    error.value = ''
     isSubmitting.value = false
   },
   { immediate: true },
@@ -55,7 +56,7 @@ async function selectFolder(target: string) {
   try {
     const dialog = window.ztools?.showOpenDialog
     if (!dialog) {
-      error.value = '文件选择对话框不可用，请手动输入路径。'
+      showToast({ type: 'error', message: '文件选择对话框不可用，请手动输入路径。' })
       return
     }
     const dirs = dialog({
@@ -65,7 +66,6 @@ async function selectFolder(target: string) {
     if (dirs && dirs.length > 0) {
       if (target === 'root') {
         rootDir.value = dirs[0]
-        error.value = ''
         if (!projectName.value) {
           projectName.value = dirs[0].split(/[/\\]/).filter(Boolean).pop() || ''
         }
@@ -74,7 +74,7 @@ async function selectFolder(target: string) {
       }
     }
   } catch {
-    error.value = '选择文件夹失败，请手动输入路径。'
+    showToast({ type: 'error', message: '选择文件夹失败，请手动输入路径。' })
   }
 }
 
@@ -83,22 +83,23 @@ watch(
   (newError) => {
     if (newError) {
       isSubmitting.value = false
+      showToast({ type: 'error', message: newError })
     }
   },
+  { immediate: true },
 )
 
 function handleSubmit() {
   const root = rootDir.value.trim()
   const name = projectName.value.trim()
   if (!root) {
-    error.value = '请输入项目根目录。'
+    showToast({ type: 'error', message: '请输入项目根目录。' })
     return
   }
   if (!name) {
-    error.value = '请输入项目名称。'
+    showToast({ type: 'error', message: '请输入项目名称。' })
     return
   }
-  error.value = ''
   isSubmitting.value = true
   const data: { name: string; rootDir: string; scanPaths: string[]; id?: string } = {
     name,
@@ -232,9 +233,6 @@ function handleSubmit() {
         </div>
       </div>
       <div class="modal-footer">
-        <div v-if="error || props.submitError" class="modal-error">
-          {{ error || props.submitError }}
-        </div>
         <button class="btn-cancel" @click="emit('close')">取消</button>
         <button class="btn-primary" :disabled="isSubmitting || !rootDir.trim() || !projectName.trim()" @click="handleSubmit">
           {{ isSubmitting ? '保存中…' : project ? '保存' : '添加项目' }}
@@ -509,10 +507,4 @@ function handleSubmit() {
   cursor: not-allowed;
 }
 
-.modal-error {
-  flex: 1;
-  font-size: 12px;
-  color: hsl(var(--destructive));
-  text-align: left;
-}
 </style>

@@ -3,8 +3,43 @@ export function normalizePath(p: string): string {
   return p.replace(/\\/g, '/').replace(/\/+/g, '/').replace(/\/+$/, '').replace(/^\.\//, '')
 }
 
-function isAbsolutePathSegment(s: string): boolean {
+export function isAbsolutePathSegment(s: string): boolean {
   return s.startsWith('/') || s.startsWith('\\') || /^[a-zA-Z]:[\\/]/.test(s) || s.startsWith('\\\\')
+}
+
+/** Expand the current user's home shorthand without treating `~someone` as `~`. */
+export function expandHomePath(p: string, homeDir: string): string {
+  if (!p) return ''
+  return p.replace(/^~(?=$|[\\/])/, homeDir)
+}
+
+export type PathPlatform = 'win32' | 'darwin' | 'linux'
+
+function getCurrentPathPlatform(): PathPlatform {
+  const svc = typeof window !== 'undefined' ? window.services : null
+  if (svc?.isWindows?.()) return 'win32'
+  if (svc?.isMacOS?.()) return 'darwin'
+  return 'linux'
+}
+
+/** Global skill directories must be absolute paths or use the current user's `~` shorthand. */
+export function isValidGlobalSkillPath(p: string, platform: PathPlatform = getCurrentPathPlatform()): boolean {
+  const value = String(p || '').trim()
+  if (!value) return false
+  if (value === '~' || /^~[\\/]/.test(value)) return true
+  if (platform === 'win32') return /^[a-zA-Z]:[\\/]/.test(value) || value.startsWith('\\\\')
+  return value.startsWith('/')
+}
+
+/** Project skill directories are relative to the project root and cannot escape it. */
+export function isValidProjectRelativePath(p: string): boolean {
+  const value = String(p || '').trim()
+  if (!value || isAbsolutePathSegment(value) || value === '~' || /^~[\\/]/.test(value)) return false
+  if (value === './') return true
+
+  const segments = value.replace(/\\/g, '/').split('/').filter(Boolean)
+  if (!segments.length || segments.some((segment) => segment === '..')) return false
+  return value.startsWith('./') || !value.startsWith('/')
 }
 
 function splitPathSegments(p: string): string[] {

@@ -34,4 +34,11 @@ describe('StoreIconPicker', () => {
     expect(providers.find('.sip-grid-item[title="Git"]').exists()).toBe(false)
     expect(all.find('.sip-grid-item[title="Git"]').exists()).toBe(true)
   })
+
+  test('includes provider icons in the platform icon library', () => {
+    const platforms = createWrapper('openai', 'platforms')
+
+    expect(platforms.find('.sip-grid-item[title="openai"]').exists()).toBe(true)
+    expect(platforms.find('.sip-grid-item[title="Cursor"]').exists()).toBe(true)
+  })
 })

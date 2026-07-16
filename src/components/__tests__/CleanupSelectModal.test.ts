@@ -73,7 +73,7 @@ describe('CleanupSelectModal', () => {
     await wrapper.findAll('.cleanup-checkbox')[0].trigger('change')
     await wrapper.find('.cleanup-btn.delete').trigger('click')
     expect(wrapper.emitted('deleted')).toHaveLength(1)
-    expect(wrapper.emitted('deleted')![0]).toEqual([1])
+    expect(wrapper.emitted('deleted')![0]).toEqual([1, 0])
   })
 
   test('delete calls removeFile for each selected', async () => {
@@ -89,6 +89,14 @@ describe('CleanupSelectModal', () => {
     expect(window.services.removeFile).toHaveBeenCalledTimes(2)
     expect(window.services.removeFile).toHaveBeenCalledWith('/skills/a')
     expect(window.services.removeFile).toHaveBeenCalledWith('/skills/c')
+  })
+
+  test('emits failed count when a selected path cannot be removed', async () => {
+    vi.mocked(window.services.pathExists).mockReturnValue(true)
+    const wrapper = createWrapper(['/skills/blocked'])
+    await wrapper.find('.cleanup-checkbox').trigger('change')
+    await wrapper.find('.cleanup-btn.delete').trigger('click')
+    expect(wrapper.emitted('deleted')![0]).toEqual([0, 1])
   })
 
   test('cancel button emits close', async () => {

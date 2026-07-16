@@ -84,6 +84,7 @@ function deleteSkill() {
     window.services.removeEmptyAncestors?.(dir)
   } catch (e) {
     console.warn('[ConfirmDeleteModal] removeEmptyAncestors failed:', dir, e)
+    showToast({ type: 'warning', message: '技能已删除，但清理空目录失败' })
   }
 
   const distErrors: string[] = []

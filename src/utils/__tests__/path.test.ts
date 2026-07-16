@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest'
-import { normalizePath, safeJoin } from '../path'
+import { normalizePath, safeJoin, expandHomePath, isValidGlobalSkillPath, isValidProjectRelativePath } from '../path'
 
 describe('normalizePath', () => {
   test('converts backslashes to forward slashes', () => {
@@ -69,5 +69,33 @@ describe('safeJoin', () => {
 
   test('requires base', () => {
     expect(() => safeJoin('', 'a')).toThrow(/base/)
+  })
+})
+
+describe('platform path validation', () => {
+  test('expands only the home shorthand', () => {
+    expect(expandHomePath('~/skills', '/home/user')).toBe('/home/user/skills')
+    expect(expandHomePath('~other/skills', '/home/user')).toBe('~other/skills')
+  })
+
+  test('accepts absolute or home-based global paths', () => {
+    expect(isValidGlobalSkillPath('~/agent/skills')).toBe(true)
+    expect(isValidGlobalSkillPath('D:/agent/skills', 'win32')).toBe(true)
+    expect(isValidGlobalSkillPath('\\\\server\\share\\skills', 'win32')).toBe(true)
+    expect(isValidGlobalSkillPath('/home/user/agent/skills', 'linux')).toBe(true)
+    expect(isValidGlobalSkillPath('/a/d/v', 'win32')).toBe(false)
+    expect(isValidGlobalSkillPath('D:/agent/skills', 'linux')).toBe(false)
+    expect(isValidGlobalSkillPath('agent/skills', 'linux')).toBe(false)
+  })
+
+  test('accepts project-relative paths and rejects escapes', () => {
+    expect(isValidProjectRelativePath('./skills')).toBe(true)
+    expect(isValidProjectRelativePath('./')).toBe(true)
+    expect(isValidProjectRelativePath('.agent/skills')).toBe(true)
+    expect(isValidProjectRelativePath('agent/skills')).toBe(true)
+    expect(isValidProjectRelativePath('../skills')).toBe(false)
+    expect(isValidProjectRelativePath('agent/../../skills')).toBe(false)
+    expect(isValidProjectRelativePath('/tmp/skills')).toBe(false)
+    expect(isValidProjectRelativePath('~/skills')).toBe(false)
   })
 })

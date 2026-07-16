@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, inject } from 'vue'
 import { storage } from '../utils/storage'
 import { useTranslationQueue } from '../composables/useTranslationQueue'
 import { isChineseContent, stripFrontmatter } from '../utils/translate'
 import type { ModelConfig, Skill } from '../types'
+import { KeyShowToast } from '../inject-keys'
 import QuickSwitcher, { type QuickSwitcherItem } from './QuickSwitcher.vue'
 import ProviderIcon from './ProviderIcon.vue'
 import { getSkillsRepoDir } from '../utils/skill-path'
@@ -24,6 +25,7 @@ const props = defineProps<{
 }>()
 
 const { queue, addTranslation, isTranslating: isInQueue, cacheVersion, notifyCacheChanged } = useTranslationQueue()
+const showToast = inject(KeyShowToast, () => {})
 
 const translateScope = ref<'current' | 'all' | 'project' | 'agent'>('all')
 const translateType = ref<'desc' | 'content' | 'both'>('both')
@@ -69,8 +71,13 @@ const translationModelItems = computed<QuickSwitcherItem[]>(() => {
 const localModelId = ref(storage.getSettings().translationModelId)
 
 function onModelChange(modelId: string) {
+  const previousModelId = localModelId.value
   localModelId.value = modelId
-  storage.saveSettings({ translationModelId: modelId })
+  if (!storage.saveSettings({ translationModelId: modelId })) {
+    localModelId.value = previousModelId
+    showToast({ type: 'error', message: '翻译模型设置保存失败，请稍后重试' })
+    return
+  }
   notifyCacheChanged()
 }
 

@@ -3,7 +3,7 @@ import { ref, computed, watch, inject } from 'vue'
 import { storage } from '../utils/storage'
 import type { StoreSource, StoreSourceType } from '../types'
 import { getDefaultStoreIcon, ICON_GITHUB, ICON_MARKETPLACE, ICON_WELL_KNOWN, ICON_FOLDER } from '../data/store-icons'
-import StoreIconPicker from './StoreIconPicker.vue'
+import IconPickerModal from './IconPickerModal.vue'
 import ProviderIcon from './ProviderIcon.vue'
 import { KeyShowToast } from '../inject-keys'
 import { validateStoreUrl } from '../utils/validate-store'
@@ -62,11 +62,6 @@ watch(
 
 function canAdd(): boolean {
   return !!(sourceName.value.trim() && sourceUrl.value.trim())
-}
-
-function handleIconSelected(value: string) {
-  sourceIcon.value = value
-  showIconPicker.value = false
 }
 
 async function handleSave() {
@@ -214,29 +209,14 @@ async function handleSave() {
     </div>
   </div>
 
-  <div v-if="showIconPicker" class="store-config-overlay icon-overlay">
-    <div class="store-config-modal icon-picker-modal">
-      <div class="modal-header icon-picker-header">
-        <button class="modal-back" type="button" @click="showIconPicker = false">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M19 12H5" />
-            <path d="M12 19l-7-7 7-7" />
-          </svg>
-          <span>返回</span>
-        </button>
-        <h3 class="modal-title">选择商店图标</h3>
-      </div>
-      <div class="modal-body icon-picker-body">
-        <StoreIconPicker
-          v-model="sourceIcon"
-          library="all"
-          :preview-size="48"
-          :defaultIcon="getDefaultStoreIcon(sourceType)"
-          @update:modelValue="handleIconSelected"
-        />
-      </div>
-    </div>
-  </div>
+  <IconPickerModal
+    v-if="showIconPicker"
+    v-model="sourceIcon"
+    title="选择商店图标"
+    library="all"
+    :default-icon="getDefaultStoreIcon(sourceType)"
+    @close="showIconPicker = false"
+  />
 </template>
 
 <style scoped>
@@ -402,46 +382,6 @@ async function handleSave() {
 .icon-picker-hint {
   font-size: 11px;
   color: hsl(var(--muted-foreground));
-}
-
-.icon-overlay {
-  z-index: 1100;
-}
-
-.icon-picker-modal {
-  height: min(720px, calc(100vh - 32px));
-}
-
-.icon-picker-header {
-  position: relative;
-  justify-content: center;
-}
-
-.icon-picker-header .modal-back {
-  position: absolute;
-  left: 20px;
-}
-
-.icon-picker-body {
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.icon-picker-body :deep(.store-icon-picker) {
-  flex: 1;
-  min-height: 0;
-  height: 100%;
-}
-
-.icon-picker-body :deep(.sip-preview) {
-  padding: 16px 18px;
-}
-
-.icon-picker-body :deep(.sip-preview-icon) {
-  width: 56px;
-  height: 56px;
-  border-radius: 14px;
 }
 
 .form-section {

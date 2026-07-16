@@ -86,9 +86,9 @@ export const settingsApi = {
     if (hasUnknownSettings(rawSaved, defaults)) dbSet(KEYS.SETTINGS, merged)
     return merged
   },
-  saveSettings(settings: Partial<AppSettings>): void {
+  saveSettings(settings: Partial<AppSettings>): boolean {
     const current = settingsApi.getSettings()
     const merged = { ...current, ...pickKnownSettings(settings, createDefaultSettings()) }
-    dbSet(KEYS.SETTINGS, merged)
+    return dbSet(KEYS.SETTINGS, merged)
   },
 }

@@ -5,6 +5,7 @@ import { useProjectState } from '../useProjectState'
 function createManager() {
   const showToast = vi.fn()
   const navigate = vi.fn()
+  vi.mocked(window.services.stat).mockReturnValue({ exists: true, isDirectory: true })
   const mgr = useProjectManager({ showToast, navigate })
   return { ...mgr, showToast, navigate }
 }
@@ -55,6 +56,29 @@ describe('useProjectManager', () => {
     expect(mgr.addProjectError.value).toContain('冲突')
   })
 
+  test('addProject rejects an invalid root path', () => {
+    const mgr = createManager()
+    mgr.addProject({ name: 'Invalid', rootDir: 'relative/path', scanPaths: [] })
+    expect(mgr.registeredProjects.value).toHaveLength(0)
+    expect(mgr.addProjectError.value).toContain('路径格式无效')
+  })
+
+  test('addProject rejects a missing root directory', () => {
+    const mgr = createManager()
+    vi.mocked(window.services.stat).mockReturnValue({ exists: false })
+    mgr.addProject({ name: 'Missing', rootDir: '/missing/path', scanPaths: [] })
+    expect(mgr.registeredProjects.value).toHaveLength(0)
+    expect(mgr.addProjectError.value).toContain('不存在')
+  })
+
+  test('addProject rejects a root path that is not a directory', () => {
+    const mgr = createManager()
+    vi.mocked(window.services.stat).mockReturnValue({ exists: true, isDirectory: false })
+    mgr.addProject({ name: 'File', rootDir: '/file', scanPaths: [] })
+    expect(mgr.registeredProjects.value).toHaveLength(0)
+    expect(mgr.addProjectError.value).toContain('必须是文件夹')
+  })
+
   test('removeProject removes project and selects next', () => {
     const mgr = createManager()
     addProject(mgr, 'First', '/path1')
@@ -93,6 +117,17 @@ describe('useProjectManager', () => {
     mgr.handleProjectSubmit({ id, name: 'Updated', rootDir: '/updated', scanPaths: [] })
     expect(mgr.registeredProjects.value[0].name).toBe('Updated')
     expect(mgr.registeredProjects.value[0].rootDir).toBe('/updated')
+  })
+
+  test('updateProject keeps the modal open and reports root conflicts', () => {
+    const mgr = createManager()
+    addProject(mgr, 'First', '/first')
+    addProject(mgr, 'Second', '/second')
+    const second = mgr.registeredProjects.value[1]
+    mgr.editProject(second)
+    mgr.handleProjectSubmit({ id: second.id, name: second.name, rootDir: '/first', scanPaths: [] })
+    expect(mgr.showEditProjectModal.value).toBe(true)
+    expect(mgr.addProjectError.value).toContain('First')
   })
 
   test('editProject sets editing state', () => {

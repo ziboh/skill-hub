@@ -2,6 +2,7 @@ import { describe, test, expect, vi, afterEach } from 'vitest'
 import { mount, VueWrapper } from '@vue/test-utils'
 import AddProjectModal from '../AddProjectModal.vue'
 import type { RegisteredProject } from '../../types'
+import { KeyShowToast } from '../../inject-keys'
 
 describe('AddProjectModal', () => {
   let wrapper: VueWrapper
@@ -70,8 +71,12 @@ describe('AddProjectModal', () => {
   })
 
   test('displays submitError prop', () => {
-    wrapper = mount(AddProjectModal, { props: { submitError: 'Already exists' } })
-    expect(wrapper.find('.modal-error').text()).toContain('Already exists')
+    const showToast = vi.fn()
+    wrapper = mount(AddProjectModal, {
+      props: { submitError: 'Already exists' },
+      global: { provide: { [KeyShowToast as symbol]: showToast } },
+    })
+    expect(showToast).toHaveBeenCalledWith({ type: 'error', message: 'Already exists' })
   })
 
   test('点击遮罩不会关闭弹窗', async () => {
@@ -139,11 +144,14 @@ describe('AddProjectModal', () => {
   })
 
   test('selectFolder dialog not available shows error', async () => {
+    const showToast = vi.fn()
     const orig = window.ztools.showOpenDialog
     ;(window.ztools as any).showOpenDialog = undefined
-    wrapper = mount(AddProjectModal)
+    wrapper = mount(AddProjectModal, {
+      global: { provide: { [KeyShowToast as symbol]: showToast } },
+    })
     await wrapper.find('.btn-browse').trigger('click')
-    expect(wrapper.find('.modal-error').text()).toContain('文件选择对话框')
+    expect(showToast).toHaveBeenCalledWith({ type: 'error', message: '文件选择对话框不可用，请手动输入路径。' })
     ;(window.ztools as any).showOpenDialog = orig
   })
 

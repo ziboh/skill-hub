@@ -89,8 +89,10 @@ const platformLibraryIds = computed(() => {
 
 const libraryIcons = computed(() => {
   let list: string[]
-  if (props.library === 'platforms') list = platformLibraryIds.value
-  else if (props.library === 'all') list = [...new Set([...AVAILABLE_ICONS, ...platformLibraryIds.value])]
+  if (props.library === 'platforms') {
+    // 平台图标库也提供供应商图标，方便自定义平台直接复用现有品牌图标。
+    list = [...new Set([...platformLibraryIds.value, ...AVAILABLE_ICONS])]
+  } else if (props.library === 'all') list = [...new Set([...AVAILABLE_ICONS, ...platformLibraryIds.value])]
   else list = [...AVAILABLE_ICONS]
   // Never show the default icon again under another name
   return list.filter((name) => !isDefaultLibraryIcon(name))
@@ -504,7 +506,7 @@ function clearIcon() {
   gap: 8px;
   flex: 1;
   min-height: 160px;
-  max-height: min(390px, 55vh);
+  max-height: none;
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;

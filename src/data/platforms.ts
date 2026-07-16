@@ -1,5 +1,6 @@
 import type { PlatformInfo } from '../types'
 import { storage } from '../utils/storage'
+import { expandHomePath, isValidGlobalSkillPath } from '../utils/path'
 
 type OsKey = 'darwin' | 'win32' | 'linux'
 
@@ -290,12 +291,27 @@ export function getAllPlatformDefinitions(): PlatformInfo[] {
 
 function detectOne(p: PlatformInfo, svc: NonNullable<typeof window.services>): boolean {
   if (p.rootDir) {
-    const rootExpanded = resolveRootDir(p).replace(/^~/, svc.homeDir())
+    const rootExpanded = expandHomePath(resolveRootDir(p), svc.homeDir())
     return svc.pathExists(rootExpanded)
   }
   const checkPath = p.customPath || p.defaultPath || p.projectPath || ''
-  if (!checkPath) return false
-  return svc.pathExists(checkPath.replace(/^~/, svc.homeDir()))
+  if (!isValidGlobalSkillPath(checkPath)) return false
+  return isExistingGlobalSkillDirectory(checkPath, svc)
+}
+
+/** Detect installed Agent platforms without making path existence a save-time requirement. */
+export function isExistingGlobalSkillDirectory(path: string, svc: NonNullable<typeof window.services> = window.services): boolean {
+  if (!svc || !isValidGlobalSkillPath(path)) return false
+  const expanded = expandHomePath(path.trim(), svc.homeDir())
+  try {
+    const info = svc.stat?.(expanded)
+    if (info && typeof info === 'object' && 'exists' in info) {
+      return info.exists === true && info.isDirectory === true
+    }
+  } catch {
+    return false
+  }
+  return svc.pathExists(expanded)
 }
 
 export function detectPlatforms(): PlatformInfo[] {
@@ -309,14 +325,14 @@ export function getPlatformPath(platform: PlatformInfo, mode: 'global' | 'projec
   const svc = typeof window !== 'undefined' ? window.services : null
   // Prefer explicit customPath for global even when rootDir exists
   if (mode === 'global' && platform.customPath) {
-    return platform.customPath.replace(/^~/, svc ? svc.homeDir() : '~')
+    return expandHomePath(platform.customPath, svc ? svc.homeDir() : '~')
   }
   if (mode === 'global' && platform.rootDir && platform.skillsRelativePath) {
-    const root = resolveRootDir(platform).replace(/^~/, svc ? svc.homeDir() : '~')
+    const root = expandHomePath(resolveRootDir(platform), svc ? svc.homeDir() : '~')
     return joinPath(root, platform.skillsRelativePath)
   }
   const base = mode === 'global' ? platform.customPath || platform.defaultPath : platform.customProjectPath || platform.projectPath
-  return base ? base.replace(/^~/, svc ? svc.homeDir() : '~') : ''
+  return base ? expandHomePath(base, svc ? svc.homeDir() : '~') : ''
 }
 
 /** Icon key for ProviderIcon: custom icon field, else platform id (registry resolves bare id → platforms:*). */

@@ -339,6 +339,7 @@ const currentPageSkills = computed<Skill[]>(() => {
     <AddProjectModal
       v-if="showEditProjectModal"
       :project="editingProject"
+      :submit-error="addProjectError"
       @close="((showEditProjectModal = false), (editingProject = null))"
       @submit="handleProjectSubmit"
     />

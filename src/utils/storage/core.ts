@@ -32,11 +32,13 @@ export function cleanDescription(desc: string): string {
   return desc
 }
 
-export function dbSet(key: string, value: any): void {
+export function dbSet(key: string, value: any): boolean {
   try {
     window.ztools.dbStorage.setItem(PREFIX + key, JSON.stringify(value))
+    return true
   } catch (e) {
     console.error(`[storage] dbSet failed for "${key}":`, e)
+    return false
   }
 }
 

@@ -7,6 +7,7 @@ import {
   createCustomPlatformId,
   platformDisplayIcon,
   isBuiltinPlatformId,
+  isExistingGlobalSkillDirectory,
 } from '../../data/platforms'
 import { storage } from '../../utils/storage'
 import { getMandiThemes, hexToHsl } from '../../utils/theme'
@@ -17,7 +18,7 @@ import { useTheme } from '../../composables/useTheme'
 import { useSettingsAiModels } from '../../composables/useSettingsAiModels'
 import ProviderIcon from '../../components/ProviderIcon.vue'
 import UiIcon, { type UiIconName } from '../../components/UiIcon.vue'
-import StoreIconPicker from '../../components/StoreIconPicker.vue'
+import IconPickerModal from '../../components/IconPickerModal.vue'
 import ConfirmModal from '../../components/ConfirmModal.vue'
 import CleanupSelectModal from '../../components/CleanupSelectModal.vue'
 import QuickSwitcher from '../../components/QuickSwitcher.vue'
@@ -47,8 +48,8 @@ const {
   onCleanupDeleted: onCleanupDeletedBase,
 } = useUnregisteredSkillsCleanup()
 
-function onCleanupDeleted(count: number) {
-  onCleanupDeletedBase(count, showToast)
+function onCleanupDeleted(count: number, failed: number) {
+  onCleanupDeletedBase(count, failed, showToast)
 }
 
 const {
@@ -430,14 +431,13 @@ function detectAgent(platform: PlatformInfo): boolean {
   if (platform.rootDir && !platform.customPath) {
     const osKey = window.services.isWindows() ? 'win32' : window.services.isMacOS() ? 'darwin' : 'linux'
     const root = (platform.rootDir[osKey as keyof typeof platform.rootDir] || platform.rootDir.linux).replace(
-      /^~/,
+      /^~(?=$|[\\/])/,
       window.services.homeDir(),
     )
     return window.services.pathExists(root)
   }
   const p = platform.customPath || platform.defaultPath || platform.projectPath || ''
-  if (!p) return false
-  return window.services.pathExists(p.replace(/^~/, window.services.homeDir()))
+  return isExistingGlobalSkillDirectory(p, window.services)
 }
 
 function _detectAllAgents() {
@@ -2148,34 +2148,12 @@ function getPlatformOsPath(platform: PlatformInfo): string {
       </div>
 
       <!-- Icon Picker Modal -->
-      <div v-if="showIconPicker" class="modal-overlay" style="z-index: 1100">
-        <div
-          class="modal modal-sm"
-          style="width: min(560px, 90vw); height: min(720px, calc(100vh - 32px)); max-height: min(85vh, 720px); display: flex; flex-direction: column"
-        >
-          <div class="modal-header">
-            <h3 class="modal-title">选择图标</h3>
-            <button class="modal-close" @click="showIconPicker = false">
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
-          </div>
-          <div class="modal-body" style="padding: 12px; flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column">
-            <StoreIconPicker v-model="currentIconValue" :defaultIcon="defaultProviderIcon" style="flex: 1; min-height: 0" />
-          </div>
-        </div>
-      </div>
+      <IconPickerModal
+        v-if="showIconPicker"
+        v-model="currentIconValue"
+        :default-icon="defaultProviderIcon"
+        @close="showIconPicker = false"
+      />
 
       <!-- Add Model Modal -->
       <div v-if="showAddModelModal" class="modal-overlay">
