@@ -85,6 +85,24 @@ export function useProjectManager(opts: { showToast: ShowToast; navigate: (code:
     return null
   }
 
+  function validateScanPaths(scanPaths: string[]): string | null {
+    for (const rawPath of scanPaths) {
+      const path = rawPath.trim()
+      if (!path) continue
+      if (!isValidGlobalSkillPath(path)) {
+        return `扫描路径格式无效：${path}`
+      }
+      try {
+        const result = window.services.stat(path)
+        if (!result.exists) return `扫描路径不存在：${path}`
+        if (!result.isDirectory) return `扫描路径必须是文件夹：${path}`
+      } catch {
+        return `无法访问扫描路径：${path}`
+      }
+    }
+    return null
+  }
+
   function addProject(project: { name: string; rootDir: string; scanPaths: string[] }) {
     try {
       const root = project.rootDir.trim()
@@ -94,6 +112,12 @@ export function useProjectManager(opts: { showToast: ShowToast; navigate: (code:
       const rootError = validateProjectRoot(root)
       if (rootError) {
         addProjectError.value = rootError
+        return
+      }
+
+      const scanPathError = validateScanPaths(project.scanPaths)
+      if (scanPathError) {
+        addProjectError.value = scanPathError
         return
       }
 
@@ -135,6 +159,12 @@ export function useProjectManager(opts: { showToast: ShowToast; navigate: (code:
       const rootError = validateProjectRoot(root)
       if (rootError) {
         addProjectError.value = rootError
+        return
+      }
+
+      const scanPathError = validateScanPaths(data.scanPaths)
+      if (scanPathError) {
+        addProjectError.value = scanPathError
         return
       }
 

@@ -1,5 +1,6 @@
 import type { StoreSourceType } from '../types'
 import { parseRepositoryUrl } from './repository'
+import { isValidHttpUrl } from './input-validation'
 
 export interface ValidationResult {
   valid: boolean
@@ -23,15 +24,29 @@ export async function validateStoreUrl(url: string, type: StoreSourceType): Prom
   const trimmed = url.trim()
   if (!trimmed) return { valid: false, message: 'URL 不能为空' }
 
-  // 格式校验
-  try {
-    new URL(trimmed)
-  } catch {
-    return { valid: false, message: 'URL 格式无效' }
-  }
-
   switch (type) {
+    case 'git-repo': {
+      const info = parseRepositoryUrl(trimmed)
+      if (!info) return { valid: false, message: '不是有效的 GitHub 或 Gitee 仓库地址（格式：owner/repo）' }
+      return {
+        valid: true,
+        message: '验证通过：' + (info.provider === 'gitee' ? 'Gitee' : 'GitHub') + ' / ' + info.owner + '/' + info.repo,
+      }
+    }
+
+    case 'local-dir': {
+      try {
+        const stat = window.services.stat(trimmed)
+        if (!stat.exists || !window.services.pathExists(trimmed)) return { valid: false, message: '本地路径不存在' }
+        if (!stat.isDirectory) return { valid: false, message: '本地路径必须是文件夹' }
+        return { valid: true, message: '验证通过' }
+      } catch {
+        return { valid: false, message: '无法访问本地路径' }
+      }
+    }
+
     case 'marketplace-json': {
+      if (!isValidHttpUrl(trimmed)) return { valid: false, message: '仅支持 HTTP 或 HTTPS URL' }
       if (/\.well-known\/(?:agent-skills|skills)\/index\.json$/i.test(trimmed)) {
         return { valid: false, message: '此 URL 是 Well-Known Agent Skills 索引格式，请选择「Well-Known Index」商店类型' }
       }
@@ -47,6 +62,7 @@ export async function validateStoreUrl(url: string, type: StoreSourceType): Prom
     }
 
     case 'well-known-index': {
+      if (!isValidHttpUrl(trimmed)) return { valid: false, message: '仅支持 HTTP 或 HTTPS URL' }
       const urlsToTry: string[] = trimmed.endsWith('.json')
         ? [trimmed]
         : [
@@ -61,22 +77,6 @@ export async function validateStoreUrl(url: string, type: StoreSourceType): Prom
         }
       }
       return { valid: false, message: '未找到有效的 Well-Known 索引（检查 URL 或 /.well-known/skills/index.json）' }
-    }
-
-    case 'git-repo': {
-      const info = parseRepositoryUrl(trimmed)
-      if (!info) return { valid: false, message: '不是有效的 GitHub 或 Gitee 仓库地址（格式：owner/repo）' }
-      return { valid: true, message: '验证通过：' + (info.provider === 'gitee' ? 'Gitee' : 'GitHub') + ' / ' + info.owner + '/' + info.repo }
-    }
-
-    case 'local-dir': {
-      try {
-        const exists = window.services.pathExists(trimmed)
-        if (!exists) return { valid: false, message: '本地路径不存在' }
-        return { valid: true, message: '验证通过' }
-      } catch {
-        return { valid: false, message: '无法访问本地路径' }
-      }
     }
 
     default:

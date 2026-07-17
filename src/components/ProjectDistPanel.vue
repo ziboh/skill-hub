@@ -3,7 +3,7 @@ import { ref, computed, inject, watch } from 'vue'
 import { KeyShowToast, KeyNavigateToProjectSkills } from '../inject-keys'
 import { useProjectState } from '../composables/useProjectState'
 import { storage } from '../utils/storage'
-import { normalizePath } from '../utils/path'
+import { isValidProjectRelativePath, normalizePath } from '../utils/path'
 import type { Skill, InstallMode, DistributeRecord, RegisteredProject } from '../types'
 import ProviderIcon from './ProviderIcon.vue'
 import ConfirmModal from './ConfirmModal.vue'
@@ -51,6 +51,10 @@ const platforms = computed(() => getDeployPlatforms())
 function addCustomDir() {
   const p = customDirInputValue.value.trim()
   if (!p) return
+  if (!isValidProjectRelativePath(p)) {
+    showToast({ type: 'error', message: '自定义目录必须是项目内的相对路径，且不能包含绝对路径或 ..。' })
+    return
+  }
   const exists = agentDirOptions.value.some((d) => d.path === p)
   if (exists) {
     showToast({ type: 'warning', message: '该路径已存在' })

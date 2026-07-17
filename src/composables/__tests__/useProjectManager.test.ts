@@ -79,6 +79,24 @@ describe('useProjectManager', () => {
     expect(mgr.addProjectError.value).toContain('必须是文件夹')
   })
 
+  test('addProject rejects a scan path that can escape the project root', () => {
+    const mgr = createManager()
+    mgr.addProject({ name: 'Unsafe', rootDir: '/project', scanPaths: ['../outside'] })
+    expect(mgr.registeredProjects.value).toHaveLength(0)
+    expect(mgr.addProjectError.value).toContain('扫描路径格式无效')
+  })
+
+  test('addProject rejects a missing scan directory', () => {
+    const mgr = createManager()
+    vi.mocked(window.services.stat).mockImplementation((path: string) => ({
+      exists: path === '/project',
+      isDirectory: path === '/project',
+    }))
+    mgr.addProject({ name: 'Missing Scan', rootDir: '/project', scanPaths: ['/missing'] })
+    expect(mgr.registeredProjects.value).toHaveLength(0)
+    expect(mgr.addProjectError.value).toContain('扫描路径不存在')
+  })
+
   test('removeProject removes project and selects next', () => {
     const mgr = createManager()
     addProject(mgr, 'First', '/path1')

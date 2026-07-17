@@ -46,7 +46,9 @@ export function getSkillFolderName(skill: Pick<Skill, 'name' | 'path'>): string 
       return skill.name
     }
     // Relative path = repo path (e.g. skills/foo) → last segment
-    return p.split('/').pop() || skill.name
+    const folder = p.split('/').pop() || ''
+    // A generic skill/ source directory does not identify the distributed skill.
+    return folder.toLowerCase() === 'skill' ? skill.name : folder || skill.name
   }
   return skill.name
 }

@@ -3,6 +3,7 @@ import { BUILTIN_PROVIDERS, getProviderInfo } from '../data/ai-providers'
 import type { AppSettings, ModelConfig } from '../types'
 import { useSettings } from './useSettings'
 import { fetchAvailableModels, chatCompletion } from '../utils/ai'
+import { isValidApiPath, isValidHttpUrl } from '../utils/input-validation'
 import type { QuickSwitcherItem } from '../components/QuickSwitcher.vue'
 
 import type { ShowToast } from '../inject-keys'
@@ -301,16 +302,21 @@ export function useSettingsAiModels(showToast: ShowToast) {
 
   function saveApiKey() {
     if (editingProviderIndex.value === null) return
+    const key = apiKeyForm.value.key.trim()
+    if (!key || /\s/.test(key)) {
+      showToast({ type: 'error', message: 'API 密钥不能为空且不能包含空格。' })
+      return
+    }
     const provider = settings.aiModels[editingProviderIndex.value]
     if (!provider.apiKeys) provider.apiKeys = []
 
     if (editingKeyIndex.value !== null) {
-      provider.apiKeys[editingKeyIndex.value].key = apiKeyForm.value.key
+      provider.apiKeys[editingKeyIndex.value].key = key
     } else {
       const hasEnabled = provider.apiKeys.some((k) => k.enabled)
       provider.apiKeys.push({
         id: 'key-' + Date.now(),
-        key: apiKeyForm.value.key,
+        key,
         enabled: !hasEnabled,
       })
     }
@@ -387,12 +393,23 @@ export function useSettingsAiModels(showToast: ShowToast) {
       showToast({ type: 'error', message: '请选择供应商类型' })
       return
     }
+    modelForm.value.name = modelForm.value.name.trim()
+    modelForm.value.baseUrl = modelForm.value.baseUrl.trim()
+    modelForm.value.apiPath = modelForm.value.apiPath.trim()
+    if (modelForm.value.baseUrl && !isValidHttpUrl(modelForm.value.baseUrl)) {
+      showToast({ type: 'error', message: 'Base URL 必须是 HTTP 或 HTTPS URL。' })
+      return
+    }
     // Auto-fill API path from preset if empty
     if (!modelForm.value.apiPath.trim()) {
       const info = getProviderInfo(modelForm.value.provider)
       if (info) {
         modelForm.value.apiPath = info.defaultApiPath
       }
+    }
+    if (modelForm.value.apiPath && !isValidApiPath(modelForm.value.apiPath)) {
+      showToast({ type: 'error', message: 'API 路径必须以 / 开头，且不能填写完整 URL。' })
+      return
     }
     const models = [...settings.aiModels]
     if (editingModelIndex.value !== null) {
@@ -404,6 +421,26 @@ export function useSettingsAiModels(showToast: ShowToast) {
     updateSettings({ aiModels: models })
     showModelModal.value = false
     showToast({ type: 'success', message: editingModelIndex.value !== null ? '供应商已更新' : '供应商已添加' })
+  }
+
+  function saveProviderEndpoint(index: number, field: 'baseUrl' | 'apiPath', value: string | Event) {
+    const provider = settings.aiModels[index]
+    if (!provider) return
+    const rawValue = typeof value === 'string' ? value : (value.target as HTMLInputElement | null)?.value || ''
+    const next = rawValue.trim()
+    if (field === 'baseUrl' && next && !isValidHttpUrl(next)) {
+      if (typeof value !== 'string' && value.target) (value.target as HTMLInputElement).value = provider.baseUrl || ''
+      showToast({ type: 'error', message: 'Base URL 必须是 HTTP 或 HTTPS URL。' })
+      return
+    }
+    if (field === 'apiPath' && next && !isValidApiPath(next)) {
+      if (typeof value !== 'string' && value.target) (value.target as HTMLInputElement).value = provider.apiPath || ''
+      showToast({ type: 'error', message: 'API 路径必须以 / 开头，且不能填写完整 URL。' })
+      return
+    }
+    const models = [...settings.aiModels]
+    models[index] = { ...provider, [field]: next }
+    updateSettings({ aiModels: models })
   }
 
   function _deleteModel(index: number) {
@@ -442,11 +479,7 @@ export function useSettingsAiModels(showToast: ShowToast) {
     m.models = (m.models || []).map((mm) => ((mm.owned_by || '其他') === groupName ? { ...mm, enabled: newEnabled } : mm))
     models[providerIndex] = m
     const patch: Partial<AppSettings> = { aiModels: models }
-    if (
-      !newEnabled &&
-      settings.translationModelId &&
-      groupModels.some((mm) => settings.translationModelId === m.id + '::' + mm.id)
-    ) {
+    if (!newEnabled && settings.translationModelId && groupModels.some((mm) => settings.translationModelId === m.id + '::' + mm.id)) {
       patch.translationModelId = ''
     }
     updateSettings(patch)
@@ -461,10 +494,7 @@ export function useSettingsAiModels(showToast: ShowToast) {
     m.models = (m.models || []).filter((mm) => (mm.owned_by || '其他') !== groupName)
     models[providerIndex] = m
     const patch: Partial<AppSettings> = { aiModels: models }
-    if (
-      settings.translationModelId &&
-      deletedCompoundKeys.has(settings.translationModelId)
-    ) {
+    if (settings.translationModelId && deletedCompoundKeys.has(settings.translationModelId)) {
       patch.translationModelId = ''
     }
     updateSettings(patch)
@@ -815,7 +845,6 @@ export function useSettingsAiModels(showToast: ShowToast) {
     showToast({ type: 'success', message: '模型已添加' })
   }
 
-
   const expandedGroups = ref<Record<string, Set<string>>>({})
 
   function toggleGroup(providerId: string, groupName: string) {
@@ -920,6 +949,7 @@ export function useSettingsAiModels(showToast: ShowToast) {
     openEditModel,
     applyProviderPreset,
     saveModel,
+    saveProviderEndpoint,
     deleteModelFromProvider,
     toggleGroupModels,
     deleteGroupModels,

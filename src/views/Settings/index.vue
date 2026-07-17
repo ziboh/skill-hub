@@ -109,6 +109,7 @@ const {
   openEditModel,
   applyProviderPreset,
   saveModel,
+  saveProviderEndpoint,
   toggleGroupModels,
   deleteProvider,
   doDeleteApiKey,
@@ -276,6 +277,12 @@ const showAddPlatformModal = ref(false)
 const editingPlatform = ref<PlatformInfo | null>(null)
 const confirmDeletePlatformId = ref<string | null>(null)
 const confirmDeletePlatformName = ref('')
+
+function trimAccessToken(key: 'githubToken' | 'giteeToken') {
+  const value = settings[key].trim()
+  if (settings[key] !== value) settings[key] = value
+  updateSettings({ [key]: value } as any)
+}
 
 function loadPlatforms() {
   platforms.value = getAllPlatformDefinitions()
@@ -617,7 +624,6 @@ function getPlatformOsPath(platform: PlatformInfo): string {
   }
   return platform.defaultPath || platform.projectPath || ''
 }
-
 </script>
 
 <template>
@@ -975,7 +981,7 @@ function getPlatformOsPath(platform: PlatformInfo): string {
                   :type="showToken ? 'text' : 'password'"
                   class="token-input"
                   placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
-                  @change="updateSettings({ githubToken: settings.githubToken })"
+                  @change="trimAccessToken('githubToken')"
                 />
                 <button class="token-toggle" @click="showToken = !showToken">
                   {{ showToken ? '隐藏' : '显示' }}
@@ -991,15 +997,13 @@ function getPlatformOsPath(platform: PlatformInfo): string {
                   :type="showToken ? 'text' : 'password'"
                   class="token-input"
                   placeholder="Gitee Token"
-                  @change="updateSettings({ giteeToken: settings.giteeToken })"
+                  @change="trimAccessToken('giteeToken')"
                 />
                 <button class="token-toggle" @click="showToken = !showToken">
                   {{ showToken ? '隐藏' : '显示' }}
                 </button>
               </div>
-              <a class="token-link" href="https://gitee.com/profile/personal_access_tokens" target="_blank">
-                创建 Gitee 个人访问令牌 →
-              </a>
+              <a class="token-link" href="https://gitee.com/profile/personal_access_tokens" target="_blank"> 创建 Gitee 个人访问令牌 → </a>
             </div>
           </div>
 
@@ -1231,11 +1235,11 @@ function getPlatformOsPath(platform: PlatformInfo): string {
                         <label class="url-form-label">Base URL <span class="tooltip-icon" title="API 服务器的基础地址">?</span></label>
                         <div class="url-form-input-group">
                           <input
-                            v-model="m.baseUrl"
+                            :value="m.baseUrl"
                             type="text"
                             class="url-form-input"
                             placeholder="https://api.openai.com"
-                            @change="updateSettings({ aiModels: [...settings.aiModels] })"
+                            @change="saveProviderEndpoint(getModelIndex(m.id), 'baseUrl', $event)"
                           />
                           <button class="url-restore-btn" @click="restoreBaseUrl(getModelIndex(m.id))">恢复默认</button>
                         </div>
@@ -1247,11 +1251,11 @@ function getPlatformOsPath(platform: PlatformInfo): string {
                       <div class="url-form-row">
                         <label class="url-form-label">API 路径 <span class="tooltip-icon" title="聊天补全接口的路径">?</span></label>
                         <input
-                          v-model="m.apiPath"
+                          :value="m.apiPath"
                           type="text"
                           class="url-form-input"
                           placeholder="/v1/chat/completions"
-                          @change="updateSettings({ aiModels: [...settings.aiModels] })"
+                          @change="saveProviderEndpoint(getModelIndex(m.id), 'apiPath', $event)"
                         />
                       </div>
                     </div>
@@ -1560,11 +1564,11 @@ function getPlatformOsPath(platform: PlatformInfo): string {
                         <label class="url-form-label">Base URL <span class="tooltip-icon" title="API 服务器的基础地址">?</span></label>
                         <div class="url-form-input-group">
                           <input
-                            v-model="m.baseUrl"
+                            :value="m.baseUrl"
                             type="text"
                             class="url-form-input"
                             placeholder="https://api.openai.com"
-                            @change="updateSettings({ aiModels: [...settings.aiModels] })"
+                            @change="saveProviderEndpoint(getModelIndex(m.id), 'baseUrl', $event)"
                           />
                           <button class="url-restore-btn" @click="restoreBaseUrl(getModelIndex(m.id))">恢复默认</button>
                         </div>
@@ -1576,11 +1580,11 @@ function getPlatformOsPath(platform: PlatformInfo): string {
                       <div class="url-form-row">
                         <label class="url-form-label">API 路径 <span class="tooltip-icon" title="聊天补全接口的路径">?</span></label>
                         <input
-                          v-model="m.apiPath"
+                          :value="m.apiPath"
                           type="text"
                           class="url-form-input"
                           placeholder="/v1/chat/completions"
-                          @change="updateSettings({ aiModels: [...settings.aiModels] })"
+                          @change="saveProviderEndpoint(getModelIndex(m.id), 'apiPath', $event)"
                         />
                       </div>
                     </div>
@@ -1887,11 +1891,11 @@ function getPlatformOsPath(platform: PlatformInfo): string {
                         <label class="url-form-label">Base URL <span class="tooltip-icon" title="API 服务器的基础地址">?</span></label>
                         <div class="url-form-input-group">
                           <input
-                            v-model="m.baseUrl"
+                            :value="m.baseUrl"
                             type="text"
                             class="url-form-input"
                             placeholder="https://api.openai.com"
-                            @change="updateSettings({ aiModels: [...settings.aiModels] })"
+                            @change="saveProviderEndpoint(getModelIndex(m.id), 'baseUrl', $event)"
                           />
                           <button class="url-restore-btn" @click="restoreBaseUrl(getModelIndex(m.id))">恢复默认</button>
                         </div>
@@ -1903,11 +1907,11 @@ function getPlatformOsPath(platform: PlatformInfo): string {
                       <div class="url-form-row">
                         <label class="url-form-label">API 路径 <span class="tooltip-icon" title="聊天补全接口的路径">?</span></label>
                         <input
-                          v-model="m.apiPath"
+                          :value="m.apiPath"
                           type="text"
                           class="url-form-input"
                           placeholder="/v1/chat/completions"
-                          @change="updateSettings({ aiModels: [...settings.aiModels] })"
+                          @change="saveProviderEndpoint(getModelIndex(m.id), 'apiPath', $event)"
                         />
                       </div>
                     </div>
@@ -2615,13 +2619,7 @@ function getPlatformOsPath(platform: PlatformInfo): string {
                   </div>
                 </div>
                 <div class="platform-actions">
-                  <button
-                    v-if="isCustomPlatform(p)"
-                    class="order-btn"
-                    type="button"
-                    title="编辑"
-                    @click.stop="openEditPlatform(p)"
-                  >
+                  <button v-if="isCustomPlatform(p)" class="order-btn" type="button" title="编辑" @click.stop="openEditPlatform(p)">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                       <path d="M12 20h9" />
                       <path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
@@ -2673,12 +2671,7 @@ function getPlatformOsPath(platform: PlatformInfo): string {
     </div>
   </div>
 
-  <AddPlatformModal
-    v-if="showAddPlatformModal"
-    :platform="editingPlatform"
-    @close="onClosePlatformModal"
-    @submit="onPlatformSubmit"
-  />
+  <AddPlatformModal v-if="showAddPlatformModal" :platform="editingPlatform" @close="onClosePlatformModal" @submit="onPlatformSubmit" />
   <ConfirmModal
     v-if="confirmDeletePlatformId"
     title="删除平台"

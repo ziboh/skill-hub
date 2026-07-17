@@ -135,5 +135,7 @@ export interface ScanSkillLike {
 /** Match a scanned skill to a folder name and/or display name (same rules as skillMatchesFolder). */
 export function skillMatchesInstalled(skill: ScanSkillLike, skillFolder: string, skillName: string): boolean {
   const name = normalizeSkillNameKey(getSkillDisplayName(skill))
-  return skill.dir.includes(skillFolder) || name === normalizeSkillNameKey(skillName)
+  const installedFolder = normalizePath(skill.dir).split('/').pop() || ''
+  const expectedFolder = normalizePath(skillFolder).split('/').pop() || ''
+  return (expectedFolder !== '' && installedFolder === expectedFolder) || name === normalizeSkillNameKey(skillName)
 }

@@ -8,7 +8,7 @@ vi.mock('../SkillCodeEditor.vue', () => ({
     name: 'SkillCodeEditor',
     props: ['modelValue', 'language', 'readonly'],
     template:
-      '<div class="mock-editor"><textarea :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)"></textarea></div>',
+      '<div class="mock-editor" :data-readonly="String(readonly)"><textarea :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)"></textarea></div>',
   },
 }))
 
@@ -94,6 +94,21 @@ describe('SkillFileEditor', () => {
     await wrapper.find('.tree-item.file').trigger('click')
     expect(wrapper.find('.editor-file-name').exists()).toBe(true)
     expect(wrapper.find('.editor-file-name').text()).toContain('SKILL.md')
+  })
+
+  test('keeps text files readonly until the edit button is clicked', async () => {
+    window.services.readDir = vi.fn(() => [{ name: 'SKILL.md', path: '/some/dir/SKILL.md', isDirectory: false }])
+    window.services.pathJoin = vi.fn((...p: string[]) => p.join('/'))
+    window.services.stat = vi.fn(() => ({ isDirectory: () => false }))
+    window.services.readFile = vi.fn(() => '# Test content')
+    wrapper = mountEditor('/some/dir')
+    await wrapper.vm.$nextTick()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(wrapper.find('.mock-editor').attributes('data-readonly')).toBe('true')
+
+    await wrapper.find('.editor-btn.edit-btn').trigger('click')
+    expect(wrapper.find('.mock-editor').attributes('data-readonly')).toBe('false')
   })
 
   test('shows empty editor when no file selected', () => {

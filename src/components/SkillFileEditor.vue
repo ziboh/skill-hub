@@ -36,6 +36,7 @@ const loadedFiles = ref<Record<string, LoadedFile>>({})
 const modifiedFiles = ref<Record<string, string>>({})
 const isSaving = ref(false)
 const isLoading = ref(false)
+const isEditing = ref(false)
 
 const currentContent = computed(() => {
   if (!selectedFile.value) return ''
@@ -183,6 +184,7 @@ function selectFile(relativePath: string) {
     return
   }
   selectedFile.value = relativePath
+  isEditing.value = false
   loadFileContent(relativePath)
 }
 
@@ -190,6 +192,7 @@ function confirmSwitch() {
   if (!pendingSwitchFile.value) return
   selectedFile.value = pendingSwitchFile.value
   pendingSwitchFile.value = null
+  isEditing.value = false
   loadFileContent(selectedFile.value)
 }
 
@@ -251,6 +254,7 @@ async function saveCurrentFile() {
     const next = { ...modifiedFiles.value }
     delete next[selectedFile.value]
     modifiedFiles.value = next
+    isEditing.value = false
     showToast({ type: 'success', message: '文件已保存' })
     emit('saved')
   } catch (err: any) {
@@ -301,6 +305,7 @@ async function handleDelete() {
     window.services.removeFile(fullPath)
     if (selectedFile.value === deleteDialogFile.value) {
       selectedFile.value = null
+      isEditing.value = false
     }
     delete loadedFiles.value[deleteDialogFile.value]
     delete modifiedFiles.value[deleteDialogFile.value]
@@ -334,6 +339,7 @@ watch(
     selectedFile.value = null
     loadedFiles.value = {}
     modifiedFiles.value = {}
+    isEditing.value = false
     loadFiles()
   },
 )
@@ -543,6 +549,28 @@ function getFileIcon(name: string, isDir: boolean, expanded?: boolean): UiIconNa
               </svg>
               {{ isSaving ? '保存中...' : '保存' }}
             </button>
+            <button
+              v-if="isEditableFile(selectedFile)"
+              class="editor-btn edit-btn"
+              :class="{ active: isEditing }"
+              @click="isEditing = true"
+              title="编辑文件"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M12 20h9" />
+                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
+              </svg>
+              编辑
+            </button>
             <button class="editor-btn delete-btn" @click="deleteDialogFile = selectedFile" title="删除文件">
               <svg
                 width="14"
@@ -564,7 +592,12 @@ function getFileIcon(name: string, isDir: boolean, expanded?: boolean): UiIconNa
 
         <!-- Code editor -->
         <div v-if="isEditableFile(selectedFile)" class="editor-content">
-          <SkillCodeEditor :model-value="currentContent" :language="currentLanguage" @update:model-value="handleContentChange" />
+          <SkillCodeEditor
+            :model-value="currentContent"
+            :language="currentLanguage"
+            :readonly="!isEditing"
+            @update:model-value="handleContentChange"
+          />
         </div>
         <div v-else class="editor-readonly">
           <svg
@@ -889,6 +922,11 @@ function getFileIcon(name: string, isDir: boolean, expanded?: boolean): UiIconNa
   border: none;
   background: transparent;
   padding: 5px 8px;
+}
+.editor-btn.edit-btn.active {
+  background: hsl(var(--primary));
+  border-color: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
 }
 .editor-btn.delete-btn:hover {
   color: hsl(var(--destructive));

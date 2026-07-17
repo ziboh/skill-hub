@@ -13,6 +13,7 @@ import { atomicReplaceDir } from '../utils/fs-ops'
 import { finalizeImportedSkill } from '../utils/skill-import'
 import { skillsShareIdentity } from '../utils/skill-identity'
 import { sortProcessedSkillsLast } from '../utils/skill-modal-sort'
+import { isValidRelativeRepositoryPath, validateGitSourceOptions } from '../utils/input-validation'
 import UiIcon, { type UiIconName } from './UiIcon.vue'
 
 const emit = defineEmits(['close', 'imported', 'navigate'])
@@ -64,6 +65,11 @@ function selectedBranch(infoBranch = 'main') {
 }
 
 async function scanGit() {
+  const branchError = validateGitSourceOptions(gitBranch.value, '')
+  if (branchError) {
+    showError(branchError)
+    return
+  }
   const info = parseRepositoryUrl(gitUrl.value.trim())
   if (!info) {
     showError('请输入有效的 GitHub URL 或 Gitee URL（如 owner/repo）')
@@ -76,16 +82,18 @@ async function scanGit() {
   try {
     const token = info.provider === 'gitee' ? storage.getSettings().giteeToken || undefined : storage.getSettings().githubToken || undefined
     const branch = selectedBranch(info.defaultBranch)
-    const tree = info.provider === 'gitee'
-      ? await fetchGiteeRepoTree(info.owner, info.repo, branch, token)
-      : await fetchGitHubRepoTree(info.owner, info.repo, branch, token)
+    const tree =
+      info.provider === 'gitee'
+        ? await fetchGiteeRepoTree(info.owner, info.repo, branch, token)
+        : await fetchGitHubRepoTree(info.owner, info.repo, branch, token)
     scannedGiteeTree.value = info.provider === 'gitee' ? tree : null
     const skills: Skill[] = []
     for (const sd of detectSkillDirectories(tree)) {
       try {
-        const content = info.provider === 'gitee'
-          ? await fetchGiteeFile(info.owner, info.repo, sd.manifestFile, branch, token)
-          : await fetchGitHubFile(info.owner, info.repo, sd.manifestFile, branch, token)
+        const content =
+          info.provider === 'gitee'
+            ? await fetchGiteeFile(info.owner, info.repo, sd.manifestFile, branch, token)
+            : await fetchGitHubFile(info.owner, info.repo, sd.manifestFile, branch, token)
         const fm = parseFrontmatter(content)
         const dirName = skillIdPart(sd.dir, info.repo)
         const tags = fm.tags
@@ -125,6 +133,11 @@ async function scanGit() {
 }
 
 async function importGitDirect() {
+  const branchError = validateGitSourceOptions(gitBranch.value, '')
+  if (branchError) {
+    showError(branchError)
+    return
+  }
   const info = parseRepositoryUrl(gitUrl.value.trim())
   const path = gitSkillPath.value.trim()
   if (!info) {
@@ -133,6 +146,10 @@ async function importGitDirect() {
   }
   if (!path) {
     showError('请输入 skill 名称或目录')
+    return
+  }
+  if (!isValidRelativeRepositoryPath(path)) {
+    showError('skill 目录必须是仓库内的相对路径，且不能包含绝对路径或 ..')
     return
   }
   const branch = selectedBranch(info.defaultBranch)
@@ -236,9 +253,10 @@ function matchSkillDir(candidates: string[], targetName: string): string | null 
 async function resolveRemoteSkillPath(owner: string, repo: string, branch: string, token: string | undefined, skill: Skill) {
   let tree
   try {
-    tree = skill.repositoryProvider === 'gitee'
-      ? await fetchGiteeRepoTree(owner, repo, branch, token)
-      : await fetchGitHubRepoTree(owner, repo, branch, token)
+    tree =
+      skill.repositoryProvider === 'gitee'
+        ? await fetchGiteeRepoTree(owner, repo, branch, token)
+        : await fetchGitHubRepoTree(owner, repo, branch, token)
   } catch (err: any) {
     throw new Error(err.message || `仓库或分支不存在：${owner}/${repo}`)
   }
@@ -255,9 +273,10 @@ async function resolveRemoteSkillPath(owner: string, repo: string, branch: strin
     const dirName = skillIdPart(sd.dir, repo).toLowerCase()
     if (dirName === targetLower) return sd.dir
     try {
-      const content = skill.repositoryProvider === 'gitee'
-        ? await fetchGiteeFile(owner, repo, sd.manifestFile, branch, token)
-        : await fetchGitHubFile(owner, repo, sd.manifestFile, branch, token)
+      const content =
+        skill.repositoryProvider === 'gitee'
+          ? await fetchGiteeFile(owner, repo, sd.manifestFile, branch, token)
+          : await fetchGitHubFile(owner, repo, sd.manifestFile, branch, token)
       const name = parseFrontmatter(content).name?.toLowerCase()
       if (name && name === targetLower) return sd.dir
     } catch {}
@@ -281,7 +300,10 @@ async function importGitSkills(skills: Skill[]) {
     try {
       const branch = skill.branch || (skill.repositoryProvider === 'gitee' ? 'main' : 'main')
       const [owner, repo] = skill.repo.split('/')
-      const token = skill.repositoryProvider === 'gitee' ? storage.getSettings().giteeToken || undefined : storage.getSettings().githubToken || undefined
+      const token =
+        skill.repositoryProvider === 'gitee'
+          ? storage.getSettings().giteeToken || undefined
+          : storage.getSettings().githubToken || undefined
       const remotePath = await resolveRemoteSkillPath(owner, repo, branch, token, skill)
       const skillName = (skill.path || skill.name || '').trim().split('/').pop() || skill.name
       if (downloadedIds.some((id) => id.toLowerCase().endsWith(`/${skillName.toLowerCase()}`)) || targetNames.includes(skillName)) {
@@ -440,7 +462,10 @@ async function importLocalSelected() {
     }
   }
   if (targetNames.length)
-    showToast({ type: 'success', message: targetNames.length === 1 ? `已导入「${targetNames[0]}」` : `已导入 ${targetNames.length} 个技能` })
+    showToast({
+      type: 'success',
+      message: targetNames.length === 1 ? `已导入「${targetNames[0]}」` : `已导入 ${targetNames.length} 个技能`,
+    })
   importing.value = false
   emit('imported')
   if (targetNames.length) emit('close')
@@ -487,7 +512,12 @@ async function importLocalSelected() {
         <template v-else-if="step === 'git-input'">
           <p class="hint">输入 GitHub 或 Gitee 仓库，可直接填 skill 目录，也可扫描选择：</p>
           <div class="git-input-row">
-            <input v-model="gitUrl" type="text" placeholder="https://github.com/user/repo 或 https://gitee.com/user/repo" class="git-input" />
+            <input
+              v-model="gitUrl"
+              type="text"
+              placeholder="https://github.com/user/repo 或 https://gitee.com/user/repo"
+              class="git-input"
+            />
             <input v-model="gitBranch" type="text" placeholder="分支（可选）" class="git-input small" />
           </div>
           <div class="git-input-row">
@@ -513,7 +543,12 @@ async function importLocalSelected() {
               </button>
             </div>
             <div class="skill-select-list">
-              <label v-for="skill in sortedGitHubSkills" :key="skill.id" class="skill-select-item" :class="{ imported: isSkillImported(skill) }">
+              <label
+                v-for="skill in sortedGitHubSkills"
+                :key="skill.id"
+                class="skill-select-item"
+                :class="{ imported: isSkillImported(skill) }"
+              >
                 <input
                   type="checkbox"
                   :checked="isSkillImported(skill) || selectedIds.has(skill.id)"

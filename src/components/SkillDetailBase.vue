@@ -447,7 +447,7 @@ function openSource() {
     </div>
 
     <!-- Scrollable content -->
-    <div class="detail-scroll">
+    <div class="detail-scroll" :class="{ 'files-scroll': activeTab === 'files' }">
       <!-- ═══════════ Preview Tab ═══════════ -->
       <template v-if="activeTab === 'preview'">
         <div class="preview-layout" :class="{ collapsed: sidePanelCollapsed }">
@@ -916,9 +916,14 @@ function openSource() {
 /* ═══ Scroll ═══ */
 .detail-scroll {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 20px 28px 48px;
+}
+.detail-scroll.files-scroll {
+  overflow: hidden;
+  padding-bottom: 20px;
 }
 .space-y-4 > * + * {
   margin-top: 16px;
@@ -1322,6 +1327,9 @@ function openSource() {
 }
 
 /* ═══ Files tab ═══ */
+.files-tab-content {
+  height: 100%;
+}
 .empty-state {
   display: flex;
   flex-direction: column;
@@ -1337,7 +1345,6 @@ function openSource() {
   font-size: 14px;
 }
 .file-editor-container {
-  height: calc(100vh - 180px);
-  min-height: 500px;
+  height: 100%;
 }
 </style>

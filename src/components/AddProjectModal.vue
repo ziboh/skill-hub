@@ -2,6 +2,7 @@
 import { inject, ref, watch } from 'vue'
 import type { RegisteredProject } from '../types'
 import { KeyShowToast } from '../inject-keys'
+import { isValidGlobalSkillPath } from '../utils/path'
 
 const props = defineProps<{
   project?: RegisteredProject | null
@@ -42,10 +43,13 @@ watch(
 
 function addScanPath() {
   const p = newScanPath.value.trim()
-  if (p && !scanPaths.value.includes(p)) {
-    scanPaths.value.push(p)
-    newScanPath.value = ''
+  if (!p) return
+  if (!isValidGlobalSkillPath(p)) {
+    showToast({ type: 'error', message: '扫描路径必须是当前系统支持的绝对路径或 ~ 路径。' })
+    return
   }
+  if (!scanPaths.value.includes(p)) scanPaths.value.push(p)
+  newScanPath.value = ''
 }
 
 function removeScanPath(index: number) {
@@ -506,5 +510,4 @@ function handleSubmit() {
   opacity: 0.5;
   cursor: not-allowed;
 }
-
 </style>

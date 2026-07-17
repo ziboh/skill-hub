@@ -19,4 +19,14 @@ describe('repository URL parsing', () => {
       defaultBranch: 'main',
     })
   })
+
+  test('recognizes the short owner/repo form', () => {
+    expect(parseRepositoryUrl('acme/skills')).not.toBeNull()
+  })
+
+  test('rejects incomplete or malformed repository identifiers', () => {
+    expect(parseRepositoryUrl('github.com/acme')).toBeNull()
+    expect(parseRepositoryUrl('https://github.com/acme/skills?tab=readme')).toBeNull()
+    expect(parseRepositoryUrl('https://github.com/acme/skill name')).toBeNull()
+  })
 })

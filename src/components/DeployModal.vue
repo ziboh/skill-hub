@@ -4,7 +4,7 @@ import { KeyShowToast, KeyNavigateToProjectSkills, KeyMarkAgentSkillsDirty } fro
 import { useProjectState } from '../composables/useProjectState'
 import { getPlatformPath, platformDisplayIcon } from '../data/platforms'
 import { storage } from '../utils/storage'
-import { normalizePath } from '../utils/path'
+import { isValidProjectRelativePath, normalizePath } from '../utils/path'
 import type { Skill, InstallMode, RegisteredProject } from '../types'
 import ProviderIcon from './ProviderIcon.vue'
 import ConfirmModal from './ConfirmModal.vue'
@@ -45,8 +45,9 @@ const selectedPlatforms = ref<Set<string>>(new Set())
 const platforms = computed(() => getDeployPlatforms())
 
 const orderedPlatforms = computed(() =>
-  sortProcessedSkillsLast(platforms.value, (platform) =>
-    installedPlatformIds.value.has(platform.id) || physicallyInstalledPlatforms.value.has(platform.id),
+  sortProcessedSkillsLast(
+    platforms.value,
+    (platform) => installedPlatformIds.value.has(platform.id) || physicallyInstalledPlatforms.value.has(platform.id),
   ),
 )
 
@@ -174,6 +175,10 @@ const skillDirName = computed(() => getSkillFolderName(props.skill))
 function addCustomDir() {
   const p = customDirInputValue.value.trim()
   if (!p) return
+  if (!isValidProjectRelativePath(p)) {
+    showToast({ type: 'error', message: '自定义目录必须是项目内的相对路径，且不能包含绝对路径或 ..。' })
+    return
+  }
   const exists = agentDirOptions.value.some((d) => d.path === p)
   if (exists) {
     showToast({ type: 'warning', message: '该路径已存在' })
@@ -204,8 +209,9 @@ const agentDirOptions = computed(() => {
 })
 
 const orderedAgentDirOptions = computed(() =>
-  sortProcessedSkillsLast(agentDirOptions.value, (agent) =>
-    isProjectDirInstalled(agent.path) || physicallyExistingAgentDirs.value.has(agent.path),
+  sortProcessedSkillsLast(
+    agentDirOptions.value,
+    (agent) => isProjectDirInstalled(agent.path) || physicallyExistingAgentDirs.value.has(agent.path),
   ),
 )
 

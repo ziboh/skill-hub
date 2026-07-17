@@ -3,19 +3,13 @@ import { ref, computed, onMounted, onActivated, inject } from 'vue'
 import { storage } from '../../utils/storage'
 import { useSettings } from '../../composables/useSettings'
 import type { StoreSource, StoreSourceType } from '../../types'
-import {
-  getDefaultStoreIcon,
-  ICON_GITHUB,
-  ICON_MARKETPLACE,
-  ICON_WELL_KNOWN,
-  ICON_FOLDER,
-  ICON_STORE,
-} from '../../data/store-icons'
+import { getDefaultStoreIcon, ICON_GITHUB, ICON_MARKETPLACE, ICON_WELL_KNOWN, ICON_FOLDER, ICON_STORE } from '../../data/store-icons'
 import ConfirmModal from '../../components/ConfirmModal.vue'
 import StoreIconPicker from '../../components/StoreIconPicker.vue'
 import ProviderIcon from '../../components/ProviderIcon.vue'
 import { KeyShowToast } from '../../inject-keys'
 import { validateStoreUrl } from '../../utils/validate-store'
+import { validateGitSourceOptions } from '../../utils/input-validation'
 
 const emit = defineEmits(['navigate'])
 const showToast = inject(KeyShowToast, () => {})
@@ -57,7 +51,10 @@ const examples: Record<StoreSourceType, { label: string; lines: string[] }> = {
     label: 'Examples',
     lines: ['https://example.com/.well-known/skills/index.json', 'https://example.com (自动发现 index.json)'],
   },
-  'git-repo': { label: 'Examples', lines: ['https://github.com/anthropics/skills', 'https://gitee.com/your-name/skills', 'Branch: main/master | Dir: skills/.curated'] },
+  'git-repo': {
+    label: 'Examples',
+    lines: ['https://github.com/anthropics/skills', 'https://gitee.com/your-name/skills', 'Branch: main/master | Dir: skills/.curated'],
+  },
   'local-dir': { label: 'Example', lines: ['~/Documents/my-skills'] },
 }
 
@@ -94,6 +91,11 @@ function cancelEdit() {
 
 async function handleAddOrSave() {
   if (!canAdd() || validating.value) return
+  const gitOptionsError = sourceType.value === 'git-repo' ? validateGitSourceOptions(sourceBranch.value, sourceDirectory.value) : null
+  if (gitOptionsError) {
+    showToast({ type: 'error', message: gitOptionsError })
+    return
+  }
   validating.value = true
   const result = await validateStoreUrl(sourceUrl.value.trim(), sourceType.value)
   if (!result.valid) {

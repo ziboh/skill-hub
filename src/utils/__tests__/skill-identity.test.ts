@@ -191,10 +191,16 @@ describe('dedupeByNameKey', () => {
 })
 
 describe('skillMatchesInstalled', () => {
-  test('matches by dir containing folder', () => {
+  test('matches by exact directory folder name', () => {
     expect(
       skillMatchesInstalled({ dir: '/home/.cursor/skills/my-skill', name: 'Other', manifest: { name: 'Other' } }, 'my-skill', 'My Skill'),
     ).toBe(true)
+  })
+
+  test('does not match a folder name contained only in a parent path', () => {
+    expect(
+      skillMatchesInstalled({ dir: 'C:\\Users\\me\\.codex\\skills\\windows', name: 'windows', manifest: { name: 'windows' } }, 'skill', 'agent-reach'),
+    ).toBe(false)
   })
 
   test('matches by display name case-insensitive', () => {

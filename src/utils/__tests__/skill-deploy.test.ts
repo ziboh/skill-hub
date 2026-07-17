@@ -21,6 +21,10 @@ describe('getSkillFolderName', () => {
     expect(getSkillFolderName({ name: 'My Skill', path: 'skills/my-skill' })).toBe('my-skill')
   })
 
+  test('uses the skill name when the repository path ends in a generic skill directory', () => {
+    expect(getSkillFolderName({ name: 'agent-reach', path: 'agent_reach/skill' })).toBe('agent-reach')
+  })
+
   test('falls back to name', () => {
     expect(getSkillFolderName({ name: 'My Skill', path: '' })).toBe('My Skill')
     expect(getSkillFolderName({ name: 'My Skill', path: '.' })).toBe('My Skill')

@@ -4,7 +4,7 @@ import { clearSkillLifecycleHooks, registerSkillLifecycleHook } from '../skill-l
 import { storage, resetStorageCaches } from '../storage'
 
 describe('skillMatchesFolder', () => {
-  test('matches by dir containing folder name', () => {
+  test('matches by exact directory folder name', () => {
     expect(
       skillMatchesFolder({ dir: '/home/.cursor/skills/my-skill', manifest: { name: 'Other' }, name: 'Other' }, 'my-skill', 'My Skill'),
     ).toBe(true)

@@ -7,6 +7,7 @@ import IconPickerModal from './IconPickerModal.vue'
 import ProviderIcon from './ProviderIcon.vue'
 import { KeyShowToast } from '../inject-keys'
 import { validateStoreUrl } from '../utils/validate-store'
+import { validateGitSourceOptions } from '../utils/input-validation'
 
 const props = defineProps<{
   editSource?: StoreSource | null
@@ -66,6 +67,11 @@ function canAdd(): boolean {
 
 async function handleSave() {
   if (!canAdd() || validating.value) return
+  const gitOptionsError = sourceType.value === 'git-repo' ? validateGitSourceOptions(sourceBranch.value, sourceDirectory.value) : null
+  if (gitOptionsError) {
+    showToast({ type: 'error', message: gitOptionsError })
+    return
+  }
   validating.value = true
   const result = await validateStoreUrl(sourceUrl.value.trim(), sourceType.value)
   if (!result.valid) {

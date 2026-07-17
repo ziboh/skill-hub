@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, inject } from 'vue'
 import ProviderIcon from './ProviderIcon.vue'
 import { AVAILABLE_ICONS } from '../data/ai-providers'
 import { listRegisteredIconIds } from '../icons'
@@ -7,6 +7,8 @@ import { defaultPlatforms } from '../data/platforms'
 
 import { storage } from '../utils/storage'
 import type { UserIconEntry } from '../types'
+import { KeyShowToast } from '../inject-keys'
+import { isValidHttpUrl } from '../utils/input-validation'
 
 /** Which built-in icon set the library tab shows. */
 export type IconLibraryPreset = 'providers' | 'platforms' | 'all'
@@ -30,6 +32,7 @@ const props = withDefaults(
 const emit = defineEmits<{
   'update:modelValue': [value: string]
 }>()
+const showToast = inject(KeyShowToast, () => {})
 
 type Tab = 'library' | 'my-icons' | 'url'
 const activeTab = ref<Tab>('library')
@@ -160,9 +163,12 @@ function selectDefault() {
 
 function applyUrl() {
   const url = urlInput.value.trim()
-  if (url) {
-    emit('update:modelValue', url)
+  if (!url) return
+  if (!isValidHttpUrl(url)) {
+    showToast({ type: 'error', message: '图标地址必须是 HTTP 或 HTTPS URL。' })
+    return
   }
+  emit('update:modelValue', url)
 }
 
 async function importIcon() {
