@@ -1317,8 +1317,6 @@ function openSource() {
   white-space: pre-wrap;
   word-break: break-word;
   color: hsl(var(--foreground) / 0.85);
-  max-height: 60vh;
-  overflow-y: auto;
   margin: 0;
   background: hsl(var(--background));
 }

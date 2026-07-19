@@ -1,5 +1,10 @@
-import { describe, test, expect } from 'vitest'
-import { hexToHsl } from '../theme'
+import { afterEach, describe, test, expect } from 'vitest'
+import { hexToHsl, syncAppViewportHeight } from '../theme'
+
+afterEach(() => {
+  document.documentElement.style.removeProperty('--app-zoom')
+  document.documentElement.style.removeProperty('--app-viewport-height')
+})
 
 describe('hexToHsl', () => {
   test('converts red hex to correct HSL', () => {
@@ -44,5 +49,16 @@ describe('hexToHsl', () => {
 
   test('returns null for empty string', () => {
     expect(hexToHsl('')).toBeNull()
+  })
+})
+
+describe('syncAppViewportHeight', () => {
+  test('compensates for app zoom when setting the viewport height', () => {
+    document.documentElement.style.setProperty('--app-zoom', '1.125')
+
+    syncAppViewportHeight()
+
+    const height = parseFloat(document.documentElement.style.getPropertyValue('--app-viewport-height'))
+    expect(height).toBeCloseTo(window.innerHeight / 1.125)
   })
 })

@@ -45,6 +45,12 @@ function resolveMode(settings: AppSettings): 'light' | 'dark' {
   return settings.themeMode
 }
 
+export function syncAppViewportHeight(): void {
+  const root = document.documentElement
+  const zoom = parseFloat(getComputedStyle(root).getPropertyValue('--app-zoom')) || 1
+  root.style.setProperty('--app-viewport-height', `${window.innerHeight / zoom}px`)
+}
+
 export function applyTheme(settings: AppSettings): void {
   const root = document.documentElement
   const mode = resolveMode(settings)
@@ -63,6 +69,7 @@ export function applyTheme(settings: AppSettings): void {
   root.style.setProperty('--base-font-size', fontVal)
   root.style.fontSize = fontVal
   root.style.setProperty('--app-zoom', String(ratio))
+  syncAppViewportHeight()
 
   if (settings.compactMode) {
     root.setAttribute('data-compact', '')

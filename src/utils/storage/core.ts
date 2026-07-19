@@ -19,6 +19,11 @@ export const KEYS = {
 
 export const README_TTL = 43200000 // 12 小时
 
+function getStorageBackend() {
+  if (window.ztools?.dbStorage) return window.ztools.dbStorage
+  return window.localStorage
+}
+
 export function cleanDescription(desc: string): string {
   if (!desc) return desc
   if ((desc.startsWith('"') && desc.endsWith('"')) || (desc.startsWith("'") && desc.endsWith("'"))) {
@@ -34,7 +39,7 @@ export function cleanDescription(desc: string): string {
 
 export function dbSet(key: string, value: any): boolean {
   try {
-    window.ztools.dbStorage.setItem(PREFIX + key, JSON.stringify(value))
+    getStorageBackend().setItem(PREFIX + key, JSON.stringify(value))
     return true
   } catch (e) {
     console.error(`[storage] dbSet failed for "${key}":`, e)
@@ -44,7 +49,7 @@ export function dbSet(key: string, value: any): boolean {
 
 export function dbGet<T = any>(key: string): T | null {
   try {
-    const raw = window.ztools.dbStorage.getItem(PREFIX + key)
+    const raw = getStorageBackend().getItem(PREFIX + key)
     if (raw === null || raw === undefined) return null
     if (typeof raw === 'string') {
       try {

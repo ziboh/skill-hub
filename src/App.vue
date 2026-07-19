@@ -47,7 +47,7 @@ const AddProjectModal = defineAsyncComponent(() => import('./components/AddProje
 const NewSkillModal = defineAsyncComponent(() => import('./components/NewSkillModal.vue'))
 const AppToast = defineAsyncComponent(() => import('./components/AppToast.vue'))
 import { storage } from './utils/storage'
-import { applyTheme } from './utils/theme'
+import { applyTheme, syncAppViewportHeight } from './utils/theme'
 import { useSettings } from './composables/useSettings'
 import { useSkillInventory, normalizeSkillScanResult } from './composables/useSkillInventory'
 import { useTranslationQueue } from './composables/useTranslationQueue'
@@ -58,6 +58,9 @@ import { createLeadingTrailingScheduler } from './utils/schedule'
 import type { Skill, PlatformInfo, ModelConfig, SkillScanResult } from './types'
 
 const { settings } = useSettings()
+const hasNativeRuntime = Boolean(window.ztools && window.services)
+
+syncAppViewportHeight()
 
 const showTranslatePanel = ref(false)
 const appToast = ref<InstanceType<typeof AppToast> | null>(null)
@@ -216,12 +219,20 @@ const navItems = computed(() => [
 let mqCleanup: (() => void) | null = null
 
 onMounted(() => {
-  storage.cleanStaleDownloadedSkills()
+  window.addEventListener('resize', syncAppViewportHeight)
+  window.visualViewport?.addEventListener('resize', syncAppViewportHeight)
+  if (hasNativeRuntime) {
+    storage.cleanStaleDownloadedSkills()
+  }
   storage.updateChineseTags()
-  syncAllowedWriteRoots({ projects: registeredProjects.value })
+  if (hasNativeRuntime) {
+    syncAllowedWriteRoots({ projects: registeredProjects.value })
+  }
   refreshCounts()
   refreshMySkills()
-  ensureAgentSkills()
+  if (hasNativeRuntime) {
+    ensureAgentSkills()
+  }
   isAgentSkillsDirty.value = false
   applyTheme(settings)
   ;(async () => {
@@ -256,17 +267,21 @@ onMounted(() => {
   }
   mq.addEventListener('change', onColorSchemeChange)
   mqCleanup = () => mq.removeEventListener('change', onColorSchemeChange)
-  window.ztools.onPluginEnter((_action) => {
-    if (!route.value) {
-      route.value = 'my'
-    }
-  })
-  window.ztools.onPluginOut(() => {
-    /* 不清理 route，保持当前页面 */
-  })
+  if (hasNativeRuntime) {
+    window.ztools.onPluginEnter((_action) => {
+      if (!route.value) {
+        route.value = 'my'
+      }
+    })
+    window.ztools.onPluginOut(() => {
+      /* 不清理 route，保持当前页面 */
+    })
+  }
 })
 
 onUnmounted(() => {
+  window.removeEventListener('resize', syncAppViewportHeight)
+  window.visualViewport?.removeEventListener('resize', syncAppViewportHeight)
   mqCleanup?.()
   scheduleRefreshCounts.cancel()
 })

@@ -49,7 +49,7 @@ body {
 
 /* ===== APP SHELL ===== */
 .app-shell {
-  height: 100vh;
+  height: var(--app-viewport-height, 100vh);
   overflow: hidden;
   position: relative;
   zoom: var(--app-zoom, 1);
@@ -57,7 +57,7 @@ body {
 
 .app-content {
   display: flex;
-  height: 100vh;
+  height: 100%;
   overflow: hidden;
 }
 
