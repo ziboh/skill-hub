@@ -116,8 +116,103 @@ export interface LeaderboardResult {
   totalCount: number
 }
 
+/** Public skill sitemaps (not /api/*). Each file holds up to ~10k skill URLs. */
+export const SKILLS_SITEMAP_URLS = [
+  'https://www.skills.sh/sitemap-skills-1.xml',
+  'https://www.skills.sh/sitemap-skills-2.xml',
+] as const
+
+const SKIP_SITEMAP_OWNERS = new Set(['agent', 'agents', 'api', 'search', 'trending', 'hot', 'internal'])
+
+let skillsCatalogCache: LeaderboardEntry[] | null = null
+let skillsCatalogPromise: Promise<LeaderboardEntry[]> | null = null
+
+/** Parse skill URLs from a skills.sh sitemap urlset XML. Pure / side-effect free. */
+export function parseSkillsSitemap(xml: string): LeaderboardEntry[] {
+  const entries: LeaderboardEntry[] = []
+  const seen = new Set<string>()
+  const locRe = /<loc>\s*https?:\/\/(?:www\.)?skills\.sh\/([^<\s]+)\s*<\/loc>/gi
+  let m: RegExpExecArray | null
+  while ((m = locRe.exec(xml)) !== null) {
+    const path = m[1].replace(/\/+/g, '/').replace(/^\/+|\/+$/g, '')
+    const parts = path.split('/').filter(Boolean)
+    if (parts.length < 3) continue
+    if (SKIP_SITEMAP_OWNERS.has(parts[0].toLowerCase())) continue
+    const owner = parts[0]
+    const repo = parts[1]
+    let skillName = parts.slice(2).join('/')
+    try {
+      skillName = decodeURIComponent(skillName)
+    } catch {
+      /* keep raw */
+    }
+    if (!skillName) continue
+    const key = `${owner}/${repo}/${skillName}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    const detailPath = `/${owner}/${repo}/${skillName}`
+    entries.push({
+      owner,
+      repo,
+      skillName,
+      detailPath,
+      detailUrl: `${BASE}${detailPath}`,
+      installs: 0,
+    })
+  }
+  return entries
+}
+
+export function clearSkillsCatalogCache(): void {
+  skillsCatalogCache = null
+  skillsCatalogPromise = null
+}
+
+/**
+ * Load the full skills.sh catalog from public sitemaps (no /api).
+ * Results are memoized in-memory for the session unless `force` is true.
+ */
+export async function fetchAllSkillsFromSitemap(force = false): Promise<LeaderboardResult> {
+  if (!force && skillsCatalogCache) {
+    return { entries: skillsCatalogCache, totalCount: skillsCatalogCache.length }
+  }
+  if (!force && skillsCatalogPromise) {
+    const entries = await skillsCatalogPromise
+    return { entries, totalCount: entries.length }
+  }
+
+  const load = async (): Promise<LeaderboardEntry[]> => {
+    const texts = await Promise.all(SKILLS_SITEMAP_URLS.map((url) => fetchText(url)))
+    const merged: LeaderboardEntry[] = []
+    const seen = new Set<string>()
+    for (const xml of texts) {
+      for (const entry of parseSkillsSitemap(xml)) {
+        const key = `${entry.owner}/${entry.repo}/${entry.skillName}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        merged.push(entry)
+      }
+    }
+    skillsCatalogCache = merged
+    return merged
+  }
+
+  skillsCatalogPromise = load()
+  try {
+    const entries = await skillsCatalogPromise
+    return { entries, totalCount: entries.length }
+  } finally {
+    skillsCatalogPromise = null
+  }
+}
+
 export async function fetchLeaderboard(filterKey?: string): Promise<LeaderboardResult> {
   const filter = getFilterByKey(filterKey || 'all')
+  // 「全部」走 sitemap 全量；趋势/热门仍解析对应排行榜 HTML（有排序，体量小）
+  if (filter.key === 'all') {
+    return fetchAllSkillsFromSitemap()
+  }
+
   const url = `${BASE}${filter.path}`
   const html = normalizeHtml(await fetchText(url))
   const entries: LeaderboardEntry[] = []

@@ -873,7 +873,7 @@ describe('SkillStore 首屏描述加载', () => {
 
   test('观察器尚未回调时不主动请求 skills.sh 卡片描述', async () => {
     vi.stubGlobal('IntersectionObserver', PassiveIntersectionObserver)
-    const leaderboardSpy = vi.spyOn(skillsSh, 'fetchLeaderboard').mockResolvedValue({
+    const catalogPayload = {
       entries: [
         {
           owner: 'example',
@@ -885,7 +885,8 @@ describe('SkillStore 首屏描述加载', () => {
         },
       ],
       totalCount: 1,
-    })
+    }
+    const catalogSpy = vi.spyOn(skillsSh, 'fetchAllSkillsFromSitemap').mockResolvedValue(catalogPayload)
     const descriptionSpy = vi.spyOn(skillsSh, 'fetchSkillDescriptionFromSh').mockResolvedValue('Demo description')
 
     try {
@@ -914,10 +915,10 @@ describe('SkillStore 首屏描述加载', () => {
       await nextTick()
       await flushPromises()
 
-      expect(leaderboardSpy).toHaveBeenCalledOnce()
+      expect(catalogSpy).toHaveBeenCalledOnce()
       expect(descriptionSpy).not.toHaveBeenCalled()
     } finally {
-      leaderboardSpy.mockRestore()
+      catalogSpy.mockRestore()
       descriptionSpy.mockRestore()
       vi.unstubAllGlobals()
     }

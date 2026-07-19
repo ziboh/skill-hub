@@ -1,15 +1,25 @@
-import { describe, test, expect, vi } from 'vitest'
+import { afterEach, describe, test, expect, vi } from 'vitest'
 import {
   getFilterByKey,
   leaderboardEntryToSkill,
   searchResultToSkill,
   getGitHubRepo,
   fetchLeaderboard,
+  fetchAllSkillsFromSitemap,
+  parseSkillsSitemap,
+  clearSkillsCatalogCache,
   searchSkillsSh,
   fetchSkillDetailFromSkill,
+  SKILLS_SITEMAP_URLS,
 } from '../skills-sh'
 import * as github from '../github'
 import type { LeaderboardEntry, PublicSearchResult } from '../skills-sh'
+
+afterEach(() => {
+  clearSkillsCatalogCache()
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+})
 
 describe('getFilterByKey', () => {
   test('returns matching filter for known key', () => {
@@ -154,17 +164,82 @@ describe('getGitHubRepo', () => {
 })
 
 
+describe('parseSkillsSitemap', () => {
+  test('extracts skill name and repo from loc URLs', () => {
+    const xml = `<?xml version="1.0"?>
+      <urlset>
+        <url><loc>https://www.skills.sh/vercel-labs/skills/find-skills</loc></url>
+        <url><loc>https://skills.sh/anthropics/skills/frontend-design</loc></url>
+        <url><loc>https://www.skills.sh/vercel-labs</loc></url>
+      </urlset>`
+    const entries = parseSkillsSitemap(xml)
+    expect(entries).toHaveLength(2)
+    expect(entries[0]).toMatchObject({
+      owner: 'vercel-labs',
+      repo: 'skills',
+      skillName: 'find-skills',
+      detailUrl: 'https://skills.sh/vercel-labs/skills/find-skills',
+    })
+    expect(entries[1].skillName).toBe('frontend-design')
+  })
+
+  test('dedupes identical locs and skips agent pages', () => {
+    const xml = `
+      <url><loc>https://www.skills.sh/owner/repo/skill-a</loc></url>
+      <url><loc>https://www.skills.sh/owner/repo/skill-a</loc></url>
+      <url><loc>https://www.skills.sh/agent/claude-code/something</loc></url>`
+    expect(parseSkillsSitemap(xml)).toHaveLength(1)
+  })
+})
+
 describe('skills.sh network transport', () => {
-  test('uses the preload download bridge for leaderboard HTML', async () => {
+  test('fetchLeaderboard(all) uses public skill sitemaps, not /api', async () => {
+    const xml1 =
+      '<?xml version="1.0"?><urlset><url><loc>https://www.skills.sh/a/b/skill-one</loc></url></urlset>'
+    const xml2 =
+      '<?xml version="1.0"?><urlset><url><loc>https://www.skills.sh/c/d/skill-two</loc></url></urlset>'
+    const downloadFile = vi.spyOn(window.services, 'downloadFile').mockImplementation(async (url: string) => {
+      if (url.includes('sitemap-skills-1')) return xml1
+      if (url.includes('sitemap-skills-2')) return xml2
+      throw new Error(`unexpected url ${url}`)
+    })
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+
+    const result = await fetchLeaderboard('all')
+
+    expect(downloadFile).toHaveBeenCalledWith(SKILLS_SITEMAP_URLS[0])
+    expect(downloadFile).toHaveBeenCalledWith(SKILLS_SITEMAP_URLS[1])
+    expect(downloadFile.mock.calls.every(([url]) => !String(url).includes('/api/'))).toBe(true)
+    expect(result.totalCount).toBe(2)
+    expect(result.entries.map((e) => e.skillName).sort()).toEqual(['skill-one', 'skill-two'])
+  })
+
+  test('fetchAllSkillsFromSitemap memoizes results until force refresh', async () => {
+    const xml =
+      '<?xml version="1.0"?><urlset><url><loc>https://www.skills.sh/owner/repo/cached-skill</loc></url></urlset>'
+    const downloadFile = vi.spyOn(window.services, 'downloadFile').mockResolvedValue(xml)
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+
+    const first = await fetchAllSkillsFromSitemap()
+    const second = await fetchAllSkillsFromSitemap()
+    expect(first.entries).toHaveLength(1)
+    expect(second.entries[0].skillName).toBe('cached-skill')
+    expect(downloadFile).toHaveBeenCalledTimes(SKILLS_SITEMAP_URLS.length)
+
+    await fetchAllSkillsFromSitemap(true)
+    expect(downloadFile).toHaveBeenCalledTimes(SKILLS_SITEMAP_URLS.length * 2)
+  })
+
+  test('uses the preload download bridge for trending leaderboard HTML', async () => {
     const html = '<a href="/owner/repo/my-skill"><h3>My Skill</h3></a>'
     const downloadFile = vi.spyOn(window.services, 'downloadFile').mockResolvedValue(
       new TextEncoder().encode(html).buffer,
     )
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
 
-    const result = await fetchLeaderboard()
+    const result = await fetchLeaderboard('trending')
 
-    expect(downloadFile).toHaveBeenCalledWith('https://skills.sh/')
+    expect(downloadFile).toHaveBeenCalledWith('https://skills.sh/trending')
     expect(result.entries[0]).toMatchObject({ owner: 'owner', repo: 'repo', skillName: 'My Skill' })
   })
 

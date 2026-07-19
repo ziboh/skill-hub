@@ -52,7 +52,7 @@ export function growVisible(current: number, maxCount: number, pageSize = PAGE_S
   return Math.min(current + pageSize, maxCount)
 }
 
-/** Local substring search over name / description / author / tags. Empty query returns all. */
+/** Local substring search over name / description / author / tags / repo. Empty query returns all. */
 export function filterLocalSearch(skills: Skill[], query: string): Skill[] {
   const q = query.trim().toLowerCase()
   if (!q) return skills
@@ -60,8 +60,9 @@ export function filterLocalSearch(skills: Skill[], query: string): Skill[] {
     const nameMatch = s.name.toLowerCase().includes(q)
     const descMatch = (s.description || '').toLowerCase().includes(q)
     const authorMatch = (s.author || '').toLowerCase().includes(q)
+    const repoMatch = (s.repo || '').toLowerCase().includes(q)
     const tagMatch = s.tags?.some((t) => t.toLowerCase().includes(q))
-    return nameMatch || descMatch || authorMatch || tagMatch
+    return nameMatch || descMatch || authorMatch || repoMatch || tagMatch
   })
 }
 
@@ -321,9 +322,15 @@ export function useStoreSkills(opts: {
     resetVisibleCount()
     resetDescriptionStates()
     if (storeScrollRef.value) storeScrollRef.value.scrollTop = 0
-    if (!force && isStoreCacheEnabled() && skillsCache.value[id]) {
-      allEntries.value = skillsCache.value[id]
-      totalCount.value = totalCountCache.value[id] ?? allEntries.value.length
+    const skillsShCacheKey =
+      id === 'skills-sh'
+        ? leaderboardFilter.value === 'all'
+          ? 'skills-sh'
+          : `skills-sh:${leaderboardFilter.value}`
+        : id
+    if (!force && isStoreCacheEnabled() && skillsCache.value[skillsShCacheKey]) {
+      allEntries.value = skillsCache.value[skillsShCacheKey]
+      totalCount.value = totalCountCache.value[skillsShCacheKey] ?? allEntries.value.length
       sourceSkills.value = allEntries.value
       restoreGitHubDescriptionContext(id, allEntries.value)
       loading.value = false
@@ -338,7 +345,7 @@ export function useStoreSkills(opts: {
       totalCount.value = 0
       resetGitHubDescriptionContext()
       startLoadingDots()
-      if (id === 'skills-sh') fetchSkillsSh()
+      if (id === 'skills-sh') fetchSkillsSh(force)
       else if (preset.url) fetchGitHubSkills(preset.url, preset.directory, undefined, force)
       return
     }
@@ -363,15 +370,21 @@ export function useStoreSkills(opts: {
     else if (custom.type === 'local-dir') fetchLocalDirSkills(custom)
   }
 
-  async function fetchSkillsSh() {
+  async function fetchSkillsSh(force = false) {
     const presetId = activePresetId.value
+    const filterKey = leaderboardFilter.value
+    const cacheKey = filterKey === 'all' ? 'skills-sh' : `skills-sh:${filterKey}`
     resetDescriptionStates()
     loading.value = true
     error.value = ''
     allEntries.value = []
     sourceSkills.value = []
     try {
-      const res = await skillsSh.fetchLeaderboard(leaderboardFilter.value)
+      // 「全部」走 sitemap 全量（不走 /api）；趋势/热门仍用排行榜 HTML
+      const res =
+        filterKey === 'all'
+          ? await skillsSh.fetchAllSkillsFromSitemap(force)
+          : await skillsSh.fetchLeaderboard(filterKey)
       if (activePresetId.value !== presetId) return
       const skills = res.entries.map(skillsSh.leaderboardEntryToSkill)
       const descPool = isStoreCacheEnabled() ? storage.getGitHubCache() : {}
@@ -389,8 +402,13 @@ export function useStoreSkills(opts: {
       loading.value = false
       stopLoadingDots()
       if (isStoreCacheEnabled()) {
-        skillsCache.value['skills-sh'] = allEntries.value
-        totalCountCache.value['skills-sh'] = res.totalCount
+        skillsCache.value[cacheKey] = allEntries.value
+        totalCountCache.value[cacheKey] = res.totalCount
+        // 兼容旧缓存键：默认「全部」仍写 skills-sh
+        if (filterKey === 'all') {
+          skillsCache.value['skills-sh'] = allEntries.value
+          totalCountCache.value['skills-sh'] = res.totalCount
+        }
       }
     } catch (err: any) {
       error.value = err.message
@@ -630,12 +648,25 @@ export function useStoreSkills(opts: {
   function onLeaderboardFilterChange(key: string) {
     leaderboardFilter.value = key
     if (activePresetId.value === 'skills-sh') {
+      // 切换筛选时用对应缓存键
+      const cacheKey = key === 'all' ? 'skills-sh' : `skills-sh:${key}`
+      if (isStoreCacheEnabled() && skillsCache.value[cacheKey]) {
+        allEntries.value = skillsCache.value[cacheKey]
+        totalCount.value = totalCountCache.value[cacheKey] ?? allEntries.value.length
+        sourceSkills.value = allEntries.value
+        loading.value = false
+        stopLoadingDots()
+        error.value = ''
+        return
+      }
       sourceSkills.value = []
+      startLoadingDots()
       fetchSkillsSh()
     }
   }
 
-  const isLocalSearchActive = computed(() => debouncedSearchQuery.value.trim() !== '' && activePresetId.value !== 'skills-sh')
+  // skills.sh 全量目录已在本地时，用本地过滤，不再请求 /api/search
+  const isLocalSearchActive = computed(() => debouncedSearchQuery.value.trim() !== '')
 
   const localSearchResults = computed(() => {
     if (!isLocalSearchActive.value) return []
@@ -725,6 +756,13 @@ export function useStoreSkills(opts: {
     const q = searchQuery.value.trim()
     if (!q) {
       exitSearch()
+      return
+    }
+    // 已有全量/排行榜列表时走本地搜索，避免 /api/search
+    if (allEntries.value.length > 0) {
+      searchActive.value = false
+      searchResults.value = []
+      error.value = ''
       return
     }
     loading.value = true
