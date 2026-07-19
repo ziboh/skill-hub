@@ -28,7 +28,7 @@ function makeSkill(overrides: Partial<Skill> & { name: string }): Skill {
 
 describe('useStoreSkills pure helpers', () => {
   test('loading skills.sh cards does not request GitHub', async () => {
-    const catalogSpy = vi.spyOn(skillsSh, 'fetchAllSkillsFromSitemap').mockResolvedValue({
+    const leaderboardSpy = vi.spyOn(skillsSh, 'fetchLeaderboard').mockResolvedValue({
       entries: [
         {
           owner: 'vercel-labs',
@@ -41,61 +41,62 @@ describe('useStoreSkills pure helpers', () => {
       ],
       totalCount: 1,
     })
-    const leaderboardSpy = vi.spyOn(skillsSh, 'fetchLeaderboard')
+    const catalogSpy = vi.spyOn(skillsSh, 'fetchAllSkillsFromSitemap').mockResolvedValue({
+      entries: [],
+      totalCount: 0,
+    })
     const treeSpy = vi.spyOn(github, 'fetchGitHubRepoTree').mockResolvedValue([])
     const store = useStoreSkills({ storeId: () => 'skills-sh' })
 
     try {
       await store.fetchSkillsSh()
       expect(treeSpy).not.toHaveBeenCalled()
-      expect(catalogSpy).toHaveBeenCalled()
-      expect(leaderboardSpy).not.toHaveBeenCalled()
+      expect(leaderboardSpy).toHaveBeenCalled()
       expect(store.allEntries.value[0].id).toBe('vercel-labs/agent-skills/vercel-react-best-practices')
     } finally {
       store.stopLoadingDots()
-      catalogSpy.mockRestore()
       leaderboardSpy.mockRestore()
+      catalogSpy.mockRestore()
       treeSpy.mockRestore()
     }
   })
 
-  test('skills.sh search uses local catalog when entries are loaded', async () => {
+  test('skills.sh search uses sitemap catalog without /api when available', async () => {
     const searchSpy = vi.spyOn(skillsSh, 'searchSkillsSh')
+    const catalogSpy = vi.spyOn(skillsSh, 'fetchAllSkillsFromSitemap').mockResolvedValue({
+      entries: [
+        {
+          owner: 'owner',
+          repo: 'repo',
+          skillName: 'find-skills',
+          detailPath: '/owner/repo/find-skills',
+          detailUrl: 'https://skills.sh/owner/repo/find-skills',
+          installs: 0,
+        },
+        {
+          owner: 'owner',
+          repo: 'repo',
+          skillName: 'other-skill',
+          detailPath: '/owner/repo/other-skill',
+          detailUrl: 'https://skills.sh/owner/repo/other-skill',
+          installs: 0,
+        },
+      ],
+      totalCount: 2,
+    })
     const store = useStoreSkills({ storeId: () => 'skills-sh' })
-    store.allEntries.value = [
-      {
-        id: 'owner/repo/find-skills',
-        name: 'find-skills',
-        description: '',
-        author: 'owner',
-        tags: [],
-        source: 'skills-sh',
-        repo: 'owner/repo',
-        path: 'find-skills',
-      },
-      {
-        id: 'owner/repo/other',
-        name: 'other-skill',
-        description: '',
-        author: 'owner',
-        tags: [],
-        source: 'skills-sh',
-        repo: 'owner/repo',
-        path: 'other',
-      },
-    ]
     store.searchQuery.value = 'find'
-    store.debouncedSearchQuery.value = 'find'
 
     try {
       await store.onSearch()
+      expect(catalogSpy).toHaveBeenCalled()
       expect(searchSpy).not.toHaveBeenCalled()
-      expect(store.searchActive.value).toBe(false)
-      expect(store.isLocalSearchActive.value).toBe(true)
-      expect(store.localSearchResults.value.map((s) => s.name)).toEqual(['find-skills'])
+      expect(store.searchActive.value).toBe(true)
+      expect(store.searchResults.value.map((s) => s.name)).toEqual(['find-skills'])
     } finally {
       store.stopLoadingDots()
       searchSpy.mockRestore()
+      catalogSpy.mockRestore()
     }
   })
 

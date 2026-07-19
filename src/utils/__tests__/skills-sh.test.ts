@@ -8,6 +8,7 @@ import {
   fetchAllSkillsFromSitemap,
   parseSkillsSitemap,
   clearSkillsCatalogCache,
+  decodeDownloadText,
   searchSkillsSh,
   fetchSkillDetailFromSkill,
   SKILLS_SITEMAP_URLS,
@@ -192,8 +193,17 @@ describe('parseSkillsSitemap', () => {
   })
 })
 
+describe('decodeDownloadText', () => {
+  test('decodes string, ArrayBuffer, TypedArray, and Buffer-shaped objects', () => {
+    expect(decodeDownloadText('hello')).toBe('hello')
+    expect(decodeDownloadText(new TextEncoder().encode('ab').buffer)).toBe('ab')
+    expect(decodeDownloadText(new TextEncoder().encode('cd'))).toBe('cd')
+    expect(decodeDownloadText({ type: 'Buffer', data: [101, 102] })).toBe('ef')
+  })
+})
+
 describe('skills.sh network transport', () => {
-  test('fetchLeaderboard(all) uses public skill sitemaps, not /api', async () => {
+  test('fetchAllSkillsFromSitemap uses public skill sitemaps, not /api', async () => {
     const xml1 =
       '<?xml version="1.0"?><urlset><url><loc>https://www.skills.sh/a/b/skill-one</loc></url></urlset>'
     const xml2 =
@@ -205,13 +215,27 @@ describe('skills.sh network transport', () => {
     })
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
 
-    const result = await fetchLeaderboard('all')
+    const result = await fetchAllSkillsFromSitemap()
 
     expect(downloadFile).toHaveBeenCalledWith(SKILLS_SITEMAP_URLS[0])
     expect(downloadFile).toHaveBeenCalledWith(SKILLS_SITEMAP_URLS[1])
     expect(downloadFile.mock.calls.every(([url]) => !String(url).includes('/api/'))).toBe(true)
     expect(result.totalCount).toBe(2)
     expect(result.entries.map((e) => e.skillName).sort()).toEqual(['skill-one', 'skill-two'])
+  })
+
+  test('fetchAllSkillsFromSitemap does not cache empty results', async () => {
+    const downloadFile = vi.spyOn(window.services, 'downloadFile').mockResolvedValue('not-xml')
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+
+    const empty = await fetchAllSkillsFromSitemap()
+    expect(empty.totalCount).toBe(0)
+
+    downloadFile.mockResolvedValue(
+      '<?xml version="1.0"?><urlset><url><loc>https://www.skills.sh/o/r/skill</loc></url></urlset>',
+    )
+    const next = await fetchAllSkillsFromSitemap()
+    expect(next.totalCount).toBe(1)
   })
 
   test('fetchAllSkillsFromSitemap memoizes results until force refresh', async () => {
@@ -228,6 +252,19 @@ describe('skills.sh network transport', () => {
 
     await fetchAllSkillsFromSitemap(true)
     expect(downloadFile).toHaveBeenCalledTimes(SKILLS_SITEMAP_URLS.length * 2)
+  })
+
+  test('uses the preload download bridge for leaderboard HTML', async () => {
+    const html = '<a href="/owner/repo/my-skill"><h3>My Skill</h3></a>'
+    const downloadFile = vi.spyOn(window.services, 'downloadFile').mockResolvedValue(
+      new TextEncoder().encode(html).buffer,
+    )
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+
+    const result = await fetchLeaderboard()
+
+    expect(downloadFile).toHaveBeenCalledWith('https://skills.sh/')
+    expect(result.entries[0]).toMatchObject({ owner: 'owner', repo: 'repo', skillName: 'My Skill' })
   })
 
   test('uses the preload download bridge for trending leaderboard HTML', async () => {

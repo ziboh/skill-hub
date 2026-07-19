@@ -370,6 +370,30 @@ export function useStoreSkills(opts: {
     else if (custom.type === 'local-dir') fetchLocalDirSkills(custom)
   }
 
+  /** skills.sh 全量 sitemap 索引（非响应式，避免 2 万条拖垮 UI） */
+  let skillsShCatalog: Skill[] | null = null
+  let skillsShCatalogPromise: Promise<Skill[]> | null = null
+
+  async function ensureSkillsShCatalog(force = false): Promise<Skill[]> {
+    if (!force && skillsShCatalog?.length) return skillsShCatalog
+    if (!force && skillsShCatalogPromise) return skillsShCatalogPromise
+    skillsShCatalogPromise = (async () => {
+      const res = await skillsSh.fetchAllSkillsFromSitemap(force)
+      const skills = res.entries.map((e) => {
+        const s = skillsSh.leaderboardEntryToSkill(e)
+        s.storeSourceId = 'skills-sh'
+        return s
+      })
+      if (skills.length > 0) skillsShCatalog = skills
+      return skills
+    })()
+    try {
+      return await skillsShCatalogPromise
+    } finally {
+      skillsShCatalogPromise = null
+    }
+  }
+
   async function fetchSkillsSh(force = false) {
     const presetId = activePresetId.value
     const filterKey = leaderboardFilter.value
@@ -380,11 +404,8 @@ export function useStoreSkills(opts: {
     allEntries.value = []
     sourceSkills.value = []
     try {
-      // 「全部」走 sitemap 全量（不走 /api）；趋势/热门仍用排行榜 HTML
-      const res =
-        filterKey === 'all'
-          ? await skillsSh.fetchAllSkillsFromSitemap(force)
-          : await skillsSh.fetchLeaderboard(filterKey)
+      // 首屏列表始终走排行榜 HTML（体量小、有排序）。sitemap 全量仅作搜索索引，不塞进列表。
+      const res = await skillsSh.fetchLeaderboard(filterKey)
       if (activePresetId.value !== presetId) return
       const skills = res.entries.map(skillsSh.leaderboardEntryToSkill)
       const descPool = isStoreCacheEnabled() ? storage.getGitHubCache() : {}
@@ -401,14 +422,18 @@ export function useStoreSkills(opts: {
       sourceSkills.value = skills
       loading.value = false
       stopLoadingDots()
-      if (isStoreCacheEnabled()) {
+      // 空结果不缓存，避免失败后一直空白
+      if (isStoreCacheEnabled() && skills.length > 0) {
         skillsCache.value[cacheKey] = allEntries.value
         totalCountCache.value[cacheKey] = res.totalCount
-        // 兼容旧缓存键：默认「全部」仍写 skills-sh
         if (filterKey === 'all') {
           skillsCache.value['skills-sh'] = allEntries.value
           totalCountCache.value['skills-sh'] = res.totalCount
         }
+      }
+      // 后台预热全量索引，供本地搜索（不阻塞 UI）
+      if (filterKey === 'all') {
+        void ensureSkillsShCatalog(force).catch(() => {})
       }
     } catch (err: any) {
       error.value = err.message
@@ -665,8 +690,10 @@ export function useStoreSkills(opts: {
     }
   }
 
-  // skills.sh 全量目录已在本地时，用本地过滤，不再请求 /api/search
-  const isLocalSearchActive = computed(() => debouncedSearchQuery.value.trim() !== '')
+  // 非 skills.sh：输入即本地搜。skills.sh：用排行榜列表本地过滤；全量目录走 onSearch 的 searchActive 结果。
+  const isLocalSearchActive = computed(
+    () => debouncedSearchQuery.value.trim() !== '' && activePresetId.value !== 'skills-sh',
+  )
 
   const localSearchResults = computed(() => {
     if (!isLocalSearchActive.value) return []
@@ -758,18 +785,28 @@ export function useStoreSkills(opts: {
       exitSearch()
       return
     }
-    // 已有全量/排行榜列表时走本地搜索，避免 /api/search
-    if (allEntries.value.length > 0) {
-      searchActive.value = false
-      searchResults.value = []
-      error.value = ''
-      return
-    }
     loading.value = true
     error.value = ''
     try {
-      const results = await skillsSh.searchSkillsSh(q)
-      const skills = results.map(skillsSh.searchResultToSkill)
+      // 优先 sitemap 全量本地搜（不走 /api）；失败或为空再回退 API
+      let skills: Skill[] = []
+      try {
+        const catalog = await ensureSkillsShCatalog()
+        if (catalog.length > 0) {
+          skills = filterLocalSearch(catalog, q)
+        }
+      } catch {
+        /* fall through to API */
+      }
+      if (skills.length === 0) {
+        // 排行榜内也能先本地过滤一波
+        const fromBoard = filterLocalSearch(allEntries.value, q)
+        if (fromBoard.length > 0) skills = fromBoard
+      }
+      if (skills.length === 0) {
+        const results = await skillsSh.searchSkillsSh(q)
+        skills = results.map(skillsSh.searchResultToSkill)
+      }
       const descPool = isStoreCacheEnabled() ? storage.getGitHubCache() : {}
       const cachedMap = new Map(storage.getDownloadedSkills().map((s) => [s.id, s]))
       skills.forEach((s) => {
@@ -787,7 +824,7 @@ export function useStoreSkills(opts: {
       })
       searchResults.value = skills
       searchActive.value = true
-      fetchSearchDescriptions(skills)
+      fetchSearchDescriptions(skills.slice(0, 40))
     } catch (err: any) {
       error.value = err.message
     }

@@ -55,14 +55,49 @@ class SkillsShError extends Error {
 
 // ── HTTP helper ──
 
+/** Decode preload/IPC payloads: string, ArrayBuffer, TypedArray, Node Buffer, or { type:'Buffer', data }. */
+export function decodeDownloadText(payload: unknown): string | null {
+  if (payload == null) return null
+  if (typeof payload === 'string') return payload
+  if (payload instanceof ArrayBuffer) return new TextDecoder().decode(payload)
+  if (ArrayBuffer.isView(payload)) {
+    const view = payload as ArrayBufferView
+    return new TextDecoder().decode(new Uint8Array(view.buffer, view.byteOffset, view.byteLength))
+  }
+  // Node Buffer after structured clone / IPC
+  if (typeof payload === 'object') {
+    const obj = payload as { type?: string; data?: number[]; buffer?: ArrayBuffer }
+    if (obj.type === 'Buffer' && Array.isArray(obj.data)) {
+      return new TextDecoder().decode(Uint8Array.from(obj.data))
+    }
+    // Some bridges expose a Buffer-like with .buffer or numeric indices
+    if (typeof (obj as { toString?: (enc?: string) => string }).toString === 'function') {
+      try {
+        const asUtf8 = (obj as { toString: (enc?: string) => string }).toString('utf8')
+        if (typeof asUtf8 === 'string' && asUtf8.length > 0 && asUtf8 !== '[object Object]') return asUtf8
+      } catch {
+        /* fall through */
+      }
+    }
+  }
+  return null
+}
+
 async function fetchViaPreload(url: string): Promise<string | null> {
   if (typeof window === 'undefined' || !window.services?.downloadFile) return null
 
-  const payload = await window.services.downloadFile(url)
-  if (typeof payload === 'string') return payload
-  if (payload instanceof ArrayBuffer) return new TextDecoder().decode(payload)
-  if (ArrayBuffer.isView(payload)) return new TextDecoder().decode(payload as unknown as Uint8Array)
-  return JSON.stringify(payload)
+  try {
+    const payload = await window.services.downloadFile(url)
+    const text = decodeDownloadText(payload)
+    if (text !== null) return text
+    // Last resort for JSON API responses that arrive as plain objects
+    if (payload && typeof payload === 'object' && !ArrayBuffer.isView(payload)) {
+      return JSON.stringify(payload)
+    }
+    return null
+  } catch {
+    return null
+  }
 }
 
 async function fetchText(url: string, headers: Record<string, string> = {}): Promise<string> {
@@ -186,6 +221,7 @@ export async function fetchAllSkillsFromSitemap(force = false): Promise<Leaderbo
     const merged: LeaderboardEntry[] = []
     const seen = new Set<string>()
     for (const xml of texts) {
+      if (!xml || !xml.includes('<loc')) continue
       for (const entry of parseSkillsSitemap(xml)) {
         const key = `${entry.owner}/${entry.repo}/${entry.skillName}`
         if (seen.has(key)) continue
@@ -193,7 +229,8 @@ export async function fetchAllSkillsFromSitemap(force = false): Promise<Leaderbo
         merged.push(entry)
       }
     }
-    skillsCatalogCache = merged
+    // 空结果不写缓存，避免解码失败后整会话都是 0 条
+    if (merged.length > 0) skillsCatalogCache = merged
     return merged
   }
 
@@ -206,13 +243,13 @@ export async function fetchAllSkillsFromSitemap(force = false): Promise<Leaderbo
   }
 }
 
+/**
+ * 排行榜 HTML（全部 / 趋势 / 热门）。
+ * 首屏列表用这个（几百条、有排序），不要用 sitemap 全量塞进 Vue 列表。
+ * 全量目录请用 fetchAllSkillsFromSitemap，仅作搜索索引。
+ */
 export async function fetchLeaderboard(filterKey?: string): Promise<LeaderboardResult> {
   const filter = getFilterByKey(filterKey || 'all')
-  // 「全部」走 sitemap 全量；趋势/热门仍解析对应排行榜 HTML（有排序，体量小）
-  if (filter.key === 'all') {
-    return fetchAllSkillsFromSitemap()
-  }
-
   const url = `${BASE}${filter.path}`
   const html = normalizeHtml(await fetchText(url))
   const entries: LeaderboardEntry[] = []
@@ -224,6 +261,8 @@ export async function fetchLeaderboard(filterKey?: string): Promise<LeaderboardR
     const path = m[1].replace(/\/+/g, '/').replace(/\/$/, '')
     const parts = path.split('/').filter(Boolean)
     if (parts.length < 3) continue
+    // 跳过导航/代理等非 skill 链接
+    if (SKIP_SITEMAP_OWNERS.has(parts[0].toLowerCase())) continue
     const owner = parts[0]
     const repo = parts[1]
     const anchorText = m[2]
@@ -231,6 +270,7 @@ export async function fetchLeaderboard(filterKey?: string): Promise<LeaderboardR
     const skillName = h3Match
       ? decodeHtmlEntities(stripTags(h3Match[1])).trim()
       : stripTags(decodeHtmlEntities(anchorText)).trim() || parts[2]
+    if (!skillName) continue
     const key = `${owner}/${repo}/${skillName}`
     if (seen.has(key)) continue
     seen.add(key)
