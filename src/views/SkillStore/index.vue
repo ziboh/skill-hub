@@ -46,6 +46,7 @@ const {
   sourceSkills,
   totalCount,
   loading,
+  skillsShCatalogLoading,
   error,
   downloadedIds,
   storeScrollRef,
@@ -60,10 +61,7 @@ const {
   growVisibleCount,
   fetchCurrentSkills: fetchSkillsCore,
   onLeaderboardFilterChange,
-  isLocalSearchActive,
-  localSearchResults,
   visibleSearchResults,
-  visibleLocalSearchResults,
   getLanguageTags,
   importedSkills,
   visibleImportedSkills,
@@ -273,12 +271,26 @@ async function requestSkillsShDescription(skill: Skill): Promise<void> {
   loadingDescIds.value = new Set([...loadingDescIds.value, skillId])
   try {
     const desc = await skillsSh.fetchSkillDescriptionFromSh(skill)
-    if (desc && activePresetId.value === 'skills-sh') {
-      skill.shortDescription = desc
-      if (cacheEnabled.value) storage.saveGitHubSkills([{ ...skill, storeSourceId: activePresetId.value }])
+    if (activePresetId.value !== 'skills-sh') return
+    // 列表可能在请求期间被 sitemap 整表替换，必须写回 allEntries/sourceSkills 里的同一 id
+    const targets = [skill]
+    const fromAll = allEntries.value.find((s) => s.id === skillId)
+    const fromSource = sourceSkills.value.find((s) => s.id === skillId)
+    const fromSearch = searchResults.value.find((s) => s.id === skillId)
+    if (fromAll && fromAll !== skill) targets.push(fromAll)
+    if (fromSource && !targets.includes(fromSource)) targets.push(fromSource)
+    if (fromSearch && !targets.includes(fromSearch)) targets.push(fromSearch)
+
+    if (desc) {
+      for (const t of targets) t.shortDescription = desc
+      if (cacheEnabled.value) storage.saveGitHubSkills([{ ...targets[0], shortDescription: desc, storeSourceId: activePresetId.value }])
     }
-    if (activePresetId.value === 'skills-sh') fetchedDescIds.value = new Set([...fetchedDescIds.value, skillId])
-  } catch {} finally {
+    fetchedDescIds.value = new Set([...fetchedDescIds.value, skillId])
+  } catch {
+    if (activePresetId.value === 'skills-sh') {
+      failedDescIds.value = new Set([...failedDescIds.value, skillId])
+    }
+  } finally {
     loadingDescIds.value = new Set([...loadingDescIds.value].filter((id) => id !== skillId))
   }
 }
@@ -523,7 +535,7 @@ function onCardClick(skill: Skill) {
 }
 
 function onKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape' && (searchActive.value || isLocalSearchActive.value)) {
+  if (e.key === 'Escape' && searchActive.value) {
     searchQuery.value = ''
     exitSearch()
   }
@@ -788,54 +800,6 @@ function confirmDeleteStore() {
         </div>
       </template>
 
-      <template v-else-if="isLocalSearchActive">
-        <div class="section">
-          <div class="section-header">
-            <h3>搜索结果</h3>
-            <span class="section-count">{{ localSearchResults.length }}</span>
-            <button class="search-exit-btn" @click="searchQuery = ''">← 返回</button>
-          </div>
-          <div v-if="!localSearchResults.length" class="empty-state">
-            <div class="empty-icon">
-              <svg
-                width="48"
-                height="48"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <circle cx="11" cy="11" r="8" />
-                <path d="m21 21-4.35-4.35" />
-              </svg>
-            </div>
-            <h3 class="empty-title">未找到匹配的技能</h3>
-            <p class="empty-desc">尝试其他关键词搜索。</p>
-          </div>
-          <div v-else class="skill-grid" :class="viewMode">
-            <StoreSkillCard
-              v-for="skill in visibleLocalSearchResults"
-              :key="skill.id"
-              :skill="skill"
-              :loading-description="loadingDescIds.has(skill.id)"
-              :description-error="failedDescIds.has(skill.id)"
-              :empty-description-reason="getEmptyDescriptionReason(skill)"
-              :badges="getDownloadedElsewhereBadges(skill)"
-              :source-tag="buildSourceTag('available')"
-              :is-downloaded="isDownloaded(skill.id)"
-              :is-downloading="isDownloading(skill.id)"
-              :skill-url="getSkillUrl(skill)"
-              @click="onCardClick(skill)"
-              @locate="locateInMySkills(skill)"
-              @download="downloadWithMotion(skill, $event)"
-              @delete="confirmMatchedDelete(skill)"
-            />
-          </div>
-        </div>
-      </template>
-
       <template v-else>
         <div v-if="importedSkills.length" class="section">
           <div class="section-header">
@@ -919,9 +883,9 @@ function confirmDeleteStore() {
             </div>
           </div>
 
-          <div v-if="loading" class="load-more-hint">
+          <div v-if="loading || skillsShCatalogLoading" class="load-more-hint">
             <div class="spinner small" />
-            <span>正在加载内容...</span>
+            <span>{{ skillsShCatalogLoading ? `正在加载更多…（已 ${totalCount}）` : '正在加载内容...' }}</span>
           </div>
         </template>
       </template>

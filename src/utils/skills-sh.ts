@@ -19,8 +19,20 @@ export const LEADERBOARD_FILTERS: LeaderboardFilter[] = [
   { key: 'hot', label: '热门', path: '/hot' },
 ]
 
+/** skills.sh 前端 infinite-scroll 使用的 API view 名（见官网 chunk：`/api/skills/${view}/${page}`） */
+export type SkillsShApiView = 'all-time' | 'trending' | 'hot'
+
+export const SKILLS_SH_PAGE_SIZE = 200
+
 export function getFilterByKey(key: string): LeaderboardFilter {
   return LEADERBOARD_FILTERS.find((f) => f.key === key) || LEADERBOARD_FILTERS[0]
+}
+
+/** UI filter key → 官网 API view */
+export function filterKeyToApiView(filterKey?: string): SkillsShApiView {
+  if (filterKey === 'trending') return 'trending'
+  if (filterKey === 'hot') return 'hot'
+  return 'all-time'
 }
 
 // ── Data types ──
@@ -151,16 +163,19 @@ export interface LeaderboardResult {
   totalCount: number
 }
 
-/** Public skill sitemaps (not /api/*). Each file holds up to ~10k skill URLs. */
+/** Fallback public skill sitemaps (not /api/*). Each file holds up to ~10k skill URLs. */
 export const SKILLS_SITEMAP_URLS = [
   'https://www.skills.sh/sitemap-skills-1.xml',
   'https://www.skills.sh/sitemap-skills-2.xml',
 ] as const
 
+const SITEMAP_INDEX_URL = 'https://www.skills.sh/sitemap.xml'
+
 const SKIP_SITEMAP_OWNERS = new Set(['agent', 'agents', 'api', 'search', 'trending', 'hot', 'internal'])
 
 let skillsCatalogCache: LeaderboardEntry[] | null = null
 let skillsCatalogPromise: Promise<LeaderboardEntry[]> | null = null
+let skillsSitemapUrlCache: string[] | null = null
 
 /** Parse skill URLs from a skills.sh sitemap urlset XML. Pure / side-effect free. */
 export function parseSkillsSitemap(xml: string): LeaderboardEntry[] {
@@ -198,36 +213,121 @@ export function parseSkillsSitemap(xml: string): LeaderboardEntry[] {
   return entries
 }
 
+/** Extract skill-sitemap URLs from the public sitemap index (no /api). */
+export function parseSkillsSitemapIndex(xml: string): string[] {
+  const urls: string[] = []
+  const seen = new Set<string>()
+  const locRe = /<loc>\s*(https?:\/\/(?:www\.)?skills\.sh\/sitemap-skills-\d+\.xml)\s*<\/loc>/gi
+  let m: RegExpExecArray | null
+  while ((m = locRe.exec(xml)) !== null) {
+    const url = m[1].replace('https://skills.sh/', 'https://www.skills.sh/')
+    if (seen.has(url)) continue
+    seen.add(url)
+    urls.push(url)
+  }
+  return urls
+}
+
 export function clearSkillsCatalogCache(): void {
   skillsCatalogCache = null
   skillsCatalogPromise = null
+  skillsSitemapUrlCache = null
+}
+
+async function resolveSkillsSitemapUrls(force = false): Promise<string[]> {
+  if (!force && skillsSitemapUrlCache?.length) return skillsSitemapUrlCache
+  try {
+    const indexXml = await fetchText(SITEMAP_INDEX_URL)
+    const fromIndex = parseSkillsSitemapIndex(indexXml)
+    if (fromIndex.length > 0) {
+      skillsSitemapUrlCache = fromIndex
+      return fromIndex
+    }
+  } catch {
+    /* fall back to known URLs */
+  }
+  skillsSitemapUrlCache = [...SKILLS_SITEMAP_URLS]
+  return skillsSitemapUrlCache
+}
+
+export type SitemapCatalogProgress = {
+  entries: LeaderboardEntry[]
+  totalCount: number
+  /** 已完成的 sitemap 文件数 */
+  loadedFiles: number
+  /** 计划加载的 sitemap 文件总数 */
+  totalFiles: number
+  done: boolean
 }
 
 /**
  * Load the full skills.sh catalog from public sitemaps (no /api).
+ * Loads files one-by-one so callers can paint the first batch and grow on scroll.
  * Results are memoized in-memory for the session unless `force` is true.
  */
-export async function fetchAllSkillsFromSitemap(force = false): Promise<LeaderboardResult> {
+export async function fetchAllSkillsFromSitemap(
+  force = false,
+  onProgress?: (progress: SitemapCatalogProgress) => void,
+): Promise<LeaderboardResult> {
   if (!force && skillsCatalogCache) {
-    return { entries: skillsCatalogCache, totalCount: skillsCatalogCache.length }
+    const cached = skillsCatalogCache
+    onProgress?.({
+      entries: cached,
+      totalCount: cached.length,
+      loadedFiles: 1,
+      totalFiles: 1,
+      done: true,
+    })
+    return { entries: cached, totalCount: cached.length }
   }
   if (!force && skillsCatalogPromise) {
     const entries = await skillsCatalogPromise
+    onProgress?.({
+      entries,
+      totalCount: entries.length,
+      loadedFiles: 1,
+      totalFiles: 1,
+      done: true,
+    })
     return { entries, totalCount: entries.length }
   }
 
   const load = async (): Promise<LeaderboardEntry[]> => {
-    const texts = await Promise.all(SKILLS_SITEMAP_URLS.map((url) => fetchText(url)))
+    const urls = await resolveSkillsSitemapUrls(force)
     const merged: LeaderboardEntry[] = []
     const seen = new Set<string>()
-    for (const xml of texts) {
-      if (!xml || !xml.includes('<loc')) continue
-      for (const entry of parseSkillsSitemap(xml)) {
-        const key = `${entry.owner}/${entry.repo}/${entry.skillName}`
-        if (seen.has(key)) continue
-        seen.add(key)
-        merged.push(entry)
+    let loadedFiles = 0
+    for (const url of urls) {
+      let xml = ''
+      try {
+        xml = await fetchText(url)
+      } catch {
+        loadedFiles += 1
+        onProgress?.({
+          entries: merged.slice(),
+          totalCount: merged.length,
+          loadedFiles,
+          totalFiles: urls.length,
+          done: loadedFiles >= urls.length,
+        })
+        continue
       }
+      loadedFiles += 1
+      if (xml && xml.includes('<loc')) {
+        for (const entry of parseSkillsSitemap(xml)) {
+          const key = `${entry.owner}/${entry.repo}/${entry.skillName}`
+          if (seen.has(key)) continue
+          seen.add(key)
+          merged.push(entry)
+        }
+      }
+      onProgress?.({
+        entries: merged.slice(),
+        totalCount: merged.length,
+        loadedFiles,
+        totalFiles: urls.length,
+        done: loadedFiles >= urls.length,
+      })
     }
     // 空结果不写缓存，避免解码失败后整会话都是 0 条
     if (merged.length > 0) skillsCatalogCache = merged
@@ -244,81 +344,287 @@ export async function fetchAllSkillsFromSitemap(force = false): Promise<Leaderbo
 }
 
 /**
- * 排行榜 HTML（全部 / 趋势 / 热门）。
- * 首屏列表用这个（几百条、有排序），不要用 sitemap 全量塞进 Vue 列表。
- * 全量目录请用 fetchAllSkillsFromSitemap，仅作搜索索引。
+ * 官网滚动加载的分页接口（与 skills.sh 前端一致）：
+ *   GET /api/skills/{all-time|trending|hot}/{page}
+ * page 从 0 起，每页最多 200 条，响应 `{ skills, hasMore }`。
+ * all-time 实测约 0..47 页（约 9.5k 条）；第 26 条（0-based index 25）为 lark-approval。
+ */
+export interface SkillsPageResult {
+  entries: LeaderboardEntry[]
+  hasMore: boolean
+  page: number
+  view: SkillsShApiView
+}
+
+export async function fetchSkillsPage(view: SkillsShApiView, page: number): Promise<SkillsPageResult> {
+  const safePage = Math.max(0, Math.floor(page))
+  const url = `${BASE}/api/skills/${view}/${safePage}`
+  const body = JSON.parse(await fetchText(url, { Accept: 'application/json' }))
+  const raw = Array.isArray(body?.skills) ? body.skills : []
+  const entries: LeaderboardEntry[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const source = String(item.source || '')
+    const skillId = String(item.skillId || item.name || '')
+    const name = String(item.name || skillId)
+    if (!source || !name) continue
+    entries.push(
+      publicSearchLikeToEntry(source, skillId || name, name, Number(item.installs) || 0),
+    )
+  }
+  return {
+    entries,
+    hasMore: Boolean(body?.hasMore) && entries.length > 0,
+    page: safePage,
+    view,
+  }
+}
+
+/**
+ * 首屏列表：优先走官网同款分页 API page=0（含折叠组完整名次）。
+ * API 失败时再回退解析排行榜 HTML。
  */
 export async function fetchLeaderboard(filterKey?: string): Promise<LeaderboardResult> {
+  const view = filterKeyToApiView(filterKey)
+  try {
+    const page0 = await fetchSkillsPage(view, 0)
+    if (page0.entries.length > 0) {
+      return { entries: page0.entries, totalCount: page0.entries.length }
+    }
+  } catch {
+    /* fall through to HTML */
+  }
   const filter = getFilterByKey(filterKey || 'all')
   const url = `${BASE}${filter.path}`
   const html = normalizeHtml(await fetchText(url))
+  return parseLeaderboardHtml(html)
+}
+
+/** Pure HTML parser for leaderboard pages — exported for tests. */
+export function parseLeaderboardHtml(html: string): LeaderboardResult {
+  const normalized = normalizeHtml(html)
   const entries: LeaderboardEntry[] = []
   const seen = new Set<string>()
 
-  const linkRe = /<a[^>]+href="(\/[^"']+\/[^"']+\/[^"']+\/?)"[^>]*>([\s\S]*?)<\/a>/gi
+  // 1) 优先从页面内嵌 JSON（RSC / next_f）解析完整排行，含「+N more」折叠项
+  //    例如 All Time 第 26 为 open.feishu.cn/lark-approval
+  const fromPayload = parseLeaderboardFromEmbeddedJson(html)
+  if (fromPayload.length > 0) {
+    return { entries: fromPayload, totalCount: fromPayload.length }
+  }
+
+  // 2) 按页面上的名次数字排序（仅可见行，中间折叠会造成名次空洞）
+  const rankedRe =
+    /<a[^>]+href="(\/[^"']+\/[^"']+\/[^"']+\/?)"[^>]*>[\s\S]*?<span[^>]*font-mono[^>]*>(\d+)<\/span>[\s\S]*?<h3[^>]*>([\s\S]*?)<\/h3>/gi
   let m: RegExpExecArray | null
-  while ((m = linkRe.exec(html)) !== null) {
+  const ranked: { rank: number; entry: LeaderboardEntry }[] = []
+  while ((m = rankedRe.exec(normalized)) !== null) {
     const path = m[1].replace(/\/+/g, '/').replace(/\/$/, '')
     const parts = path.split('/').filter(Boolean)
     if (parts.length < 3) continue
-    // 跳过导航/代理等非 skill 链接
     if (SKIP_SITEMAP_OWNERS.has(parts[0].toLowerCase())) continue
+    const rank = Number(m[2])
+    if (!Number.isFinite(rank) || rank < 1) continue
     const owner = parts[0]
     const repo = parts[1]
-    const anchorText = m[2]
-    const h3Match = anchorText.match(/<h3[^>]*>([\s\S]*?)<\/h3>/i)
-    const skillName = h3Match
-      ? decodeHtmlEntities(stripTags(h3Match[1])).trim()
-      : stripTags(decodeHtmlEntities(anchorText)).trim() || parts[2]
+    const skillName = decodeHtmlEntities(stripTags(m[3])).trim() || parts[parts.length - 1]
     if (!skillName) continue
     const key = `${owner}/${repo}/${skillName}`
     if (seen.has(key)) continue
     seen.add(key)
-    entries.push({ owner, repo, skillName, detailPath: path, detailUrl: `${BASE}${path}`, installs: 0 })
+    ranked.push({
+      rank,
+      entry: {
+        owner,
+        repo,
+        skillName,
+        detailPath: path,
+        detailUrl: `${BASE}${path}`,
+        installs: 0,
+      },
+    })
+  }
+
+  if (ranked.length > 0) {
+    ranked.sort((a, b) => a.rank - b.rank || a.entry.skillName.localeCompare(b.entry.skillName))
+    for (const item of ranked) entries.push(item.entry)
+  } else {
+    // 3) 回退：无名字次时按页面链接出现顺序
+    const linkRe = /<a[^>]+href="(\/[^"']+\/[^"']+\/[^"']+\/?)"[^>]*>([\s\S]*?)<\/a>/gi
+    while ((m = linkRe.exec(normalized)) !== null) {
+      const path = m[1].replace(/\/+/g, '/').replace(/\/$/, '')
+      const parts = path.split('/').filter(Boolean)
+      if (parts.length < 3) continue
+      if (SKIP_SITEMAP_OWNERS.has(parts[0].toLowerCase())) continue
+      const owner = parts[0]
+      const repo = parts[1]
+      const anchorText = m[2]
+      const h3Match = anchorText.match(/<h3[^>]*>([\s\S]*?)<\/h3>/i)
+      const skillName = h3Match
+        ? decodeHtmlEntities(stripTags(h3Match[1])).trim()
+        : stripTags(decodeHtmlEntities(anchorText)).trim() || parts[2]
+      if (!skillName) continue
+      const key = `${owner}/${repo}/${skillName}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      entries.push({ owner, repo, skillName, detailPath: path, detailUrl: `${BASE}${path}`, installs: 0 })
+    }
   }
 
   if (entries.length === 0) {
     const dataRe = /"source":"([^"]+)","skillId":"([^"]+)","name":"([^"]+)"/g
-    while ((m = dataRe.exec(html)) !== null) {
-      const [owner, repo] = m[1].split('/')
-      const name = m[3]
-      const key = `${owner}/${repo}/${name}`
-      if (!owner || !repo || seen.has(key)) continue
+    while ((m = dataRe.exec(normalized)) !== null) {
+      const entry = publicSearchLikeToEntry(m[1], m[2], m[3], 0)
+      const key = `${entry.owner}/${entry.repo}/${entry.skillName}`
+      if (seen.has(key)) continue
       seen.add(key)
-      entries.push({ owner, repo, skillName: name, detailPath: `/${m[1]}/${m[2]}`, detailUrl: `${BASE}/${m[1]}/${m[2]}`, installs: 0 })
+      entries.push(entry)
     }
   }
 
-  const totalCount = entries.length
-  return { entries, totalCount }
+  return { entries, totalCount: entries.length }
+}
+
+/**
+ * Parse ranked skills from embedded page JSON (RSC flight / escaped JSON strings).
+ * Keeps first-seen order (already ranked on the site) and fills installs when present.
+ */
+export function parseLeaderboardFromEmbeddedJson(html: string): LeaderboardEntry[] {
+  const items: { source: string; skillId: string; name: string; installs: number }[] = []
+  const patterns = [
+    /\\"source\\":\\"([^\\"]+)\\",\\"skillId\\":\\"([^\\"]+)\\",\\"name\\":\\"([^\\"]+)\\",\\"installs\\":(\d+)/g,
+    /"source":"([^"]+)","skillId":"([^"]+)","name":"([^"]+)","installs":(\d+)/g,
+  ]
+  for (const re of patterns) {
+    let m: RegExpExecArray | null
+    while ((m = re.exec(html)) !== null) {
+      items.push({
+        source: m[1],
+        skillId: m[2],
+        name: m[3],
+        installs: Number(m[4]) || 0,
+      })
+    }
+    if (items.length > 0) break
+  }
+  if (items.length === 0) return []
+
+  const seen = new Set<string>()
+  const entries: LeaderboardEntry[] = []
+  for (const it of items) {
+    const entry = publicSearchLikeToEntry(it.source, it.skillId, it.name, it.installs)
+    const key = `${entry.owner}/${entry.repo}/${entry.skillName}`.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    entries.push(entry)
+  }
+  return entries
+}
+
+function publicSearchLikeToEntry(
+  source: string,
+  skillId: string,
+  name: string,
+  installs: number,
+): LeaderboardEntry {
+  const parts = source.split('/').filter(Boolean)
+  const skillName = name || skillId
+  // domain-style sources (well-known) 形如 open.feishu.cn，路径为 /site/<domain>/<skill>
+  const isDomain = parts[0] === 'site' || (parts.length === 1 && parts[0].includes('.'))
+  if (isDomain) {
+    const domain =
+      parts[0] === 'site' ? parts.slice(1).join('/') || source.replace(/^site\//, '') : source
+    const detailPath = `/site/${domain}/${skillId || skillName}`
+    return {
+      owner: 'site',
+      repo: domain,
+      skillName,
+      detailPath,
+      detailUrl: `${BASE}${detailPath}`,
+      installs,
+    }
+  }
+  const owner = parts[0] || 'unknown'
+  const repo = parts[1] || owner
+  const dir = skillId || skillName
+  const detailPath = `/${owner}/${repo}/${dir}`
+  return {
+    owner,
+    repo,
+    skillName,
+    detailPath,
+    detailUrl: `${BASE}${detailPath}`,
+    installs,
+  }
+}
+
+/** 把排行榜顺序放在前面，sitemap 其余条目接在后面（去重）。 */
+export function mergeLeaderboardWithCatalog(
+  leaderboard: LeaderboardEntry[],
+  catalog: LeaderboardEntry[],
+): LeaderboardEntry[] {
+  const seen = new Set<string>()
+  const out: LeaderboardEntry[] = []
+  const keyOf = (e: LeaderboardEntry) => `${e.owner}/${e.repo}/${e.skillName}`.toLowerCase()
+  for (const e of leaderboard) {
+    const k = keyOf(e)
+    if (seen.has(k)) continue
+    seen.add(k)
+    out.push(e)
+  }
+  for (const e of catalog) {
+    const k = keyOf(e)
+    if (seen.has(k)) continue
+    seen.add(k)
+    out.push(e)
+  }
+  return out
 }
 
 // ── Fetch description from skills.sh detail page ──
 
 function extractLdDescription(html: string): string | null {
-  const scriptRe = /<script type="application\/ld\+json">([\s\S]*?)<\/script>/gi
+  // type 属性顺序/引号可能变化；RSC 载荷里也可能有转义后的 JSON-LD
+  const scriptRe = /<script[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi
   let m: RegExpExecArray | null
   while ((m = scriptRe.exec(html)) !== null) {
     try {
       const data = JSON.parse(m[1])
-      if (data?.description && data['@type'] === 'SoftwareApplication') {
-        return data.description
+      const nodes = Array.isArray(data) ? data : [data]
+      for (const node of nodes) {
+        if (node?.description && (node['@type'] === 'SoftwareApplication' || node['@type'] === 'WebApplication')) {
+          return String(node.description).trim()
+        }
       }
     } catch {
       continue
+    }
+  }
+  // 回退：从整页文本里抠 SoftwareApplication description（含转义引号）
+  const escaped = html.match(
+    /\\"@type\\":\\"SoftwareApplication\\"[^]*?\\"description\\":\\"((?:[^"\\]|\\.)*)\\"/i,
+  )
+  if (escaped?.[1]) {
+    try {
+      return JSON.parse(`"${escaped[1]}"`)
+    } catch {
+      const t = escaped[1].replace(/\\"/g, '"').replace(/\\n/g, ' ').trim()
+      if (t.length > 10) return t
     }
   }
   return null
 }
 
 function extractMetaDescription(html: string): string | null {
-  const metaRe = /<meta[^>]+(?:name|property)\s*=\s*"(?:description|og:description)"[^>]*content\s*=\s*"([^"]+)"/i
-  const m = html.match(metaRe)
-  if (m) {
-    const desc = m[1]
-      .replace(/&quot;/g, '"')
-      .replace(/&#x27;/g, "'")
-      .replace(/&amp;/g, '&')
+  // content 可能在 name/property 前或后
+  const patterns = [
+    /<meta[^>]+(?:name|property)\s*=\s*["'](?:description|og:description|twitter:description)["'][^>]*content\s*=\s*["']([^"']+)["']/i,
+    /<meta[^>]+content\s*=\s*["']([^"']+)["'][^>]*(?:name|property)\s*=\s*["'](?:description|og:description|twitter:description)["']/i,
+  ]
+  for (const metaRe of patterns) {
+    const m = html.match(metaRe)
+    if (!m) continue
+    const desc = decodeHtmlEntities(m[1]).replace(/\s+/g, ' ').trim()
     if (desc.length > 10) return desc
   }
   return null
@@ -331,6 +637,12 @@ function extractSummaryText(html: string): string | null {
     const text = stripTags(m[1]).trim()
     if (text && text.length > 10) return text
   }
+  // 详情页标题下的说明段落
+  const afterH1 = html.match(/<h1[^>]*>[\s\S]*?<\/h1>\s*<p[^>]*>([\s\S]*?)<\/p>/i)
+  if (afterH1) {
+    const text = stripTags(afterH1[1]).trim()
+    if (text && text.length > 10) return text
+  }
   return null
 }
 
@@ -339,7 +651,8 @@ export async function fetchSkillDescriptionFromSh(skill: Skill): Promise<string 
   if (!detailUrl) return null
   try {
     const html = await fetchText(detailUrl)
-    return extractLdDescription(html) || extractMetaDescription(html) || extractSummaryText(html)
+    const desc = extractLdDescription(html) || extractMetaDescription(html) || extractSummaryText(html)
+    return desc ? desc.replace(/\s+/g, ' ').trim() : null
   } catch {}
   return null
 }
@@ -445,7 +758,7 @@ export async function fetchSkillDetailFromSkill(skill: Skill, token?: string): P
   return null
 }
 
-// ── Search ──
+// ── Search（与官网一致：GET /api/search?q=…&limit=100）──
 
 export interface PublicSearchResult {
   id?: string
@@ -455,11 +768,12 @@ export interface PublicSearchResult {
   skillId?: string
 }
 
+/** 官网 SearchInput 使用的搜索接口。 */
 export async function searchSkillsSh(q: string): Promise<PublicSearchResult[]> {
   if (!q || q.length < 1) return []
-  const url = `https://skills.sh/api/search?q=${encodeURIComponent(q)}`
+  const url = `${BASE}/api/search?q=${encodeURIComponent(q)}&limit=100`
   const body = JSON.parse(await fetchText(url, { Accept: 'application/json' }))
-  return body.skills || []
+  return Array.isArray(body?.skills) ? body.skills : []
 }
 
 // ── Converters ──

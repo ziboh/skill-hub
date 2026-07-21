@@ -1,16 +1,22 @@
 import { afterEach, describe, test, expect, vi } from 'vitest'
 import {
   getFilterByKey,
+  filterKeyToApiView,
   leaderboardEntryToSkill,
   searchResultToSkill,
   getGitHubRepo,
   fetchLeaderboard,
+  fetchSkillsPage,
   fetchAllSkillsFromSitemap,
   parseSkillsSitemap,
+  parseSkillsSitemapIndex,
+  parseLeaderboardHtml,
+  mergeLeaderboardWithCatalog,
   clearSkillsCatalogCache,
   decodeDownloadText,
   searchSkillsSh,
   fetchSkillDetailFromSkill,
+  fetchSkillDescriptionFromSh,
   SKILLS_SITEMAP_URLS,
 } from '../skills-sh'
 import * as github from '../github'
@@ -34,9 +40,11 @@ describe('getFilterByKey', () => {
     expect(result.key).toBe('all')
   })
 
-  test('returns default filter for undefined key', () => {
-    const result = getFilterByKey(undefined as unknown as string)
-    expect(result.key).toBe('all')
+  test('maps UI filter keys to official API views', () => {
+    expect(filterKeyToApiView('all')).toBe('all-time')
+    expect(filterKeyToApiView('trending')).toBe('trending')
+    expect(filterKeyToApiView('hot')).toBe('hot')
+    expect(filterKeyToApiView(undefined)).toBe('all-time')
   })
 })
 
@@ -164,7 +172,6 @@ describe('getGitHubRepo', () => {
   })
 })
 
-
 describe('parseSkillsSitemap', () => {
   test('extracts skill name and repo from loc URLs', () => {
     const xml = `<?xml version="1.0"?>
@@ -193,6 +200,21 @@ describe('parseSkillsSitemap', () => {
   })
 })
 
+describe('parseSkillsSitemapIndex', () => {
+  test('extracts only skill sitemap urls', () => {
+    const xml = `<?xml version="1.0"?>
+      <sitemapindex>
+        <sitemap><loc>https://www.skills.sh/sitemap-misc.xml</loc></sitemap>
+        <sitemap><loc>https://www.skills.sh/sitemap-skills-1.xml</loc></sitemap>
+        <sitemap><loc>https://skills.sh/sitemap-skills-2.xml</loc></sitemap>
+      </sitemapindex>`
+    expect(parseSkillsSitemapIndex(xml)).toEqual([
+      'https://www.skills.sh/sitemap-skills-1.xml',
+      'https://www.skills.sh/sitemap-skills-2.xml',
+    ])
+  })
+})
+
 describe('decodeDownloadText', () => {
   test('decodes string, ArrayBuffer, TypedArray, and Buffer-shaped objects', () => {
     expect(decodeDownloadText('hello')).toBe('hello')
@@ -202,95 +224,281 @@ describe('decodeDownloadText', () => {
   })
 })
 
+describe('parseLeaderboardHtml rank order', () => {
+  test('prefers embedded JSON so #26 is lark-approval including collapsed group members', () => {
+    const skills = [
+      ['vercel-labs/skills', 'find-skills', 100],
+      ['anthropics/skills', 'frontend-design', 99],
+      ['mattpocock/skills', 'grill-me', 98],
+      ['vercel-labs/agent-skills', 'vercel-react-best-practices', 97],
+      ['vercel-labs/agent-browser', 'agent-browser', 96],
+      ['mattpocock/skills', 'grill-with-docs', 95],
+      ['mattpocock/skills', 'improve-codebase-architecture', 94],
+      ['mattpocock/skills', 'tdd', 93],
+      ['vercel-labs/agent-skills', 'web-design-guidelines', 92],
+      ['microsoft/azure-skills', 'microsoft-foundry', 91],
+      ['microsoft/azure-skills', 'azure-ai', 90],
+      ['microsoft/azure-skills', 'azure-deploy', 89],
+      ['microsoft/azure-skills', 'azure-diagnostics', 88],
+      ['microsoft/azure-skills', 'azure-prepare', 87],
+      ['microsoft/azure-skills', 'azure-storage', 86],
+      ['microsoft/azure-skills', 'azure-validate', 85],
+      ['microsoft/azure-skills', 'entra-app-registration', 84],
+      ['microsoft/azure-skills', 'appinsights-instrumentation', 83],
+      ['microsoft/azure-skills', 'azure-compliance', 82],
+      ['microsoft/azure-skills', 'azure-resource-lookup', 81],
+      ['microsoft/azure-skills', 'azure-aigateway', 80],
+      ['microsoft/azure-skills', 'azure-kusto', 79],
+      ['microsoft/azure-skills', 'azure-resource-visualizer', 78],
+      ['microsoft/azure-skills', 'azure-rbac', 77],
+      ['microsoft/azure-skills', 'azure-messaging', 76],
+      ['open.feishu.cn', 'lark-approval', 75],
+    ] as const
+    const embedded = skills
+      .map(
+        ([source, id, installs]) =>
+          String.raw`\"source\":\"${source}\",\"skillId\":\"${id}\",\"name\":\"${id}\",\"installs\":${installs}`,
+      )
+      .join(',')
+    const html = `<html><script>self.__next_f.push([1,"${embedded}"])</script>
+      <a href="/vercel-labs/skills/find-skills"><span class="font-mono">1</span><h3>find-skills</h3></a>
+      <a href="/site/open.feishu.cn/lark-approval"><span class="font-mono">26</span><h3>lark-approval</h3></a>
+    </html>`
+    const { entries } = parseLeaderboardHtml(html)
+    expect(entries[0].skillName).toBe('find-skills')
+    expect(entries[9].skillName).toBe('microsoft-foundry')
+    expect(entries[25].skillName).toBe('lark-approval')
+    expect(entries[25]).toMatchObject({
+      owner: 'site',
+      repo: 'open.feishu.cn',
+      detailPath: '/site/open.feishu.cn/lark-approval',
+      installs: 75,
+    })
+  })
+
+  test('falls back to visible rank numbers when no embedded JSON', () => {
+    const html = `
+      <a href="/vercel-labs/skills/find-skills"><span class="font-mono">1</span><h3>find-skills</h3></a>
+      <a href="/site/open.feishu.cn/lark-approval"><span class="text-sm font-mono">26</span><h3>lark-approval</h3></a>
+      <a href="/anthropics/skills/frontend-design"><span class="font-mono">2</span><h3>frontend-design</h3></a>
+    `
+    const { entries } = parseLeaderboardHtml(html)
+    expect(entries.map((e) => e.skillName)).toEqual(['find-skills', 'frontend-design', 'lark-approval'])
+  })
+})
+
+describe('mergeLeaderboardWithCatalog', () => {
+  test('keeps leaderboard order and appends unique sitemap entries', () => {
+    const board = [
+      {
+        owner: 'a',
+        repo: 'r',
+        skillName: 'one',
+        detailPath: '/a/r/one',
+        detailUrl: 'https://skills.sh/a/r/one',
+        installs: 0,
+      },
+      {
+        owner: 'site',
+        repo: 'open.feishu.cn',
+        skillName: 'lark-approval',
+        detailPath: '/site/open.feishu.cn/lark-approval',
+        detailUrl: 'https://skills.sh/site/open.feishu.cn/lark-approval',
+        installs: 0,
+      },
+    ]
+    const catalog = [
+      {
+        owner: 'z',
+        repo: 'r',
+        skillName: 'tail',
+        detailPath: '/z/r/tail',
+        detailUrl: 'https://skills.sh/z/r/tail',
+        installs: 0,
+      },
+      {
+        owner: 'a',
+        repo: 'r',
+        skillName: 'one',
+        detailPath: '/a/r/one',
+        detailUrl: 'https://skills.sh/a/r/one',
+        installs: 0,
+      },
+    ]
+    const merged = mergeLeaderboardWithCatalog(board, catalog)
+    expect(merged.map((e) => e.skillName)).toEqual(['one', 'lark-approval', 'tail'])
+  })
+})
+
 describe('skills.sh network transport', () => {
-  test('fetchAllSkillsFromSitemap uses public skill sitemaps, not /api', async () => {
-    const xml1 =
-      '<?xml version="1.0"?><urlset><url><loc>https://www.skills.sh/a/b/skill-one</loc></url></urlset>'
-    const xml2 =
-      '<?xml version="1.0"?><urlset><url><loc>https://www.skills.sh/c/d/skill-two</loc></url></urlset>'
-    const downloadFile = vi.spyOn(window.services, 'downloadFile').mockImplementation(async (url: string) => {
-      if (url.includes('sitemap-skills-1')) return xml1
-      if (url.includes('sitemap-skills-2')) return xml2
+  function mockDownload(map: Record<string, string | object>) {
+    return vi.spyOn(window.services, 'downloadFile').mockImplementation(async (url: string) => {
+      for (const [key, body] of Object.entries(map)) {
+        if (url.includes(key)) {
+          return typeof body === 'string' ? body : JSON.stringify(body)
+        }
+      }
       throw new Error(`unexpected url ${url}`)
+    })
+  }
+
+  test('fetchSkillsPage uses official /api/skills/{view}/{page} like the website', async () => {
+    const payload = {
+      skills: [
+        { source: 'vercel-labs/skills', skillId: 'find-skills', name: 'find-skills', installs: 100 },
+        {
+          source: 'open.feishu.cn',
+          skillId: 'lark-approval',
+          name: 'lark-approval',
+          installs: 50,
+        },
+      ],
+      hasMore: true,
+    }
+    // pad to make index 25 = lark when we care about full page in other tests
+    const downloadFile = mockDownload({
+      '/api/skills/all-time/0': payload,
     })
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
 
-    const result = await fetchAllSkillsFromSitemap()
+    const result = await fetchSkillsPage('all-time', 0)
 
-    expect(downloadFile).toHaveBeenCalledWith(SKILLS_SITEMAP_URLS[0])
-    expect(downloadFile).toHaveBeenCalledWith(SKILLS_SITEMAP_URLS[1])
-    expect(downloadFile.mock.calls.every(([url]) => !String(url).includes('/api/'))).toBe(true)
-    expect(result.totalCount).toBe(2)
-    expect(result.entries.map((e) => e.skillName).sort()).toEqual(['skill-one', 'skill-two'])
+    expect(downloadFile).toHaveBeenCalledWith('https://skills.sh/api/skills/all-time/0')
+    expect(result.hasMore).toBe(true)
+    expect(result.entries[0].skillName).toBe('find-skills')
+    expect(result.entries[1]).toMatchObject({
+      skillName: 'lark-approval',
+      owner: 'site',
+      repo: 'open.feishu.cn',
+      detailPath: '/site/open.feishu.cn/lark-approval',
+      installs: 50,
+    })
   })
 
-  test('fetchAllSkillsFromSitemap does not cache empty results', async () => {
-    const downloadFile = vi.spyOn(window.services, 'downloadFile').mockResolvedValue('not-xml')
+  test('fetchSkillsPage page index 25 maps to lark-approval for a full first page', async () => {
+    const skills = Array.from({ length: 26 }, (_, i) => {
+      if (i === 25) {
+        return {
+          source: 'open.feishu.cn',
+          skillId: 'lark-approval',
+          name: 'lark-approval',
+          installs: 442961,
+        }
+      }
+      return {
+        source: 'owner/repo',
+        skillId: `skill-${i + 1}`,
+        name: `skill-${i + 1}`,
+        installs: 1000 - i,
+      }
+    })
+    mockDownload({
+      '/api/skills/all-time/0': { skills, hasMore: true },
+    })
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
 
-    const empty = await fetchAllSkillsFromSitemap()
-    expect(empty.totalCount).toBe(0)
-
-    downloadFile.mockResolvedValue(
-      '<?xml version="1.0"?><urlset><url><loc>https://www.skills.sh/o/r/skill</loc></url></urlset>',
-    )
-    const next = await fetchAllSkillsFromSitemap()
-    expect(next.totalCount).toBe(1)
+    const result = await fetchSkillsPage('all-time', 0)
+    expect(result.entries[25].skillName).toBe('lark-approval')
   })
 
-  test('fetchAllSkillsFromSitemap memoizes results until force refresh', async () => {
-    const xml =
-      '<?xml version="1.0"?><urlset><url><loc>https://www.skills.sh/owner/repo/cached-skill</loc></url></urlset>'
-    const downloadFile = vi.spyOn(window.services, 'downloadFile').mockResolvedValue(xml)
+  test('fetchLeaderboard prefers API page 0 over HTML scraping', async () => {
+    const downloadFile = mockDownload({
+      '/api/skills/all-time/0': {
+        skills: [
+          { source: 'vercel-labs/skills', skillId: 'find-skills', name: 'find-skills', installs: 1 },
+        ],
+        hasMore: true,
+      },
+    })
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
 
-    const first = await fetchAllSkillsFromSitemap()
-    const second = await fetchAllSkillsFromSitemap()
-    expect(first.entries).toHaveLength(1)
-    expect(second.entries[0].skillName).toBe('cached-skill')
-    expect(downloadFile).toHaveBeenCalledTimes(SKILLS_SITEMAP_URLS.length)
-
-    await fetchAllSkillsFromSitemap(true)
-    expect(downloadFile).toHaveBeenCalledTimes(SKILLS_SITEMAP_URLS.length * 2)
+    const result = await fetchLeaderboard('all')
+    expect(downloadFile).toHaveBeenCalledWith('https://skills.sh/api/skills/all-time/0')
+    expect(result.entries[0].skillName).toBe('find-skills')
+    // should not need homepage HTML when API works
+    expect(downloadFile.mock.calls.every(([url]) => !String(url).endsWith('skills.sh/'))).toBe(true)
   })
 
-  test('uses the preload download bridge for leaderboard HTML', async () => {
-    const html = '<a href="/owner/repo/my-skill"><h3>My Skill</h3></a>'
-    const downloadFile = vi.spyOn(window.services, 'downloadFile').mockResolvedValue(
-      new TextEncoder().encode(html).buffer,
-    )
+  test('fetchLeaderboard falls back to HTML when API fails', async () => {
+    const html =
+      '<a href="/owner/repo/my-skill"><span class="font-mono">1</span><h3>My Skill</h3></a>'
+    const downloadFile = vi.spyOn(window.services, 'downloadFile').mockImplementation(async (url: string) => {
+      if (String(url).includes('/api/skills/')) throw new Error('api down')
+      return new TextEncoder().encode(html).buffer
+    })
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
 
     const result = await fetchLeaderboard()
-
     expect(downloadFile).toHaveBeenCalledWith('https://skills.sh/')
     expect(result.entries[0]).toMatchObject({ owner: 'owner', repo: 'repo', skillName: 'My Skill' })
   })
 
-  test('uses the preload download bridge for trending leaderboard HTML', async () => {
-    const html = '<a href="/owner/repo/my-skill"><h3>My Skill</h3></a>'
-    const downloadFile = vi.spyOn(window.services, 'downloadFile').mockResolvedValue(
-      new TextEncoder().encode(html).buffer,
-    )
+  test('uses the preload download bridge for trending leaderboard via API', async () => {
+    const downloadFile = mockDownload({
+      '/api/skills/trending/0': {
+        skills: [{ source: 'owner/repo', skillId: 'my-skill', name: 'My Skill', installs: 1 }],
+        hasMore: false,
+      },
+    })
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
 
     const result = await fetchLeaderboard('trending')
-
-    expect(downloadFile).toHaveBeenCalledWith('https://skills.sh/trending')
+    expect(downloadFile).toHaveBeenCalledWith('https://skills.sh/api/skills/trending/0')
     expect(result.entries[0]).toMatchObject({ owner: 'owner', repo: 'repo', skillName: 'My Skill' })
   })
 
-  test('uses the preload download bridge for search JSON', async () => {
-    const payload = { skills: [{ name: 'My Skill', source: 'owner/repo', installs: 1, skillId: 'my-skill' }] }
-    const downloadFile = vi.spyOn(window.services, 'downloadFile').mockResolvedValue(
-      new TextEncoder().encode(JSON.stringify(payload)).buffer,
-    )
+  test('searchSkillsSh uses official /api/search like the website', async () => {
+    const payload = {
+      skills: [{ name: 'My Skill', source: 'owner/repo', installs: 1, skillId: 'my-skill' }],
+    }
+    const downloadFile = mockDownload({
+      '/api/search?q=': payload,
+    })
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
 
     const result = await searchSkillsSh('my skill')
-
-    expect(downloadFile).toHaveBeenCalledWith('https://skills.sh/api/search?q=my%20skill')
+    expect(downloadFile.mock.calls.some(([url]) => String(url).includes('/api/search?q='))).toBe(true)
     expect(result).toEqual(payload.skills)
   })
-})
 
+  test('fetchAllSkillsFromSitemap still works from public sitemaps', async () => {
+    const index =
+      '<?xml version="1.0"?><sitemapindex><sitemap><loc>https://www.skills.sh/sitemap-skills-1.xml</loc></sitemap></sitemapindex>'
+    const xml =
+      '<?xml version="1.0"?><urlset><url><loc>https://www.skills.sh/a/b/skill-one</loc></url></urlset>'
+    const downloadFile = mockDownload({
+      'sitemap.xml': index,
+      'sitemap-skills-1': xml,
+    })
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+
+    const result = await fetchAllSkillsFromSitemap()
+    expect(downloadFile.mock.calls.every(([url]) => !String(url).includes('/api/skills/'))).toBe(true)
+    expect(result.totalCount).toBe(1)
+    expect(SKILLS_SITEMAP_URLS.length).toBeGreaterThan(0)
+  })
+
+  test('fetchSkillDescriptionFromSh parses ld+json and meta description from detail HTML', async () => {
+    const html = `
+      <html><head>
+        <meta name="description" content="Helps users discover agent skills when they ask &quot;how do I do X&quot;"/>
+        <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"find-skills","description":"Helps users discover and install agent skills."}</script>
+      </head><body><h1>find-skills</h1></body></html>`
+    vi.spyOn(window.services, 'downloadFile').mockResolvedValue(html)
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+
+    const desc = await fetchSkillDescriptionFromSh({
+      id: 'vercel-labs/skills/find-skills',
+      name: 'find-skills',
+      description: '',
+      author: 'vercel-labs',
+      tags: [],
+      source: 'skills-sh',
+      sourceUrl: 'https://skills.sh/vercel-labs/skills/find-skills',
+      repo: 'vercel-labs/skills',
+      path: 'find-skills',
+    })
+
+    expect(desc).toContain('Helps users discover and install agent skills')
+  })
+})

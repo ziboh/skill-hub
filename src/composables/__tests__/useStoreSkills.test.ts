@@ -27,76 +27,164 @@ function makeSkill(overrides: Partial<Skill> & { name: string }): Skill {
 }
 
 describe('useStoreSkills pure helpers', () => {
-  test('loading skills.sh cards does not request GitHub', async () => {
-    const leaderboardSpy = vi.spyOn(skillsSh, 'fetchLeaderboard').mockResolvedValue({
-      entries: [
-        {
-          owner: 'vercel-labs',
-          repo: 'agent-skills',
-          skillName: 'vercel-react-best-practices',
-          detailPath: '/vercel-labs/agent-skills/vercel-react-best-practices',
-          detailUrl: 'https://skills.sh/vercel-labs/agent-skills/vercel-react-best-practices',
-          installs: 1,
-        },
-      ],
-      totalCount: 1,
+  test('loading skills.sh "全部" uses official API page 0 with correct rank #26', async () => {
+    const skills = Array.from({ length: 26 }, (_, i) => {
+      if (i === 25) {
+        return {
+          owner: 'site',
+          repo: 'open.feishu.cn',
+          skillName: 'lark-approval',
+          detailPath: '/site/open.feishu.cn/lark-approval',
+          detailUrl: 'https://skills.sh/site/open.feishu.cn/lark-approval',
+          installs: 442961,
+        }
+      }
+      return {
+        owner: 'owner',
+        repo: 'repo',
+        skillName: `skill-${i + 1}`,
+        detailPath: `/owner/repo/skill-${i + 1}`,
+        detailUrl: `https://skills.sh/owner/repo/skill-${i + 1}`,
+        installs: 1000 - i,
+      }
     })
-    const catalogSpy = vi.spyOn(skillsSh, 'fetchAllSkillsFromSitemap').mockResolvedValue({
-      entries: [],
-      totalCount: 0,
+    const pageSpy = vi.spyOn(skillsSh, 'fetchSkillsPage').mockResolvedValue({
+      entries: skills,
+      hasMore: true,
+      page: 0,
+      view: 'all-time',
     })
     const treeSpy = vi.spyOn(github, 'fetchGitHubRepoTree').mockResolvedValue([])
     const store = useStoreSkills({ storeId: () => 'skills-sh' })
+    store.leaderboardFilter.value = 'all'
 
     try {
       await store.fetchSkillsSh()
       expect(treeSpy).not.toHaveBeenCalled()
-      expect(leaderboardSpy).toHaveBeenCalled()
-      expect(store.allEntries.value[0].id).toBe('vercel-labs/agent-skills/vercel-react-best-practices')
+      expect(pageSpy).toHaveBeenCalledWith('all-time', 0)
+      expect(store.allEntries.value[25].name).toBe('lark-approval')
+      expect(store.allEntries.value).toHaveLength(26)
     } finally {
       store.stopLoadingDots()
-      leaderboardSpy.mockRestore()
-      catalogSpy.mockRestore()
+      pageSpy.mockRestore()
       treeSpy.mockRestore()
     }
   })
 
-  test('skills.sh search uses sitemap catalog without /api when available', async () => {
-    const searchSpy = vi.spyOn(skillsSh, 'searchSkillsSh')
-    const catalogSpy = vi.spyOn(skillsSh, 'fetchAllSkillsFromSitemap').mockResolvedValue({
+  test('loading skills.sh trending uses API view trending page 0', async () => {
+    const pageSpy = vi.spyOn(skillsSh, 'fetchSkillsPage').mockResolvedValue({
       entries: [
         {
-          owner: 'owner',
-          repo: 'repo',
+          owner: 'vercel-labs',
+          repo: 'skills',
           skillName: 'find-skills',
-          detailPath: '/owner/repo/find-skills',
-          detailUrl: 'https://skills.sh/owner/repo/find-skills',
-          installs: 0,
-        },
-        {
-          owner: 'owner',
-          repo: 'repo',
-          skillName: 'other-skill',
-          detailPath: '/owner/repo/other-skill',
-          detailUrl: 'https://skills.sh/owner/repo/other-skill',
-          installs: 0,
+          detailPath: '/vercel-labs/skills/find-skills',
+          detailUrl: 'https://skills.sh/vercel-labs/skills/find-skills',
+          installs: 10,
         },
       ],
-      totalCount: 2,
+      hasMore: false,
+      page: 0,
+      view: 'trending',
     })
+    const store = useStoreSkills({ storeId: () => 'skills-sh' })
+    store.leaderboardFilter.value = 'trending'
+
+    try {
+      await store.fetchSkillsSh()
+      expect(pageSpy).toHaveBeenCalledWith('trending', 0)
+      expect(store.allEntries.value[0].name).toBe('find-skills')
+    } finally {
+      store.stopLoadingDots()
+      pageSpy.mockRestore()
+    }
+  })
+
+  test('skills.sh loadMore appends page 1 like the official site', async () => {
+    const pageSpy = vi.spyOn(skillsSh, 'fetchSkillsPage').mockImplementation(async (view, page) => {
+      if (page === 0) {
+        return {
+          entries: [
+            {
+              owner: 'a',
+              repo: 'r',
+              skillName: 'first',
+              detailPath: '/a/r/first',
+              detailUrl: 'https://skills.sh/a/r/first',
+              installs: 2,
+            },
+          ],
+          hasMore: true,
+          page: 0,
+          view,
+        }
+      }
+      return {
+        entries: [
+          {
+            owner: 'b',
+            repo: 'r',
+            skillName: 'second',
+            detailPath: '/b/r/second',
+            detailUrl: 'https://skills.sh/b/r/second',
+            installs: 1,
+          },
+        ],
+        hasMore: false,
+        page: 1,
+        view,
+      }
+    })
+    const store = useStoreSkills({ storeId: () => 'skills-sh' })
+    store.leaderboardFilter.value = 'all'
+
+    try {
+      await store.fetchSkillsSh()
+      expect(store.allEntries.value.map((s) => s.name)).toEqual(['first'])
+      await (store as any).loadMoreSkillsSh()
+      expect(pageSpy).toHaveBeenCalledWith('all-time', 1)
+      expect(store.allEntries.value.map((s) => s.name)).toEqual(['first', 'second'])
+    } finally {
+      store.stopLoadingDots()
+      pageSpy.mockRestore()
+    }
+  })
+
+  test('skills.sh search uses official /api/search', async () => {
+    const searchSpy = vi.spyOn(skillsSh, 'searchSkillsSh').mockResolvedValue([
+      { name: 'find-skills', source: 'owner/repo', installs: 1, skillId: 'find-skills' },
+    ])
     const store = useStoreSkills({ storeId: () => 'skills-sh' })
     store.searchQuery.value = 'find'
 
     try {
       await store.onSearch()
-      expect(catalogSpy).toHaveBeenCalled()
-      expect(searchSpy).not.toHaveBeenCalled()
+      expect(searchSpy).toHaveBeenCalledWith('find')
       expect(store.searchActive.value).toBe(true)
       expect(store.searchResults.value.map((s) => s.name)).toEqual(['find-skills'])
     } finally {
       store.stopLoadingDots()
       searchSpy.mockRestore()
-      catalogSpy.mockRestore()
+    }
+  })
+
+  test('non-skills-sh search only runs on submit, not while typing', async () => {
+    const store = useStoreSkills({ storeId: () => 'claude' })
+    store.allEntries.value = [
+      { id: 'a', name: 'alpha-skill', description: '', path: '', source: 'claude' } as any,
+      { id: 'b', name: 'beta-tool', description: '', path: '', source: 'claude' } as any,
+    ]
+
+    try {
+      store.searchQuery.value = 'alpha'
+      expect(store.searchActive.value).toBe(false)
+      expect(store.searchResults.value).toEqual([])
+
+      await store.onSearch()
+      expect(store.searchActive.value).toBe(true)
+      expect(store.searchResults.value.map((s) => s.id)).toEqual(['a'])
+    } finally {
+      store.stopLoadingDots()
     }
   })
 

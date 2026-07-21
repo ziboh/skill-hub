@@ -60,6 +60,18 @@ describe('StoreFilters', () => {
     expect(wrapper.emitted('search')).toBeTruthy()
   })
 
+  test('emits search on enter for non-skills-sh store', async () => {
+    const wrapper = createWrapper({ activePresetId: 'claude', searchQuery: 'x' })
+    await wrapper.find('.ss-search-input').trigger('keyup.enter')
+    expect(wrapper.emitted('search')).toBeTruthy()
+  })
+
+  test('emits search when search button clicked', async () => {
+    const wrapper = createWrapper({ activePresetId: 'claude', searchQuery: 'foo' })
+    await wrapper.find('.ss-search-btn').trigger('click')
+    expect(wrapper.emitted('search')).toBeTruthy()
+  })
+
   test('emits clear-search when clear clicked', async () => {
     const wrapper = createWrapper({ searchQuery: 'abc' })
     await wrapper.find('.ss-search-clear').trigger('click')

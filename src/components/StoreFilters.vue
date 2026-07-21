@@ -28,11 +28,11 @@ const emit = defineEmits<{
 }>()
 
 function onSearchEnter() {
-  if (props.activePresetId === 'skills-sh') emit('search')
+  emit('search')
 }
 
 function onSearchClick() {
-  if (props.activePresetId === 'skills-sh') emit('search')
+  emit('search')
 }
 </script>
 
